@@ -40,7 +40,8 @@ Este documento describe:
 
 5) **Runner**
 - `runner/main.sas`: entrypoint único, reemplaza `.flw`.
-- Ejecuta: init → prepare_processed → run_methods → outputs.
+- Ejecuta: CAS init → config → (opcional) ADLS import → prepare_processed → run_methods → cleanup.
+- La importación ADLS es condicional: se activa con `adls_import_enabled=1` en `config.sas`.
 
 ---
 
@@ -175,7 +176,15 @@ Implementar `src/common/cas_utils.sas` con las macros baseline definidas en `doc
 
 Estas macros se incluyen vía `src/common/common_public.sas`.
 
-### 7.3 Preparación idempotente
+### 7.3 Importación opcional desde ADLS
+`fw_import_adls_to_cas` (en `src/common/preparation/`) permite:
+- Crear CASLIB temporal `LAKEHOUSE` apuntando a Azure Data Lake Storage (parquet).
+- Crear CASLIB `RAW` (PATH→`data/raw/`).
+- Cargar tabla parquet → CAS → persistir como `.sashdat` en `data/raw/`.
+- Cleanup: dropear CASLIB `LAKEHOUSE` al finalizar.
+- Controlado por `adls_import_enabled` en `config.sas`; si vale `0` se salta completamente.
+
+### 7.4 Preparación idempotente
 `fw_prepare_processed` debe:
 - Crear CASLIB `RAW` (PATH→`data/raw/`) y CASLIB `PROCESSED` (PATH→`data/processed/`, subdirs=1)
 - Leer raw desde CASLIB `RAW`, filtrar por ventanas mes, guardar en CASLIB `PROCESSED`
@@ -184,7 +193,7 @@ Estas macros se incluyen vía `src/common/common_public.sas`.
 - Loggear conteos (nobs) para auditoría mínima
 - **No dejar tablas operativas en `casuser`**; solo temporales que se dropean al final
 
-### 7.4 Contratos y validaciones
+### 7.5 Contratos y validaciones
 Cada módulo debe fallar temprano con mensajes claros si:
 - faltan columnas
 - el input está vacío

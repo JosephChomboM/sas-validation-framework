@@ -10,6 +10,16 @@
    Requisitos: sesión CAS activa y caslib CASUSER accesible.
    =========================================================================== */
 
+/* ---------- 0) Parámetros de importación ADLS (macro variables) ---------- */
+/*  Estos parámetros controlan el paso opcional de importación de data      */
+/*  parquet desde Azure Data Lake Storage a data/raw/.                       */
+/*  Si adls_import_enabled=0 el runner salta este paso y asume que el       */
+/*  .sashdat ya existe en data/raw/.                                         */
+%let adls_import_enabled = 1;
+%let adls_storage        = adlscu1cemmbackp05;
+%let adls_container      = mi-container;
+%let adls_parquet_path   = data/modelo/dataset_v1.parquet;
+
 /* ---------- 1) casuser.cfg_troncales (1 fila por troncal) ---------- */
 data casuser.cfg_troncales;
   length

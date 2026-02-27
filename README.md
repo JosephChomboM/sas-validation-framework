@@ -1,4 +1,4 @@
-# Framework SAS Viya (CAS) para Validación y Controles Automáticos
+﻿# Framework SAS Viya (CAS) para Validación y Controles Automáticos
 
 Este repositorio contiene un framework modular en **SAS Viya / CAS** para preparar data (train/oot), ejecutar controles de validación (por ejemplo **Gini, PSI**) y generar artefactos (reportes, tablas, logs) de forma **estandarizada y automatizable**.
 
@@ -13,15 +13,16 @@ El diseño prioriza:
 ## 1) Qué hace el proyecto
 
 ### 1.1 Flujo funcional (alto nivel)
-1. **Ingesta/lectura** del dataset maestro (raw) en CAS.
-2. **Preparación de data** por troncal:
+1. **(Opcional) Importación desde ADLS**: descarga parquet desde Azure Data Lake Storage y lo persiste como `.sashdat` en `data/raw/`. Controlado por `adls_import_enabled` en `config.sas`.
+2. **Ingesta/lectura** del dataset maestro (raw) en CAS desde `data/raw/`.
+3. **Preparación de data** por troncal:
    - Partición en `train` y `oot` según rangos definidos.
    - (Opcional) Partición adicional por **segmentos numéricos** (1..N) según una variable segmentadora.
    - Persistencia como `.sashdat` en `data/processed`.
-3. **Ejecución de métodos/módulos**:
+4. **Ejecución de métodos/módulos**:
    - Si existen segmentos, se ejecutan **primero los segmentos** y luego el **troncal (universo)**.
    - Cada módulo genera outputs (tablas/reportes) y logs por ejecución.
-4. **Generación de artefactos** en `outputs/runs/<run_id>/...`.
+5. **Generación de artefactos** en `outputs/runs/<run_id>/...`.
 
 ---
 
@@ -55,11 +56,10 @@ project_root/
   src/
     common/
       common_public.sas
-      fw_init.sas
       fw_paths.sas
       cas_utils.sas
-      dataset_contracts.sas
       preparation/
+        fw_import_adls_to_cas.sas
         fw_prepare_processed.sas
     dispatch/
       run_method.sas
@@ -72,8 +72,9 @@ project_root/
     main.sas                   # entrypoint (reemplaza .flw/.step)
 
   steps/
-    select_troncal_segment.sas # “pseudo-step”: archivo .sas con comentarios de UI (_id_*)
-    select_methods.sas         # “pseudo-step”: archivo .sas con comentarios de UI (_id_*)
+    import_raw_data.sas        # pseudo-step: config ADLS import (_id_*)
+    select_troncal_segment.sas # pseudo-step: selección troncal/segmento (_id_*)
+    select_methods.sas         # pseudo-step: selección de métodos (_id_*)
 
   outputs/
     runs/
@@ -161,6 +162,8 @@ Importante:
 
 ### 5.1 Convención de IDs `_id_*`
 Ejemplos (referenciales):
+- `_id_adls_storage`, `_id_adls_container`, `_id_adls_parquet_path` (ADLS import)
+- `_id_import_enabled`, `_id_raw_table_name` (activación y tabla destino)
 - `_id_troncal_selector`
 - `_id_troncal_list`
 - `_id_segment_var`

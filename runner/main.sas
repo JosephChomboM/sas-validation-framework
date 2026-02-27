@@ -4,23 +4,26 @@
 
    Flujo:
      1) Inicialización (sesión CAS, rutas, run_id)
-     2) Carga de config (config.sas → casuser.cfg_troncales / cfg_segmentos)
+     2) Carga de config (config.sas → casuser.cfg_troncales / cfg_segmentos
+        + macro vars ADLS)
      3) Carga de utilidades comunes (common_public.sas incl. cas_utils)
      4) Carga de dispatch (run_module.sas, run_method.sas)
-     5) Creación de CASLIBs PATH-based (RAW, PROCESSED, OUT_<run_id>)
-     6) Preparación de data processed (fw_prepare_processed)
-     7) Ejecución de módulos — orden: segmentos primero, luego base
-     8) Cleanup de CASLIBs y cierre
+     5) Creación de CASLIB OUT_<run_id> para outputs
+     6) (Opcional) Importación de data ADLS → data/raw/
+     7) Preparación de data processed (fw_prepare_processed)
+     8) Ejecución de módulos — orden: segmentos primero, luego base
+     9) Cleanup de CASLIBs y cierre
 
    CASLIB policy (caslib_lifecycle.md):
      - casuser: SOLO tablas de configuración (cfg_troncales, cfg_segmentos).
-     - RAW:        PATH → data/raw/           (subdirs=0)
-     - PROCESSED:  PATH → data/processed/     (subdirs=1)
+     - RAW:          PATH → data/raw/           (subdirs=0)
+     - PROCESSED:    PATH → data/processed/     (subdirs=1)
+     - LAKEHOUSE:    ADLS temporal (creado/limpiado por fw_import)
      - OUT_<run_id>: PATH → outputs/runs/<run_id>/ (subdirs=1)
 
    Requisitos previos:
-     - Dataset raw en data/raw/mydataset.sashdat
      - Filesystem accesible con las carpetas data/ y outputs/
+     - Si adls_import_enabled=0, dataset raw ya debe existir en data/raw/
 
    Ref: design.md §2.1 capa 5 (Runner), README.md §4
    ========================================================================= */
@@ -108,13 +111,38 @@ run;
 );
 
 /* =====================================================================
-   6) PREPARACIÓN DE DATA PROCESSED
+   6) (OPCIONAL) IMPORTACIÓN DE DATA ADLS → data/raw/
+   Controlado por &adls_import_enabled. (seteado en config.sas)
+   Si =1, importa el parquet desde ADLS y lo persiste como .sashdat.
+   Si =0, asume que data/raw/&raw_table..sashdat ya existe.
+   ===================================================================== */
+%macro _run_adls_import;
+  %if &adls_import_enabled. = 1 %then %do;
+    %put NOTE: [main] Importando data desde ADLS...;
+    %fw_import_adls_to_cas(
+      raw_path          = &fw_root./data/raw,
+      adls_storage      = &adls_storage.,
+      adls_container    = &adls_container.,
+      adls_parquet_path = &adls_parquet_path.,
+      output_table      = &raw_table.,
+      save_to_disk      = 1
+    );
+  %end;
+  %else %do;
+    %put NOTE: [main] adls_import_enabled=0 — saltando importación ADLS.;
+    %put NOTE: [main] Se asume que data/raw/&raw_table..sashdat ya existe.;
+  %end;
+%mend _run_adls_import;
+%_run_adls_import;
+
+/* =====================================================================
+   7) PREPARACIÓN DE DATA PROCESSED
    (crea CASLIBs RAW y PROCESSED internamente)
    ===================================================================== */
 %fw_prepare_processed(raw_table=&raw_table.);
 
 /* =====================================================================
-   7) EJECUCIÓN DE MÓDULOS — SEGMENTOS PRIMERO, LUEGO BASE
+   8) EJECUCIÓN DE MÓDULOS — SEGMENTOS PRIMERO, LUEGO BASE
    Regla (design.md §6, README.md §4):
      Si la troncal tiene segmentación:
        1. Ejecutar módulos en cada segmento (train y oot).
@@ -146,7 +174,7 @@ run;
     %put NOTE: ====================================================;
 
     /* -----------------------------------------------------------
-       7a) SEGMENTOS PRIMERO (si hay segmentación)
+       8a) SEGMENTOS PRIMERO (si hay segmentación)
        ----------------------------------------------------------- */
     %if %superq(_vseg) ne and &_nseg. > 0 %then %do;
       %do _sg = 1 %to &_nseg.;
@@ -166,7 +194,7 @@ run;
     %end;
 
     /* -----------------------------------------------------------
-       7b) UNIVERSO / BASE (después de todos los segmentos)
+       8b) UNIVERSO / BASE (después de todos los segmentos)
        ----------------------------------------------------------- */
     %do _sp = 1 %to 2;
       %if &_sp. = 1 %then %let _split = train;
@@ -194,7 +222,7 @@ run;
 %_run_all_methods;
 
 /* =====================================================================
-   8) CLEANUP DE CASLIBs Y CIERRE
+   9) CLEANUP DE CASLIBs Y CIERRE
    Regla (caslib_lifecycle.md): el runner crea y limpia CASLIBs globales.
    Los módulos limpian sus propios CASLIBs scoped.
    ===================================================================== */
