@@ -16,17 +16,22 @@ El diseño prioriza:
 
 El usuario configura el framework editando los **steps** (`steps/*.sas`) y luego ejecuta `runner/main.sas`:
 
-1. **Setup del proyecto** (Step 01): define ruta raíz → crea carpetas automáticamente.
-2. **Importación de datos** (Step 02): configura ADLS o indica que el raw ya existe.
-3. **Config troncal/segmento** (Step 03 + `config.sas`): define troncales, ventanas train/oot, segmentación.
-4. **Selección de métodos** (Step 04): elige qué módulos ejecutar (gini, psi, etc.).
-5. **Ejecución automática** (backend del runner):
-   - Sesión CAS + generación de `run_id`.
-   - (Opcional) Importación parquet desde ADLS → `data/raw/`.
-   - Preparación de data processed (train/oot/segmentos).
-   - Ejecución de módulos: **segmentos primero**, luego troncal (universo).
-   - Generación de artefactos en `outputs/runs/<run_id>/...`.
-   - Cleanup de CASLIBs y cierre.
+1. **Setup del proyecto**: definir ruta raíz.
+2. **Carga de configuración**: leer `config.sas` (troncales/segmentos).
+3. **Creación de carpetas**: estructura base de data y outputs.
+4. **Importación de datos desde ADLS** (opcional, una vez por proyecto): generar raw `.sashdat`.
+5. **Partición de data**: por troncal + split (`train/oot`) + scope (`universo/segmento`).
+6. **Promoción de contexto segmento**: elegir `troncal_id`, `split`, `seg_id` y promover ese input a ejecución.
+7. **Configuración de métodos para segmento**: cada “Método” (tabs/hojas) define su lista de módulos.
+8. **Ejecución subflow de análisis para segmento**: correr controles según selección.
+9. **Promoción de contexto universo (troncal/base)**: elegir `troncal_id`, `split=base`.
+10. **Configuración de métodos para universo**.
+11. **Ejecución subflow de análisis para universo**.
+
+Reglas clave:
+- La selección de contexto (qué data correr) ocurre **antes** de seleccionar módulos.
+- Los métodos (`Metodo 1..N`) son **independientes** entre sí.
+- Por defecto, la selección de módulos corre sobre **segmento**; universo se ejecuta en su bloque propio.
 
 ---
 
@@ -73,12 +78,20 @@ project_root/
       psi/...
 
   runner/
-    main.sas                   # entrypoint (reemplaza .flw/.step)
+    main.sas                        # entrypoint — incluye steps y orquesta pipeline
 
-  steps/
-    import_raw_data.sas        # pseudo-step: config ADLS import (_id_*)
-    select_troncal_segment.sas # pseudo-step: selección troncal/segmento (_id_*)
-    select_methods.sas         # pseudo-step: selección de métodos (_id_*)
+  steps/                             # FRONTEND — configuración previa a ejecutar controles
+    01_setup_project.sas             # rutas del proyecto
+    02_load_config.sas               # carga/validación de config.sas
+    03_create_folders.sas            # creación de carpetas base
+    04_import_raw_data.sas           # importación ADLS (una vez por proyecto)
+    05_partition_data.sas            # particiones troncal/train/oot + universo/segmento
+    06_promote_segment_context.sas   # seleccionar troncal/split/seg_id a promover
+    07_config_methods_segment.sas    # tabs Metodo 1..N para segmento
+    08_run_methods_segment.sas       # ejecución subflow segmento
+    09_promote_universe_context.sas  # seleccionar troncal/split base a promover
+    10_config_methods_universe.sas   # tabs Metodo 1..N para universo
+    11_run_methods_universe.sas      # ejecución subflow universo
 
   outputs/
     runs/
@@ -91,9 +104,10 @@ project_root/
 ```
 
 Notas:
-- `config.sas` es generado desde HTML y define la configuración del run. Las tablas `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las **únicas** que residen en `casuser`.
+- `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las únicas tablas persistentes en `casuser`.
+- `steps/*.sas` modelan el frontend del flujo: primero contexto de datos, luego selección de módulos por método.
+- El subflow de módulos se puede adjuntar al flujo principal y se ejecuta con el contexto promovido.
 - Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
-- `steps/*.sas` **no** son generados por HTML. Son archivos `.sas` que simulan el contrato de UI de `.step` mediante comentarios con variables `_id_*` (ver sección 5).
 
 ---
 
@@ -156,25 +170,40 @@ Motivo:
 
 ---
 
-## 5) “Pseudo-steps” en SAS (simulación de .step)
+## 5) Steps como frontend del framework
 
-Como no se utilizarán archivos `.step`, se crean scripts `.sas` que actúan como “plantillas” de step y documentan el **contrato de UI** mediante comentarios.
+Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuario edita estos archivos para configurar su run, y luego ejecuta `runner/main.sas`.
 
-Importante:
-- Estas variables `_id_*` **no** provienen del HTML que genera `configs/config.sas`.
-- Se usan para mantener un estándar de naming y para permitir que futuras herramientas (o desarrollos internos) mapeen entradas de UI hacia parámetros SAS de forma consistente.
+### 5.1 Flujo de steps
 
-### 5.1 Convención de IDs `_id_*`
-Ejemplos (referenciales):
-- `_id_adls_storage`, `_id_adls_container`, `_id_adls_parquet_path` (ADLS import)
-- `_id_import_enabled`, `_id_raw_table_name` (activación y tabla destino)
-- `_id_troncal_selector`
-- `_id_troncal_list`
-- `_id_segment_var`
-- `_id_n_segments`
-- `_id_methods_selected`
+| Step | Archivo | Configura |
+|------|---------|-----------|
+| 01 | `steps/01_setup_project.sas` | Rutas del proyecto |
+| 02 | `steps/02_load_config.sas` | Carga y validación de `config.sas` |
+| 03 | `steps/03_create_folders.sas` | Creación de carpetas base |
+| 04 | `steps/04_import_raw_data.sas` | Importación ADLS (una vez por proyecto) |
+| 05 | `steps/05_partition_data.sas` | Particiones por troncal/split/scope |
+| 06 | `steps/06_promote_segment_context.sas` | Contexto de ejecución para segmento |
+| 07 | `steps/07_config_methods_segment.sas` | Selección de módulos por Método (segmento) |
+| 08 | `steps/08_run_methods_segment.sas` | Ejecutar subflow de módulos (segmento) |
+| 09 | `steps/09_promote_universe_context.sas` | Contexto de ejecución para universo |
+| 10 | `steps/10_config_methods_universe.sas` | Selección de módulos por Método (universo) |
+| 11 | `steps/11_run_methods_universe.sas` | Ejecutar subflow de módulos (universo) |
 
-Los archivos `steps/*.sas` documentan qué IDs existirían en un `.step` y cómo deberían mapearse.
+### 5.2 Cómo usar
+1. Configurar rutas/config/data prep (Steps 01–05).
+2. Elegir y promover contexto de segmento (Step 06).
+3. Definir Métodos (`Metodo 1..N`) y módulos para segmento (Step 07), ejecutar (Step 08).
+4. Elegir y promover contexto de universo (Step 09).
+5. Definir Métodos y módulos para universo (Step 10), ejecutar (Step 11).
+
+### 5.3 Convención de IDs `_id_*`
+Cada step documenta variables `_id_*` que representan campos de un formulario de UI:
+- Contexto de segmento: `_id_ctx_troncal_id`, `_id_ctx_split`, `_id_ctx_seg_id`
+- Contexto de universo: `_id_ctx_troncal_id`, `_id_ctx_split=base`
+- Métodos: `_id_metodo_1_modules`, `_id_metodo_1_enabled`, ..., `_id_metodo_n_modules`
+
+Ver `design.md §5` para el contrato completo.
 
 ---
 

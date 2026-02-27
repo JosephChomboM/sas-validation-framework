@@ -20,8 +20,45 @@ Donde `<split>` es `train` u `oot`.
 
 **Acceso a datos:** los inputs se leen desde el CASLIB `PROCESSED` (PATH-based, con subdirs habilitado, mapeado a `data/processed/`). No se usa `casuser` para datos operativos; `casuser` es exclusivo para tablas de configuración.
 
+**Regla de orquestación (contexto primero):**
+1. Se selecciona/promueve el contexto de datos (`troncal_id`, `scope`, `split`, `seg_id` si aplica).
+2. Luego se seleccionan módulos por Método (`Metodo 1..N`).
+3. Se ejecuta el subflow de módulos para ese contexto.
+
+**Selección de módulos por Método:**
+- Cada Método es independiente (`enabled`, `module_list`).
+- Por defecto, la selección de módulos se ejecuta primero sobre **segmento**.
+- Universo/troncal se configura en un bloque de contexto separado.
+
+El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) a cada módulo vía `%run_module`.
+
 Orden de ejecución recomendado:
 - Segmentos primero (si existen), luego universo.
+
+### 1.1 Contrato mínimo de contexto para módulos
+
+Todo módulo debe aceptar o derivar estos campos de contexto:
+- `troncal_id`
+- `scope` (`segmento` | `universo`)
+- `split` (`train` | `oot`)
+- `seg_id` (obligatorio solo si `scope=segmento`)
+- `run_id`
+
+Si el contexto no está completo, el módulo debe fallar temprano con mensaje claro.
+
+### 1.2 Matriz Método → módulos (contrato funcional)
+
+Como contrato de diseño, cada tab/hoja `Metodo N` define una lista de módulos.
+
+Ejemplo referencial:
+
+| Método | enabled | module_list | scope objetivo |
+|--------|---------|-------------|----------------|
+| Metodo 1 | 1 | estabilidad fillrate missings psi | segmento |
+| Metodo 2 | 1 | bivariado correlacion | segmento |
+| Metodo 3 | 0 | gini | universo |
+
+La matriz es declarativa; el runner/subflow ejecuta solo métodos `enabled=1`.
 
 ---
 
@@ -93,6 +130,7 @@ Para agregar un módulo nuevo:
    - Inputs esperados
    - Outputs generados
    - Validaciones
+  - Compatibilidad de contexto (`segmento`, `universo`, o ambos)
 
 Recomendación:
 - Mantener nombres de outputs que incluyan:
@@ -101,6 +139,7 @@ Recomendación:
   - scope (base o segNNN)
   - nombre del módulo
 - Los outputs se persisten vía CASLIB `OUT_<run_id>` o un CASLIB scoped del módulo (ej. `MOD_GINI_<run_id>`), siguiendo `docs/caslib_lifecycle.md`.
+- El módulo debe declarar explícitamente si soporta ejecución en `segmento`, `universo` o ambos.
 
 Ejemplo:
 - `gini_troncal_1_train_base.xlsx`
