@@ -1,52 +1,78 @@
 /* =========================================================================
-   runner/main.sas — Entrypoint único del framework
-   Reemplaza .flw/.step.
+   runner/main.sas — Orquestador del framework
 
-   Flujo:
-     1) Inicialización (sesión CAS, rutas, run_id)
-     2) Carga de config (config.sas → casuser.cfg_troncales / cfg_segmentos
-        + macro vars ADLS)
-     3) Carga de utilidades comunes (common_public.sas incl. cas_utils)
-     4) Carga de dispatch (run_module.sas, run_method.sas)
-     5) Creación de CASLIB OUT_<run_id> para outputs
-     6) (Opcional) Importación de data ADLS → data/raw/
-     7) Preparación de data processed (fw_prepare_processed)
-     8) Ejecución de módulos — orden: segmentos primero, luego base
-     9) Cleanup de CASLIBs y cierre
+   Flujo de ejecución:
+     FRONTEND (steps — configuración del usuario):
+       Step 1) Setup proyecto: ruta raíz + creación de carpetas
+       Step 2) Import raw data: parámetros ADLS (o skip)
+       Step 3) Select troncal/segmento: referencia a config.sas
+       Step 4) Select métodos: módulos a ejecutar
+
+     BACKEND (ejecución automática):
+       5) Sesión CAS + run_id
+       6) Carga de config.sas (→ casuser.cfg_troncales / cfg_segmentos)
+       7) Carga de utilidades comunes + dispatch
+       8) Creación de CASLIBs de output
+       9) (Opcional) Importación ADLS → data/raw/
+      10) Preparación data processed (train/oot/segmentos)
+      11) Ejecución de módulos (segmentos primero, luego base)
+      12) Cleanup de CASLIBs y cierre
 
    CASLIB policy (caslib_lifecycle.md):
-     - casuser: SOLO tablas de configuración (cfg_troncales, cfg_segmentos).
+     - casuser: SOLO tablas de configuración (cfg_troncales, cfg_segmentos)
      - RAW:          PATH → data/raw/           (subdirs=0)
      - PROCESSED:    PATH → data/processed/     (subdirs=1)
      - LAKEHOUSE:    ADLS temporal (creado/limpiado por fw_import)
      - OUT_<run_id>: PATH → outputs/runs/<run_id>/ (subdirs=1)
 
-   Requisitos previos:
-     - Filesystem accesible con las carpetas data/ y outputs/
-     - Si adls_import_enabled=0, dataset raw ya debe existir en data/raw/
-
-   Ref: design.md §2.1 capa 5 (Runner), README.md §4
+   Ref: design.md §2 / §5, README.md §1.1
    ========================================================================= */
 
 /* =====================================================================
-   1) INICIALIZACIÓN — sesión CAS + casuser
+   FRONTEND — Steps (configuración del usuario)
+   El usuario edita los archivos steps/*.sas ANTES de ejecutar main.sas.
+   Al incluirlos aquí se setean las macro variables que el framework
+   necesita y se ejecutan acciones automáticas (ej. creación de carpetas).
    ===================================================================== */
 
-/* Raíz del proyecto — ajustar si main.sas se ejecuta desde otro CWD */
-%let fw_root = /path/to/framework_validacion;
+/* ---- Step 1: Setup del proyecto ------------------------------------ */
+/* Setea &fw_root y crea estructura de carpetas (data/raw, processed…)   */
+/* NOTA: Este %include usa ruta relativa porque &fw_root aún no existe.  */
+/*       Ajustar si main.sas se ejecuta desde otro directorio.           */
+%include "./steps/01_setup_project.sas";
 
-/* Módulos a ejecutar (space-separated). Extensible: gini psi ... */
-%let methods_list = gini psi;
+/* ---- Step 2: Importación ADLS ------------------------------------- */
+/* Setea &adls_import_enabled, &adls_storage, &adls_container,           */
+/* &adls_parquet_path, &raw_table                                         */
+%include "&fw_root./steps/02_import_raw_data.sas";
 
-/* Raw table override (default: mydataset) */
-%let raw_table = mydataset;
+/* ---- Step 3: Troncal/segmento (referencia a config.sas) ----------- */
+/* Documenta el contrato _id_*. La config real está en config.sas.       */
+%include "&fw_root./steps/03_select_troncal_segment.sas";
 
-/* Sesión CAS + casuser (caslib_lifecycle.md baseline) */
+/* ---- Step 4: Selección de métodos --------------------------------- */
+/* Setea &methods_list, &run_label                                        */
+%include "&fw_root./steps/04_select_methods.sas";
+
+%put NOTE: ======================================================;
+%put NOTE: [main] FRONTEND completado — Steps 1-4 cargados.;
+%put NOTE:   fw_root              = &fw_root.;
+%put NOTE:   adls_import_enabled  = &adls_import_enabled.;
+%put NOTE:   raw_table            = &raw_table.;
+%put NOTE:   methods_list         = &methods_list.;
+%put NOTE: ======================================================;
+
+/* =====================================================================
+   BACKEND — Ejecución automática del framework
+   ===================================================================== */
+
+/* =====================================================================
+   5) SESIÓN CAS + RUN_ID
+   ===================================================================== */
 cas conn;
 libname casuser cas caslib=casuser;
 options casdatalimit=ALL;
 
-/* ---- Run ID basado en timestamp ------------------------------------ */
 data _null_;
   _ts = put(datetime(), E8601DT19.);
   _ts = translate(_ts, "-", ":");
@@ -58,46 +84,40 @@ run;
 %put NOTE: [main] run_id = &run_id.;
 %put NOTE: ======================================================;
 
-/* ---- Crear carpetas de output por run ------------------------------ */
-%macro _create_output_dirs;
+/* ---- Crear carpetas de output para este run ------------------------ */
+%macro _create_run_dirs;
   %let _base = &fw_root./outputs/runs/&run_id.;
   %let _dirs = logs reports images tables manifests;
   %let _nd   = %sysfunc(countw(&_dirs., %str( )));
 
+  options dlcreatedir;
+  libname _mkrun "&fw_root./outputs/runs/&run_id.";
+  libname _mkrun clear;
+
   %do _d = 1 %to &_nd.;
     %let _dir = %scan(&_dirs., &_d., %str( ));
-    %let _rc  = %sysfunc(dcreate(&_dir., &_base.));
-    %if &_rc. ne %then
-      %put NOTE: [main] Creado &_base./&_dir.;
-    %else
-      %put WARNING: [main] No se pudo crear &_base./&_dir. (puede ya existir).;
+    libname _mksub "&_base./&_dir.";
+    libname _mksub clear;
+    %put NOTE: [main] Carpeta: &_base./&_dir.;
   %end;
-%mend _create_output_dirs;
-
-data _null_;
-  _base = cats("&fw_root./outputs/runs");
-  rc1 = dcreate("&run_id.", _base);
-run;
-%_create_output_dirs;
+%mend _create_run_dirs;
+%_create_run_dirs;
 
 /* =====================================================================
-   2) CARGA DE CONFIGURACIÓN (→ casuser.cfg_troncales / cfg_segmentos)
+   6) CARGA DE CONFIGURACIÓN (→ casuser.cfg_troncales / cfg_segmentos)
+   Requiere sesión CAS activa.
    ===================================================================== */
 %include "&fw_root./config.sas";
 
 /* =====================================================================
-   3) CARGA DE UTILIDADES COMUNES (cas_utils + fw_paths + fw_prepare)
+   7) CARGA DE UTILIDADES COMUNES + DISPATCH
    ===================================================================== */
 %include "&fw_root./src/common/common_public.sas";
-
-/* =====================================================================
-   4) CARGA DE DISPATCH
-   ===================================================================== */
 %include "&fw_root./src/dispatch/run_module.sas";
 %include "&fw_root./src/dispatch/run_method.sas";
 
 /* =====================================================================
-   5) CREACIÓN DE CASLIB OUT_<run_id> para outputs
+   8) CREACIÓN DE CASLIB OUT_<run_id> para outputs
    (RAW y PROCESSED se crean dentro de fw_prepare_processed)
    ===================================================================== */
 %_create_caslib(
@@ -111,9 +131,9 @@ run;
 );
 
 /* =====================================================================
-   6) (OPCIONAL) IMPORTACIÓN DE DATA ADLS → data/raw/
-   Controlado por &adls_import_enabled. (seteado en config.sas)
-   Si =1, importa el parquet desde ADLS y lo persiste como .sashdat.
+   9) (OPCIONAL) IMPORTACIÓN DE DATA ADLS → data/raw/
+   Controlado por &adls_import_enabled (seteado en step 02).
+   Si =1, importa parquet desde ADLS y lo persiste como .sashdat.
    Si =0, asume que data/raw/&raw_table..sashdat ya existe.
    ===================================================================== */
 %macro _run_adls_import;
@@ -136,14 +156,15 @@ run;
 %_run_adls_import;
 
 /* =====================================================================
-   7) PREPARACIÓN DE DATA PROCESSED
-   (crea CASLIBs RAW y PROCESSED internamente)
+   10) PREPARACIÓN DE DATA PROCESSED
+   Crea CASLIBs RAW y PROCESSED internamente.
+   Particiona train/oot y segmentos según casuser.cfg_troncales.
    ===================================================================== */
 %fw_prepare_processed(raw_table=&raw_table.);
 
 /* =====================================================================
-   8) EJECUCIÓN DE MÓDULOS — SEGMENTOS PRIMERO, LUEGO BASE
-   Regla (design.md §6, README.md §4):
+   11) EJECUCIÓN DE MÓDULOS — SEGMENTOS PRIMERO, LUEGO BASE
+   Regla (design.md §6):
      Si la troncal tiene segmentación:
        1. Ejecutar módulos en cada segmento (train y oot).
        2. Ejecutar módulos en el universo/base (train y oot).
@@ -151,7 +172,6 @@ run;
 
 %macro _run_all_methods;
 
-  /* Leer número de troncales (config en casuser) */
   proc sql noprint;
     select count(*) into :_n_tr trimmed from casuser.cfg_troncales;
   quit;
@@ -174,7 +194,7 @@ run;
     %put NOTE: ====================================================;
 
     /* -----------------------------------------------------------
-       8a) SEGMENTOS PRIMERO (si hay segmentación)
+       11a) SEGMENTOS PRIMERO (si hay segmentación)
        ----------------------------------------------------------- */
     %if %superq(_vseg) ne and &_nseg. > 0 %then %do;
       %do _sg = 1 %to &_nseg.;
@@ -194,7 +214,7 @@ run;
     %end;
 
     /* -----------------------------------------------------------
-       8b) UNIVERSO / BASE (después de todos los segmentos)
+       11b) UNIVERSO / BASE (después de todos los segmentos)
        ----------------------------------------------------------- */
     %do _sp = 1 %to 2;
       %if &_sp. = 1 %then %let _split = train;
@@ -211,7 +231,7 @@ run;
 
   %end; /* troncales */
 
-  /* Limpieza macrovars */
+  /* Limpieza macrovars temporales */
   %do _i = 1 %to &_n_tr.;
     %symdel _rtr_id_&_i. _rtr_vseg_&_i. _rtr_nseg_&_i. / nowarn;
   %end;
@@ -222,19 +242,13 @@ run;
 %_run_all_methods;
 
 /* =====================================================================
-   9) CLEANUP DE CASLIBs Y CIERRE
-   Regla (caslib_lifecycle.md): el runner crea y limpia CASLIBs globales.
+   12) CLEANUP DE CASLIBs Y CIERRE
+   El runner crea y limpia CASLIBs globales.
    Los módulos limpian sus propios CASLIBs scoped.
    ===================================================================== */
-
-/* Drop CASLIB de outputs del run */
 %_drop_caslib(caslib_name=OUT_&run_id., cas_sess_name=conn, del_prom_tables=1);
-
-/* Drop CASLIBs operativos (RAW, PROCESSED creados por fw_prepare) */
 %_drop_caslib(caslib_name=RAW,       cas_sess_name=conn, del_prom_tables=1);
 %_drop_caslib(caslib_name=PROCESSED, cas_sess_name=conn, del_prom_tables=1);
-
-/* Config tables en casuser se mantienen (deliberado) */
 
 %put NOTE: ======================================================;
 %put NOTE: [main] Run &run_id. completado.;
@@ -242,5 +256,4 @@ run;
 %put NOTE: CASLIBs operativos limpiados. casuser.cfg_* preservados.;
 %put NOTE: ======================================================;
 
-/* Terminar sesión CAS */
 cas conn terminate;

@@ -13,16 +13,20 @@ El diseño prioriza:
 ## 1) Qué hace el proyecto
 
 ### 1.1 Flujo funcional (alto nivel)
-1. **(Opcional) Importación desde ADLS**: descarga parquet desde Azure Data Lake Storage y lo persiste como `.sashdat` en `data/raw/`. Controlado por `adls_import_enabled` en `config.sas`.
-2. **Ingesta/lectura** del dataset maestro (raw) en CAS desde `data/raw/`.
-3. **Preparación de data** por troncal:
-   - Partición en `train` y `oot` según rangos definidos.
-   - (Opcional) Partición adicional por **segmentos numéricos** (1..N) según una variable segmentadora.
-   - Persistencia como `.sashdat` en `data/processed`.
-4. **Ejecución de métodos/módulos**:
-   - Si existen segmentos, se ejecutan **primero los segmentos** y luego el **troncal (universo)**.
-   - Cada módulo genera outputs (tablas/reportes) y logs por ejecución.
-5. **Generación de artefactos** en `outputs/runs/<run_id>/...`.
+
+El usuario configura el framework editando los **steps** (`steps/*.sas`) y luego ejecuta `runner/main.sas`:
+
+1. **Setup del proyecto** (Step 01): define ruta raíz → crea carpetas automáticamente.
+2. **Importación de datos** (Step 02): configura ADLS o indica que el raw ya existe.
+3. **Config troncal/segmento** (Step 03 + `config.sas`): define troncales, ventanas train/oot, segmentación.
+4. **Selección de métodos** (Step 04): elige qué módulos ejecutar (gini, psi, etc.).
+5. **Ejecución automática** (backend del runner):
+   - Sesión CAS + generación de `run_id`.
+   - (Opcional) Importación parquet desde ADLS → `data/raw/`.
+   - Preparación de data processed (train/oot/segmentos).
+   - Ejecución de módulos: **segmentos primero**, luego troncal (universo).
+   - Generación de artefactos en `outputs/runs/<run_id>/...`.
+   - Cleanup de CASLIBs y cierre.
 
 ---
 

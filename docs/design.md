@@ -1,12 +1,12 @@
-# Diseño del Framework (SAS Viya / CAS)
+﻿# Diseño del Framework (SAS Viya / CAS)
 
 ## 1) Alcance
 
 Este documento describe:
 - Componentes del framework y responsabilidades.
+- Steps como frontend de configuración del usuario.
 - Contratos de rutas y naming.
-- Contrato de configuración vía `configs/config.sas`.
-- “Pseudo-steps” SAS (simulación de `.step` por comentarios).
+- Contrato de configuración vía `config.sas` (tablas CAS) y `steps/*.sas` (parámetros).
 - Orden de ejecución: **segmentos primero**, luego troncal.
 
 ---
@@ -15,11 +15,22 @@ Este documento describe:
 
 ### 2.1 Capas
 
-1) **Configuración**
-- Fuente: `configs/config.sas` (generado desde HTML).
-- Contiene parámetros por troncal y, opcionalmente, por segmento.
+1) **Steps (Frontend)**
+- Archivos `steps/*.sas` que actúan como formularios de configuración.
+- El usuario edita estos archivos para definir parámetros del run.
+- Se ejecutan secuencialmente al inicio de `runner/main.sas`.
+- Flujo de steps:
+  - `01_setup_project.sas` → ruta raíz del proyecto + creación de carpetas
+  - `02_import_raw_data.sas` → parámetros ADLS + nombre de tabla raw
+  - `03_select_troncal_segment.sas` → referencia a config.sas para troncales/segmentos
+  - `04_select_methods.sas` → módulos a ejecutar + label del run
 
-2) **Common**
+2) **Configuración**
+- Fuente: `config.sas` (generado desde HTML).
+- Contiene DATA steps que crean `casuser.cfg_troncales` y `casuser.cfg_segmentos`.
+- Los parámetros de usuario (rutas, ADLS, métodos) viven en `steps/*.sas`, no en config.
+
+3) **Common**
 - Utilidades reutilizables:
   - paths
   - logging
@@ -27,21 +38,22 @@ Este documento describe:
   - utilidades CAS (existence, nobs, load/save)
   - preparación de data raw → processed
 
-3) **Dispatch**
+4) **Dispatch**
 - Orquestación de ejecución:
   - `run_method.sas`: ejecuta un método (conjunto de módulos)
   - `run_module.sas`: ejecuta un módulo en un contexto dado (troncal/split/segmento)
 
-4) **Modules**
+5) **Modules**
 - Implementación por control:
   - API pública (`*_run.sas`)
   - Validaciones (`*_contract.sas`)
   - Implementación interna (`impl/`)
 
-5) **Runner**
+6) **Runner**
 - `runner/main.sas`: entrypoint único, reemplaza `.flw`.
-- Ejecuta: CAS init → config → (opcional) ADLS import → prepare_processed → run_methods → cleanup.
-- La importación ADLS es condicional: se activa con `adls_import_enabled=1` en `config.sas`.
+- Ejecuta:
+  - **Frontend**: incluye steps 01–04 (setea macro vars, crea dirs).
+  - **Backend**: CAS init → config.sas → (ADLS import) → prepare_processed → run_methods → cleanup.
 
 ---
 
@@ -114,33 +126,43 @@ Regla:
 
 ---
 
-## 5) Pseudo-steps SAS (reemplazo de .step)
+## 5) Steps como frontend (reemplazo de .step)
 
-### 5.1 Motivación
-`.step` ofrece un formulario gráfico que produce variables disponibles en la sección “program”. Como no se utilizará `.step`, se crean scripts `.sas` que documentan el contrato de UI mediante comentarios.
+### 5.1 Concepto
+Los archivos `steps/*.sas` actúan como el **frontend** del framework: son el punto de entrada donde el usuario configura todos los parámetros antes de ejecutar el pipeline.
 
-Estos scripts no reemplazan al HTML (que genera el `config.sas`). Son un estándar interno para:
-- mantener consistencia de naming de IDs de UI
-- documentar entradas esperadas por un formulario equivalente
-- facilitar mantenimiento y generación futura de UI
+En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utilizan `.step`, los archivos `steps/*.sas` simulan esa experiencia:
+- Cada archivo es un **formulario editable** con variables `_id_*` documentadas.
+- El usuario modifica los valores `%let` según su caso de uso.
+- Al ejecutar `runner/main.sas`, los steps se incluyen secuencialmente y setean las macro variables.
+- Algunos steps ejecutan acciones automáticas (ej. Step 01 crea carpetas).
 
-### 5.2 Convención de IDs
-Los IDs de UI se nombran como:
-- `_id_<entidad>_<campo>`
+### 5.2 Flujo de steps
+
+| Step | Archivo | Qué configura | Macro vars que setea |
+|------|---------|---------------|---------------------|
+| 01 | `steps/01_setup_project.sas` | Ruta raíz del proyecto | `&fw_root` |
+| 02 | `steps/02_import_raw_data.sas` | Importación ADLS | `&adls_import_enabled`, `&adls_storage`, `&adls_container`, `&adls_parquet_path`, `&raw_table` |
+| 03 | `steps/03_select_troncal_segment.sas` | Troncales y segmentos | (referencia a `config.sas`) |
+| 04 | `steps/04_select_methods.sas` | Módulos a ejecutar | `&methods_list`, `&run_label` |
+
+**Step 01** es especial: además de setear `&fw_root`, crea automáticamente la estructura de carpetas (`data/raw`, `data/processed`, `outputs/runs`) si no existe.
+
+**Step 03** no setea macro variables directamente. La configuración de troncales/segmentos requiere DATA steps (tablas CAS), por lo que se define en `config.sas`. Step 03 documenta el contrato `_id_*` y referencia a `config.sas`.
+
+### 5.3 Convención de IDs `_id_*`
+Los IDs de UI se nombran como: `_id_<entidad>_<campo>`
 
 Ejemplos:
-- `_id_troncal_select`
-- `_id_segment_var`
-- `_id_n_segments`
-- `_id_methods_select`
+- `_id_project_root` (Step 01)
+- `_id_import_enabled`, `_id_adls_storage`, `_id_adls_container`, `_id_adls_parquet_path`, `_id_raw_table_name` (Step 02)
+- `_id_troncal_id`, `_id_var_seg`, `_id_n_segments`, `_id_train_min_mes`, `_id_oot_max_mes` (Step 03 / config.sas)
+- `_id_methods_select`, `_id_run_label` (Step 04)
 
-Los archivos sugeridos:
-- `steps/select_troncal_segment.sas`
-- `steps/select_methods.sas`
-
-Contenido:
-- Comentario de encabezado con todos los `_id_*`.
-- (Opcional) mapeo a macrovariables internas del framework.
+### 5.4 Relación entre steps y config.sas
+- **Steps**: parámetros simples (rutas, flags, listas). El usuario los edita como un formulario.
+- **config.sas**: configuración compleja (DATA steps que generan tablas CAS por troncal/segmento). Generado desde HTML o editado manualmente.
+- Ambos se cargan por `runner/main.sas`: primero steps (frontend), luego config (backend).
 
 ---
 
@@ -182,7 +204,7 @@ Estas macros se incluyen vía `src/common/common_public.sas`.
 - Crear CASLIB `RAW` (PATH→`data/raw/`).
 - Cargar tabla parquet → CAS → persistir como `.sashdat` en `data/raw/`.
 - Cleanup: dropear CASLIB `LAKEHOUSE` al finalizar.
-- Controlado por `adls_import_enabled` en `config.sas`; si vale `0` se salta completamente.
+- Controlado por `&adls_import_enabled` (seteado en `steps/02_import_raw_data.sas`); si vale `0` se salta completamente.
 
 ### 7.4 Preparación idempotente
 `fw_prepare_processed` debe:
@@ -203,8 +225,9 @@ Cada módulo debe fallar temprano con mensajes claros si:
 
 ## 8) Decisiones explícitas del proyecto
 
-- No se usa JSON como fuente de configuración; solo `config.sas`.
-- No se usan `.flw` ni `.step` como artefactos ejecutables; se reemplaza con `runner/main.sas`.
+- No se usa JSON como fuente de configuración; solo `config.sas` + `steps/*.sas`.
+- No se usan `.flw` ni `.step` como artefactos ejecutables; se reemplaza con `runner/main.sas` + `steps/*.sas` como frontend.
+- Los parámetros de usuario (rutas, ADLS, métodos) viven en `steps/*.sas`; la configuración de troncales/segmentos en `config.sas`.
 - Se mantienen archivos al mismo nivel en `train/` y `oot/` (no carpetas por segmento).
 - **`casuser` es exclusivo para tablas de configuración** (`cfg_troncales`, `cfg_segmentos`). Todo dato operativo usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
 - Cada paso que crea un CASLIB o promueve tablas es responsable de su cleanup.
