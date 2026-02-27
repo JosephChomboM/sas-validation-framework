@@ -18,6 +18,8 @@ Un módulo debe poder ejecutarse sobre:
 
 Donde `<split>` es `train` u `oot`.
 
+**Acceso a datos:** los inputs se leen desde el CASLIB `PROCESSED` (PATH-based, con subdirs habilitado, mapeado a `data/processed/`). No se usa `casuser` para datos operativos; `casuser` es exclusivo para tablas de configuración.
+
 Orden de ejecución recomendado:
 - Segmentos primero (si existen), luego universo.
 
@@ -98,6 +100,7 @@ Recomendación:
   - split (train/oot)
   - scope (base o segNNN)
   - nombre del módulo
+- Los outputs se persisten vía CASLIB `OUT_<run_id>` o un CASLIB scoped del módulo (ej. `MOD_GINI_<run_id>`), siguiendo `docs/caslib_lifecycle.md`.
 
 Ejemplo:
 - `gini_troncal_1_train_base.xlsx`

@@ -74,10 +74,12 @@ Reglas:
 
 ---
 
-## 4) Contrato de configuración: `configs/config.sas`
+## 4) Contrato de configuración: `config.sas`
 
 ### 4.1 Principio
 El `config.sas` declara parámetros; el framework ejecuta. Se evita lógica de orquestación en el config.
+
+**Las tablas de configuración (`casuser.cfg_troncales`, `casuser.cfg_segmentos`) son las únicas tablas que residen en `casuser`.** Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based dedicados.
 
 ### 4.2 Parámetros por troncal
 Se recomienda declarar, por troncal:
@@ -161,14 +163,28 @@ Implementar `src/common/fw_paths.sas` con una macro pública que construya rutas
 - `%fw_path_processed(outvar=, troncal_id=, split=, seg_id=)`
   - si `seg_id` vacío: devuelve `troncal_X/<split>/base.sashdat`
   - si `seg_id` presente: devuelve `troncal_X/<split>/segNNN.sashdat`
+- Estas rutas son **relativas al CASLIB `PROCESSED`** (con subdirs habilitado), no a `casuser`.
 
-### 7.2 Preparación idempotente
+### 7.2 CAS utility macros
+Implementar `src/common/cas_utils.sas` con las macros baseline definidas en `docs/caslib_lifecycle.md`:
+- `%_create_caslib(...)` — crea CASLIB PATH-based
+- `%_drop_caslib(...)` — dropea CASLIB y opcionalmente sus tablas
+- `%_load_cas_data(...)` — carga .sashdat desde CASLIB
+- `%_save_into_caslib(...)` — guarda tabla CAS como .sashdat
+- `%_promote_castable(...)` — promueve tabla (temporal; el caller debe limpiar)
+
+Estas macros se incluyen vía `src/common/common_public.sas`.
+
+### 7.3 Preparación idempotente
 `fw_prepare_processed` debe:
-- sobrescribir outputs processed de manera controlada (cuando el run lo requiera)
-- limpiar tablas temporales CAS
-- loggear conteos (nobs) para auditoría mínima
+- Crear CASLIB `RAW` (PATH→`data/raw/`) y CASLIB `PROCESSED` (PATH→`data/processed/`, subdirs=1)
+- Leer raw desde CASLIB `RAW`, filtrar por ventanas mes, guardar en CASLIB `PROCESSED`
+- Sobrescribir outputs processed de manera controlada
+- Limpiar tablas temporales CAS (en `casuser`)
+- Loggear conteos (nobs) para auditoría mínima
+- **No dejar tablas operativas en `casuser`**; solo temporales que se dropean al final
 
-### 7.3 Contratos y validaciones
+### 7.4 Contratos y validaciones
 Cada módulo debe fallar temprano con mensajes claros si:
 - faltan columnas
 - el input está vacío
@@ -178,6 +194,8 @@ Cada módulo debe fallar temprano con mensajes claros si:
 
 ## 8) Decisiones explícitas del proyecto
 
-- No se usa JSON como fuente de configuración; solo `configs/config.sas`.
+- No se usa JSON como fuente de configuración; solo `config.sas`.
 - No se usan `.flw` ni `.step` como artefactos ejecutables; se reemplaza con `runner/main.sas`.
 - Se mantienen archivos al mismo nivel en `train/` y `oot/` (no carpetas por segmento).
+- **`casuser` es exclusivo para tablas de configuración** (`cfg_troncales`, `cfg_segmentos`). Todo dato operativo usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
+- Cada paso que crea un CASLIB o promueve tablas es responsable de su cleanup.

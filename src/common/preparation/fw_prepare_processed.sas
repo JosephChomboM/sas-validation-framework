@@ -3,16 +3,26 @@
    Lee dataset maestro (raw), particiona train/oot por ventana de meses,
    genera base.sashdat y segNNN.sashdat por troncal/split.
 
-   Usa casuser.cfg_troncales y casuser.cfg_segmentos como fuente de config.
-   Requiere: %fw_path_processed (src/common/fw_paths.sas) ya cargado.
+   Usa casuser.cfg_troncales y casuser.cfg_segmentos como fuente de config
+   (casuser es EXCLUSIVO para config).
+
+   Datos operativos usan CASLIBs PATH-based:
+     RAW       → data/raw/           (lectura del dataset maestro)
+     PROCESSED → data/processed/     (escritura de base/segNNN, subdirs=1)
+
+   Requiere: %fw_path_processed y %_create_caslib, %_save_into_caslib,
+             %_load_cas_data, %_drop_caslib (cas_utils.sas) ya cargados.
 
    Parámetro opcional:
-     raw_table= nombre CAS del dataset raw (default: mydataset)
+     raw_table= nombre del archivo .sashdat sin extensión (default: mydataset)
 
-   design.md §7.2 — Preparación idempotente:
-     - Sobrescribe outputs processed de manera controlada.
+   design.md §7.3 — Preparación idempotente:
+     - Crea CASLIBs RAW y PROCESSED.
+     - Lee raw desde CASLIB RAW, NO desde casuser.
+     - Sobrescribe outputs en CASLIB PROCESSED.
      - Limpia tablas temporales CAS.
      - Loggea conteos (nobs) para auditoría mínima.
+     - No deja tablas operativas en casuser.
    ========================================================================= */
 
 %macro fw_prepare_processed(raw_table=mydataset);
@@ -22,15 +32,37 @@
   %put NOTE: ======================================================;
 
   /* -----------------------------------------------------------------
-     0) Asegurar que la tabla raw existe en casuser
+     0) Crear CASLIBs PATH-based para RAW y PROCESSED
      ----------------------------------------------------------------- */
-  %if not %sysfunc(exist(casuser.&raw_table.)) %then %do;
-    %put ERROR: [fw_prepare_processed] casuser.&raw_table. no existe. Cargue el raw primero.;
-    %abort cancel;
-  %end;
+  %_create_caslib(
+    cas_path     = &fw_root./data/raw,
+    caslib_name  = RAW,
+    lib_caslib   = RAW,
+    global       = Y,
+    cas_sess_name= conn,
+    term_global_sess = 0,
+    subdirs_flg  = 0
+  );
+
+  %_create_caslib(
+    cas_path     = &fw_root./data/processed,
+    caslib_name  = PROCESSED,
+    lib_caslib   = PROCESSED,
+    global       = Y,
+    cas_sess_name= conn,
+    term_global_sess = 0,
+    subdirs_flg  = 1
+  );
+
+  /* Cargar raw desde CASLIB RAW */
+  %_load_cas_data(
+    caslib_name      = RAW,
+    cas_sess_name    = conn,
+    output_data_name = &raw_table.
+  );
 
   /* -----------------------------------------------------------------
-     1) Leer cfg_troncales en vista local para iterar
+     1) Leer cfg_troncales para iterar (config vive en casuser)
      ----------------------------------------------------------------- */
   proc sql noprint;
     select count(*) into :_n_troncales trimmed from casuser.cfg_troncales;
@@ -81,17 +113,17 @@
         %let _mmax  = &_omax.;
       %end;
 
-      /* Resolver ruta base */
+      /* Resolver subruta relativa al CASLIB PROCESSED */
       %fw_path_processed(outvar=_path_base, troncal_id=&_tid., split=&_split.);
 
-      /* Crear tabla CAS filtrada (base = universo del split) */
-      data casuser._tmp_base;
-        set casuser.&raw_table.(where=(&_byvar. >= &_mmin. and &_byvar. <= &_mmax.));
+      /* Crear tabla CAS filtrada (temporal en CASLIB RAW) */
+      data RAW._tmp_base;
+        set RAW.&raw_table.(where=(&_byvar. >= &_mmin. and &_byvar. <= &_mmax.));
       run;
 
       /* Contar obs para log */
       proc sql noprint;
-        select count(*) into :_nobs_base trimmed from casuser._tmp_base;
+        select count(*) into :_nobs_base trimmed from RAW._tmp_base;
       quit;
       %put NOTE: [fw_prepare_processed] &_path_base. => &_nobs_base. obs;
 
@@ -99,11 +131,14 @@
         %put WARNING: [fw_prepare_processed] &_path_base. tiene 0 obs. Se crea vacío.;
       %end;
 
-      /* Guardar como .sashdat en processed */
-      proc casutil;
-        save casdata="_tmp_base" incaslib="casuser"
-             casout="&_path_base." outcaslib="casuser" replace;
-      run;
+      /* Guardar como .sashdat en CASLIB PROCESSED (subruta con subdirs) */
+      %_save_into_caslib(
+        m_cas_sess_name = conn,
+        m_input_caslib  = RAW,
+        m_input_data    = _tmp_base,
+        m_output_caslib = PROCESSED,
+        m_subdir_data   = %sysfunc(tranwrd(&_path_base., .sashdat, ))
+      );
 
       /* ---- 2b) Segmentos (si aplica) ------------------------------- */
       %if %superq(_vseg) ne and &_nseg. > 0 %then %do;
@@ -111,32 +146,35 @@
 
           %fw_path_processed(outvar=_path_seg, troncal_id=&_tid., split=&_split., seg_id=&_sg.);
 
-          data casuser._tmp_seg;
-            set casuser._tmp_base(where=(&_vseg. = &_sg.));
+          data RAW._tmp_seg;
+            set RAW._tmp_base(where=(&_vseg. = &_sg.));
           run;
 
           proc sql noprint;
-            select count(*) into :_nobs_seg trimmed from casuser._tmp_seg;
+            select count(*) into :_nobs_seg trimmed from RAW._tmp_seg;
           quit;
           %put NOTE: [fw_prepare_processed] &_path_seg. => &_nobs_seg. obs;
 
-          proc casutil;
-            save casdata="_tmp_seg" incaslib="casuser"
-                 casout="&_path_seg." outcaslib="casuser" replace;
-          run;
+          %_save_into_caslib(
+            m_cas_sess_name = conn,
+            m_input_caslib  = RAW,
+            m_input_data    = _tmp_seg,
+            m_output_caslib = PROCESSED,
+            m_subdir_data   = %sysfunc(tranwrd(&_path_seg., .sashdat, ))
+          );
 
           /* Limpiar temporal */
-          proc casutil;
-            droptable casdata="_tmp_seg" incaslib="casuser" quiet;
-          run;
+          proc cas;
+            table.dropTable / caslib="RAW" name="_tmp_seg" quiet=true;
+          quit;
 
         %end; /* segmentos */
       %end;
 
       /* Limpiar base temporal */
-      proc casutil;
-        droptable casdata="_tmp_base" incaslib="casuser" quiet;
-      run;
+      proc cas;
+        table.dropTable / caslib="RAW" name="_tmp_base" quiet=true;
+      quit;
 
     %end; /* splits */
 

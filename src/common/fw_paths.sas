@@ -8,6 +8,9 @@
    Convención (design.md §3.2):
      - Universo  : troncal_<id>/<split>/base.sashdat
      - Segmento  : troncal_<id>/<split>/seg<NNN>.sashdat  (z3. padding)
+
+   Las rutas devueltas son RELATIVAS al CASLIB PROCESSED (PATH-based,
+   subdirs=1, mapeado a data/processed/).  NO son rutas de casuser.
    ========================================================================= */
 
 %macro fw_path_processed(outvar=, troncal_id=, split=, seg_id=);

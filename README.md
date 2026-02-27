@@ -86,12 +86,22 @@ project_root/
 ```
 
 Notas:
-- `configs/config.sas` es generado desde HTML y define la configuración del run.
+- `config.sas` es generado desde HTML y define la configuración del run. Las tablas `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las **únicas** que residen en `casuser`.
+- Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
 - `steps/*.sas` **no** son generados por HTML. Son archivos `.sas` que simulan el contrato de UI de `.step` mediante comentarios con variables `_id_*` (ver sección 5).
 
 ---
 
 ## 3) Convenciones y estándares (para automatización)
+
+### 3.0 CASLIBs y casuser
+- **`casuser`** se usa **únicamente** para las tablas de configuración (`cfg_troncales`, `cfg_segmentos`) generadas por `config.sas`.
+- Todo dato operativo (raw, processed, outputs) se accede mediante **PATH-based CASLIBs** (GLOBAL) mapeados a carpetas del filesystem, siguiendo `docs/caslib_lifecycle.md`.
+- CASLIBs estándar del framework:
+  - `RAW` → `data/raw/` (subdirs=0)
+  - `PROCESSED` → `data/processed/` (subdirs=1, para acceder subcarpetas troncal/split)
+  - `OUT_<run_id>` → `outputs/runs/<run_id>/` (subdirs=1, creado por el runner)
+- Los módulos pueden crear CASLIBs scoped adicionales (ej. `MOD_GINI_<run_id>`) y son responsables de su cleanup.
 
 ### 3.1 Data preparada: naming determinístico
 Dentro de cada `troncal_X/{train|oot}`:
@@ -101,6 +111,7 @@ Dentro de cada `troncal_X/{train|oot}`:
 Reglas:
 - Padding de 3 dígitos para segmentos: `seg%sysfunc(putn(seg_id,z3.))`.
 - El split (`train/oot`) y la troncal se expresan por carpeta, no por el nombre de archivo.
+- Se accede vía CASLIB `PROCESSED` con la subruta relativa (ej. `troncal_1/train/base.sashdat`).
 
 ### 3.2 Artefactos de ejecución por run
 Todo output va en:
@@ -110,8 +121,9 @@ Todo output va en:
 - `outputs/runs/<run_id>/tables`
 - `outputs/runs/<run_id>/manifests`
 
-Regla:
+Reglas:
 - Ningún módulo escribe en `data/processed` (solo en `outputs/...`).
+- Los outputs se persisten vía CASLIB `OUT_<run_id>` o un CASLIB scoped del módulo.
 
 ### 3.3 API pública de módulos
 Cada módulo implementa:
