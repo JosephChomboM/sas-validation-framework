@@ -3,6 +3,10 @@
    Define macro para ejecutar métodos sobre contexto segmento promovido.
    ========================================================================= */
 
+/* Cargar dispatch */
+%include "&fw_root./src/dispatch/run_module.sas";
+%include "&fw_root./src/dispatch/run_method.sas";
+
 %macro run_methods_segment_context(run_id=);
 
   %local _sp1 _sp2;
@@ -72,3 +76,11 @@
   %end;
 
 %mend run_methods_segment_context;
+
+%if &partition_enabled. = 1 %then %do;
+  %run_methods_segment_context(run_id=&run_id.);
+  %put NOTE: [step-08] Subflow segmento ejecutado.;
+%end;
+%else %do;
+  %put WARNING: [step-08] partition_enabled=0; se omite ejecución de segmento.;
+%end;

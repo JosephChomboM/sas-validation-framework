@@ -1,7 +1,17 @@
 /* =========================================================================
    steps/05_partition_data.sas — Step 5: Configuración de particiones
+
+   Backend del step:
+     - Ejecuta partición processed (universo + segmentos)
    ========================================================================= */
 
 %let partition_enabled = 1;
 
 %put NOTE: [step-05] partition_enabled=&partition_enabled.;
+
+%if &partition_enabled. = 1 %then %do;
+   %fw_prepare_processed(raw_table=&raw_table.);
+%end;
+%else %do;
+   %put NOTE: [step-05] skip fw_prepare_processed.;
+%end;

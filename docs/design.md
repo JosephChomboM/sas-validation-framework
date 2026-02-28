@@ -143,7 +143,7 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 - Cada archivo es un **formulario editable** con variables `_id_*` documentadas.
 - El usuario modifica los valores `%let` según su caso de uso.
 - Al ejecutar `runner/main.sas`, los steps se incluyen secuencialmente y setean las macro variables.
-- Algunos steps ejecutan acciones automáticas (ej. Step 01 crea carpetas).
+- Algunos steps ejecutan acciones automáticas (ej. Step 03 crea carpetas).
 - El contexto de ejecución se define antes de seleccionar módulos.
 
 ### 5.2 Flujo de steps
@@ -162,7 +162,7 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 10 | `steps/10_config_methods_universe.sas` | Métodos (universo) | `&metodo_*_modules`, `&metodo_*_enabled` |
 | 11 | `steps/11_run_methods_universe.sas` | Ejecutar subflow universo | (N/A) |
 
-**Step 01** es especial: además de setear `&fw_root`, crea automáticamente la estructura de carpetas (`data/raw`, `data/processed`, `outputs/runs`) si no existe.
+**Step 03** crea automáticamente la estructura de carpetas (`data/raw`, `data/processed`, `outputs/runs`) y las carpetas de salida por `run_id`.
 
 Los steps de promoción (`06` y `09`) son obligatorios antes de ejecutar módulos: primero se promueve el contexto de datos, luego se configura qué módulos correr.
 
@@ -239,7 +239,7 @@ Estas macros se incluyen vía `src/common/common_public.sas`.
 - Crear CASLIB `RAW` (PATH→`data/raw/`).
 - Cargar tabla parquet → CAS → persistir como `.sashdat` en `data/raw/`.
 - Cleanup: dropear CASLIB `LAKEHOUSE` al finalizar.
-- Controlado por `&adls_import_enabled` (seteado en `steps/02_import_raw_data.sas`); si vale `0` se salta completamente.
+- Controlado por `&adls_import_enabled` (seteado en `steps/04_import_raw_data.sas`); si vale `0` se salta completamente.
 
 ### 7.4 Preparación idempotente
 `fw_prepare_processed` debe:

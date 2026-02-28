@@ -3,6 +3,10 @@
    Define macro para ejecutar métodos sobre contexto universo promovido.
    ========================================================================= */
 
+/* Cargar dispatch */
+%include "&fw_root./src/dispatch/run_module.sas";
+%include "&fw_root./src/dispatch/run_method.sas";
+
 %macro run_methods_universe_context(run_id=);
 
   %local _sp1 _sp2;
@@ -50,3 +54,23 @@
   %end;
 
 %mend run_methods_universe_context;
+
+%if &partition_enabled. = 1 %then %do;
+  %run_methods_universe_context(run_id=&run_id.);
+  %put NOTE: [step-11] Subflow universo ejecutado.;
+%end;
+%else %do;
+  %put WARNING: [step-11] partition_enabled=0; se omite ejecución de universo.;
+%end;
+
+/* Cleanup final del framework */
+%_drop_caslib(caslib_name=OUT_&run_id., cas_sess_name=conn, del_prom_tables=1);
+%_drop_caslib(caslib_name=RAW,       cas_sess_name=conn, del_prom_tables=1);
+%_drop_caslib(caslib_name=PROCESSED, cas_sess_name=conn, del_prom_tables=1);
+
+%put NOTE: ======================================================;
+%put NOTE: [step-11] Run &run_id. completado.;
+%put NOTE: [step-11] Outputs en: &fw_root./outputs/runs/&run_id./;
+%put NOTE: ======================================================;
+
+cas conn terminate;
