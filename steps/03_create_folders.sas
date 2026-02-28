@@ -31,5 +31,5 @@ libname _mkdir05 clear;
    %end;
 %mend _create_run_dirs;
 %_create_run_dirs;
-
+options nodlcreatedir;
 %put NOTE: [step-03] Carpetas base y run (&run_id.) verificadas/creadas.;

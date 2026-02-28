@@ -55,21 +55,21 @@
      ----------------------------------------------------------------- */
   proc cas;
     session conn;
-    table.dropcaslib / caslib="LAKEHOUSE" quiet=true;
+    table.dropcaslib / caslib="lakehouse" quiet=true;
   quit;
 
-  caslib LAKEHOUSE datasource=(
+  caslib lakehouse datasource=(
     srctype    = "adls",
     accountname= "&adls_storage.",
     filesystem = "&adls_container."
-  ) subdirs libref=LAKEHOUSE sessref=conn global;
+  ) subdirs libref=casdtl;
 
   /* -----------------------------------------------------------------
      3) Cargar parquet desde ADLS → CAS table en CASLIB RAW
      ----------------------------------------------------------------- */
   proc casutil;
     load casdata  = "&adls_parquet_path."
-         incaslib = "LAKEHOUSE"
+         incaslib = "lakehouse"
          importoptions=(filetype="parquet")
          casout   = "&output_table."
          outcaslib= "RAW"
@@ -99,7 +99,7 @@
   /* -----------------------------------------------------------------
      5) Cleanup: dropear CASLIB LAKEHOUSE (el creador limpia)
      ----------------------------------------------------------------- */
-  %_drop_caslib(caslib_name=LAKEHOUSE, cas_sess_name=conn, del_prom_tables=1);
+  %_drop_caslib(caslib_name=lakehouse, cas_sess_name=conn, del_prom_tables=1);
 
   %put NOTE: [fw_import_adls_to_cas] FIN — LAKEHOUSE CASLIB limpiado.;
 

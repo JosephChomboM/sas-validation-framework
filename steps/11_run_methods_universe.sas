@@ -64,9 +64,9 @@
 %end;
 
 /* Cleanup final del framework */
-%_drop_caslib(caslib_name=OUT_&run_id., cas_sess_name=conn, del_prom_tables=1);
+%_drop_caslib(caslib_name=OUT, cas_sess_name=conn, del_prom_tables=1);
 %_drop_caslib(caslib_name=RAW,       cas_sess_name=conn, del_prom_tables=1);
-%_drop_caslib(caslib_name=PROCESSED, cas_sess_name=conn, del_prom_tables=1);
+%_drop_caslib(caslib_name=PROC,      cas_sess_name=conn, del_prom_tables=1);
 
 %put NOTE: ======================================================;
 %put NOTE: [step-11] Run &run_id. completado.;

@@ -221,7 +221,7 @@ Implementar `src/common/fw_paths.sas` con una macro pública que construya rutas
 - `%fw_path_processed(outvar=, troncal_id=, split=, seg_id=)`
   - si `seg_id` vacío: devuelve `troncal_X/<split>/base.sashdat`
   - si `seg_id` presente: devuelve `troncal_X/<split>/segNNN.sashdat`
-- Estas rutas son **relativas al CASLIB `PROCESSED`** (con subdirs habilitado), no a `casuser`.
+- Estas rutas son **relativas al CASLIB `PROC`** (con subdirs habilitado), no a `casuser`.
 
 ### 7.2 CAS utility macros
 Implementar `src/common/cas_utils.sas` con las macros baseline definidas en `docs/caslib_lifecycle.md`:
@@ -243,8 +243,8 @@ Estas macros se incluyen vía `src/common/common_public.sas`.
 
 ### 7.4 Preparación idempotente
 `fw_prepare_processed` debe:
-- Crear CASLIB `RAW` (PATH→`data/raw/`) y CASLIB `PROCESSED` (PATH→`data/processed/`, subdirs=1)
-- Leer raw desde CASLIB `RAW`, filtrar por ventanas mes, guardar en CASLIB `PROCESSED`
+- Crear CASLIB `RAW` (PATH→`data/raw/`) y CASLIB `PROC` (PATH→`data/processed/`, subdirs=1)
+- Leer raw desde CASLIB `RAW`, filtrar por ventanas mes, guardar en CASLIB `PROC`
 - Sobrescribir outputs processed de manera controlada
 - Limpiar tablas temporales CAS (en `casuser`)
 - Loggear conteos (nobs) para auditoría mínima
@@ -263,6 +263,12 @@ Cada módulo debe fallar temprano con mensajes claros si:
 - No se usa JSON como fuente de configuración; solo `config.sas` + `steps/*.sas`.
 - No se usan `.flw` ni `.step` como artefactos ejecutables; se reemplaza con `runner/main.sas` + `steps/*.sas` como frontend.
 - Los parámetros de usuario (rutas, ADLS, métodos) viven en `steps/*.sas`; la configuración de troncales/segmentos en `config.sas`.
+- El CASLIB/LIBNAME de salida del framework es **`OUT`** (fijo) para respetar el límite de 8 caracteres en `LIBNAME` de SAS.
+- La segregación por corrida se mantiene por path físico `outputs/runs/<run_id>/`, no por nombre de CASLIB.
+- Para evitar ambigüedad operativa, en data del framework solo se permiten estos nombres de CASLIB/LIBNAME:
+  - **`RAW`** para `data/raw/`
+  - **`PROC`** para `data/processed/`
+- No usar variantes como `RAWDATA`, `PROCESSED` o nombres alternos para esas dos capas.
 - Se mantienen archivos al mismo nivel en `train/` y `oot/` (no carpetas por segmento).
 - **`casuser` es exclusivo para tablas de configuración** (`cfg_troncales`, `cfg_segmentos`). Todo dato operativo usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
 - Cada paso que crea un CASLIB o promueve tablas es responsable de su cleanup.

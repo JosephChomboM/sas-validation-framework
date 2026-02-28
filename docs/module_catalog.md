@@ -18,7 +18,12 @@ Un módulo debe poder ejecutarse sobre:
 
 Donde `<split>` es `train` u `oot`.
 
-**Acceso a datos:** los inputs se leen desde el CASLIB `PROCESSED` (PATH-based, con subdirs habilitado, mapeado a `data/processed/`). No se usa `casuser` para datos operativos; `casuser` es exclusivo para tablas de configuración.
+**Acceso a datos:** los inputs se leen desde el CASLIB `PROC` (PATH-based, con subdirs habilitado, mapeado a `data/processed/`). No se usa `casuser` para datos operativos; `casuser` es exclusivo para tablas de configuración.
+
+Convención de naming operativo:
+- `RAW` para `data/raw/`
+- `PROC` para `data/processed/`
+- Evitar aliases alternos como `RAWDATA` o `PROCESSED`.
 
 **Regla de orquestación (contexto primero):**
 1. Se selecciona/promueve el contexto de datos (`troncal_id`, `scope`, `split`, `seg_id` si aplica).
@@ -138,7 +143,7 @@ Recomendación:
   - split (train/oot)
   - scope (base o segNNN)
   - nombre del módulo
-- Los outputs se persisten vía CASLIB `OUT_<run_id>` o un CASLIB scoped del módulo (ej. `MOD_GINI_<run_id>`), siguiendo `docs/caslib_lifecycle.md`.
+- Los outputs se persisten vía CASLIB `OUT` o un CASLIB scoped del módulo (ej. `MOD_GINI_<run_id>`), siguiendo `docs/caslib_lifecycle.md`.
 - El módulo debe declarar explícitamente si soporta ejecución en `segmento`, `universo` o ambos.
 
 Ejemplo:

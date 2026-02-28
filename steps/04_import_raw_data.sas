@@ -3,7 +3,7 @@
 
    Backend del step:
      - Carga utilidades comunes
-     - Crea CASLIB OUT_<run_id>
+       - Crea CASLIB OUT
      - Ejecuta importación ADLS (si está habilitada)
    ========================================================================= */
 
@@ -21,8 +21,8 @@
 /* Crear CASLIB de outputs del run */
 %_create_caslib(
    cas_path         = &fw_root./outputs/runs/&run_id.,
-   caslib_name      = OUT_&run_id.,
-   lib_caslib       = OUT_&run_id.,
+   caslib_name      = OUT,
+   lib_caslib       = OUT,
    global           = Y,
    cas_sess_name    = conn,
    term_global_sess = 0,

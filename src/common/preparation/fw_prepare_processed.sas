@@ -7,8 +7,8 @@
    (casuser es EXCLUSIVO para config).
 
    Datos operativos usan CASLIBs PATH-based:
-     RAW       → data/raw/           (lectura del dataset maestro)
-     PROCESSED → data/processed/     (escritura de base/segNNN, subdirs=1)
+     RAW  → data/raw/           (lectura del dataset maestro)
+     PROC → data/processed/     (escritura de base/segNNN, subdirs=1)
 
    Requiere: %fw_path_processed y %_create_caslib, %_save_into_caslib,
              %_load_cas_data, %_drop_caslib (cas_utils.sas) ya cargados.
@@ -17,9 +17,9 @@
      raw_table= nombre del archivo .sashdat sin extensión (default: mydataset)
 
    design.md §7.3 — Preparación idempotente:
-     - Crea CASLIBs RAW y PROCESSED.
+     - Crea CASLIBs RAW y PROC.
      - Lee raw desde CASLIB RAW, NO desde casuser.
-     - Sobrescribe outputs en CASLIB PROCESSED.
+     - Sobrescribe outputs en CASLIB PROC.
      - Limpia tablas temporales CAS.
      - Loggea conteos (nobs) para auditoría mínima.
      - No deja tablas operativas en casuser.
@@ -31,9 +31,9 @@
   %put NOTE: [fw_prepare_processed] INICIO — raw_table=&raw_table.;
   %put NOTE: ======================================================;
 
-  /* -----------------------------------------------------------------
-     0) Crear CASLIBs PATH-based para RAW y PROCESSED
-     ----------------------------------------------------------------- */
+    /* -----------------------------------------------------------------
+      0) Crear CASLIBs PATH-based para RAW y PROC
+      ----------------------------------------------------------------- */
   %_create_caslib(
     cas_path     = &fw_root./data/raw,
     caslib_name  = RAW,
@@ -46,8 +46,8 @@
 
   %_create_caslib(
     cas_path     = &fw_root./data/processed,
-    caslib_name  = PROCESSED,
-    lib_caslib   = PROCESSED,
+    caslib_name  = PROC,
+    lib_caslib   = PROC,
     global       = Y,
     cas_sess_name= conn,
     term_global_sess = 0,
@@ -113,7 +113,7 @@
         %let _mmax  = &_omax.;
       %end;
 
-      /* Resolver subruta relativa al CASLIB PROCESSED */
+      /* Resolver subruta relativa al CASLIB PROC */
       %fw_path_processed(outvar=_path_base, troncal_id=&_tid., split=&_split.);
 
       /* Crear tabla CAS filtrada (temporal en CASLIB RAW) */
@@ -131,12 +131,12 @@
         %put WARNING: [fw_prepare_processed] &_path_base. tiene 0 obs. Se crea vacío.;
       %end;
 
-      /* Guardar como .sashdat en CASLIB PROCESSED (subruta con subdirs) */
+      /* Guardar como .sashdat en CASLIB PROC (subruta con subdirs) */
       %_save_into_caslib(
         m_cas_sess_name = conn,
         m_input_caslib  = RAW,
         m_input_data    = _tmp_base,
-        m_output_caslib = PROCESSED,
+        m_output_caslib = PROC,
         m_subdir_data   = %sysfunc(tranwrd(&_path_base., .sashdat, ))
       );
 
@@ -159,7 +159,7 @@
             m_cas_sess_name = conn,
             m_input_caslib  = RAW,
             m_input_data    = _tmp_seg,
-            m_output_caslib = PROCESSED,
+            m_output_caslib = PROC,
             m_subdir_data   = %sysfunc(tranwrd(&_path_seg., .sashdat, ))
           );
 

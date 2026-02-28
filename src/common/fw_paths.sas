@@ -1,5 +1,5 @@
 /* =========================================================================
-   fw_paths.sas — Resolver único de rutas processed
+  fw_paths.sas — Resolver único de rutas processed
    Evita hardcode de paths en módulos y runner.
 
    Macro pública:
@@ -9,7 +9,7 @@
      - Universo  : troncal_<id>/<split>/base.sashdat
      - Segmento  : troncal_<id>/<split>/seg<NNN>.sashdat  (z3. padding)
 
-   Las rutas devueltas son RELATIVAS al CASLIB PROCESSED (PATH-based,
+  Las rutas devueltas son RELATIVAS al CASLIB PROC (PATH-based,
    subdirs=1, mapeado a data/processed/).  NO son rutas de casuser.
    ========================================================================= */
 

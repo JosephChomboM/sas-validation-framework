@@ -118,9 +118,14 @@ Notas:
 - Todo dato operativo (raw, processed, outputs) se accede mediante **PATH-based CASLIBs** (GLOBAL) mapeados a carpetas del filesystem, siguiendo `docs/caslib_lifecycle.md`.
 - CASLIBs estándar del framework:
   - `RAW` → `data/raw/` (subdirs=0)
-  - `PROCESSED` → `data/processed/` (subdirs=1, para acceder subcarpetas troncal/split)
-  - `OUT_<run_id>` → `outputs/runs/<run_id>/` (subdirs=1, creado por el runner)
+  - `PROC` → `data/processed/` (subdirs=1, para acceder subcarpetas troncal/split)
+  - `OUT` → `outputs/runs/<run_id>/` (subdirs=1, creado por el runner)
 - Los módulos pueden crear CASLIBs scoped adicionales (ej. `MOD_GINI_<run_id>`) y son responsables de su cleanup.
+
+Nota técnica:
+- Se usa CASLIB/LIBNAME fijo `OUT` para outputs porque `LIBNAME` en SAS admite máximo 8 caracteres.
+- La separación por corrida se mantiene vía path físico `outputs/runs/<run_id>/`.
+- Convención estricta de naming operativo: usar solo `RAW` y `PROC` para capas de datos del framework (no usar `RAWDATA` ni `PROCESSED`).
 
 ### 3.1 Data preparada: naming determinístico
 Dentro de cada `troncal_X/{train|oot}`:
@@ -130,7 +135,7 @@ Dentro de cada `troncal_X/{train|oot}`:
 Reglas:
 - Padding de 3 dígitos para segmentos: `seg%sysfunc(putn(seg_id,z3.))`.
 - El split (`train/oot`) y la troncal se expresan por carpeta, no por el nombre de archivo.
-- Se accede vía CASLIB `PROCESSED` con la subruta relativa (ej. `troncal_1/train/base.sashdat`).
+- Se accede vía CASLIB `PROC` con la subruta relativa (ej. `troncal_1/train/base.sashdat`).
 
 ### 3.2 Artefactos de ejecución por run
 Todo output va en:
@@ -142,7 +147,7 @@ Todo output va en:
 
 Reglas:
 - Ningún módulo escribe en `data/processed` (solo en `outputs/...`).
-- Los outputs se persisten vía CASLIB `OUT_<run_id>` o un CASLIB scoped del módulo.
+- Los outputs se persisten vía CASLIB `OUT` o un CASLIB scoped del módulo.
 
 ### 3.3 API pública de módulos
 Cada módulo implementa:
