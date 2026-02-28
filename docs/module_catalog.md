@@ -43,6 +43,11 @@ El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) 
 - Al final del bloque se dropean `PROC` y `OUT` (archivos en disco persisten).
 - Patrón obligatorio: **create → promote → work → drop**.
 
+**Restricción SAS open code:**
+- `%if`/`%do` no se permiten fuera de una macro. Todo `.sas` que use lógica condicional la encapsula en `%macro ... %mend;`.
+- Aplica tanto a steps (`_step06_validate`, etc.) como al runner (`%macro _main_pipeline`).
+- Si un módulo necesita condicionales en su entry point, debe usar el mismo patrón.
+
 **Parámetros específicos de módulos:**
 - Parámetros como `threshold`, `num_rounds`, `num_bins` y similares **no** se declaran en `config.sas`.
 - Se configuran en los steps de métodos (`steps/07_config_methods_segment.sas`, `steps/10_config_methods_universe.sas`) o como argumentos de la macro `%<modulo>_run(...)`.

@@ -16,16 +16,19 @@
 %put NOTE: [step-04] adls_import_enabled=&adls_import_enabled. raw_table=&raw_table.;
 
 /* Importación opcional desde ADLS */
-%if &adls_import_enabled. = 1 %then %do;
-   %fw_import_adls_to_cas(
-      raw_path          = &fw_root./data/raw,
-      adls_storage      = &adls_storage.,
-      adls_container    = &adls_container.,
-      adls_parquet_path = &adls_parquet_path.,
-      output_table      = &raw_table.,
-      save_to_disk      = 1
-   );
-%end;
-%else %do;
-   %put NOTE: [step-04] adls_import_enabled=0 — skip import ADLS.;
-%end;
+%macro _step04_import;
+   %if &adls_import_enabled. = 1 %then %do;
+      %fw_import_adls_to_cas(
+         raw_path          = &fw_root./data/raw,
+         adls_storage      = &adls_storage.,
+         adls_container    = &adls_container.,
+         adls_parquet_path = &adls_parquet_path.,
+         output_table      = &raw_table.,
+         save_to_disk      = 1
+      );
+   %end;
+   %else %do;
+      %put NOTE: [step-04] adls_import_enabled=0 — skip import ADLS.;
+   %end;
+%mend _step04_import;
+%_step04_import;

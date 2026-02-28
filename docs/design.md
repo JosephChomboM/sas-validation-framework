@@ -151,8 +151,8 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | Step | Archivo | Qué configura | Macro vars que setea |
 |------|---------|---------------|---------------------|
 | 01 | `steps/01_setup_project.sas` | Rutas del proyecto | `&fw_root` |
-| 02 | `steps/02_load_config.sas` | Cargar/validar `config.sas` | `cfg_troncales`, `cfg_segmentos` |
-| 03 | `steps/03_create_folders.sas` | Estructura de carpetas + troncal dirs | (N/A) |
+| 02 | `steps/02_load_config.sas` | Cargar/validar `config.sas` + crear dirs de output del run | `cfg_troncales`, `cfg_segmentos`, `&run_id` |
+| 03 | `steps/03_create_folders.sas` | Carpetas de data + troncal dirs (solo data prep) | (N/A) |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS | `&adls_import_enabled`, `&adls_*`, `&raw_table` |
 | 05 | `steps/05_partition_data.sas` | Particiones universo/segmento | (N/A) |
 | 06 | `steps/06_promote_segment_context.sas` | Contexto segmento | `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id` |
@@ -162,7 +162,9 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 10 | `steps/10_config_methods_universe.sas` | Métodos (universo) | `&metodo_*_modules`, `&metodo_*_enabled` |
 | 11 | `steps/11_run_methods_universe.sas` | Ejecutar subflow universo | (N/A) |
 
-**Step 03** crea automáticamente la estructura de carpetas (`data/raw`, `data/processed`, `outputs/runs`), las carpetas de salida por `run_id`, y las subcarpetas `troncal_X/train/` y `troncal_X/oot/` bajo `data/processed/` para cada troncal declarada en `casuser.cfg_troncales`.
+**Step 02** genera `run_id`, carga `config.sas`, y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|manifests`). Estas carpetas se crean **siempre** (cada corrida) porque son específicas del run.
+
+**Step 03** crea las carpetas de data (`data/raw`, `data/processed`) y las subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal en `casuser.cfg_troncales`. Solo se ejecuta durante data prep (`data_prep_enabled=1`).
 
 Los steps de promoción (`06` y `09`) son obligatorios antes de ejecutar módulos: primero se promueve el contexto de datos, luego se configura qué módulos correr.
 
@@ -199,14 +201,16 @@ Ejemplos:
 El pipeline se divide en dos fases con diferente frecuencia de ejecución:
 
 **Fase A — Data Prep (una vez por proyecto, `data_prep_enabled=1`)**
-1. Setup de rutas.
-2. Carga de `config.sas`.
-3. Creación de carpetas (incluye `troncal_X/train/oot/`).
-4. Importación ADLS (opcional).
-5. Partición y persistencia processed (universo + segmentos).
+1. Setup de rutas (Step 01).
+2. Carga de `config.sas` + creación de dirs del run (Step 02).
+3. Creación de carpetas de data + troncal dirs (Step 03).
+4. Importación ADLS (Step 04, opcional).
+5. Partición y persistencia processed (Step 05).
 
 **Fase B — Ejecución (cada corrida, siempre)**
-6. Promoción de contexto de **segmento**.
+1. Setup de rutas (Step 01).
+2. Carga de `config.sas` + creación de dirs del run (Step 02).
+6. Promoción de contexto de **segmento** (Step 06).
 7. Configuración de Métodos y módulos para segmento.
 8. Ejecución de subflow de módulos para segmento.
 9. Promoción de contexto de **universo**.
@@ -214,8 +218,10 @@ El pipeline se divide en dos fases con diferente frecuencia de ejecución:
 11. Ejecución de subflow de módulos para universo.
 
 El flag `data_prep_enabled` (en `runner/main.sas`) controla si se ejecutan los Steps 03–05.
-- Primera corrida: `data_prep_enabled=1` (crear carpetas, importar, particionar).
-- Corridas posteriores: `data_prep_enabled=0` (los datos ya existen en disco; saltar directo de Step 02 a Step 06).
+- Primera corrida: `data_prep_enabled=1` (crear carpetas de data, importar, particionar).
+- Corridas posteriores: `data_prep_enabled=0` (los datos ya existen en disco; Steps 01–02 siempre corren para generar el `run_id` y crear dirs de output del run).
+
+**Nota SAS:** `%if`/`%do` no se permiten en open code. **Todo** archivo `.sas` que necesite lógica condicional debe encapsularla dentro de un `%macro ... %mend;`. Esto aplica tanto a `runner/main.sas` (`%macro _main_pipeline`) como a cualquier step que use `%if` (ej. `_step02_load`, `_step04_import`, `_step05_partition`, `_step06_validate`, `_step09_validate`).
 
 ### 6.2 Ciclo de vida de CASLIBs (create → promote → work → drop)
 
@@ -311,7 +317,9 @@ Cada módulo debe fallar temprano con mensajes claros si:
 - **`casuser` es exclusivo para tablas de configuración** (`cfg_troncales`, `cfg_segmentos`). Todo dato operativo usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
 - Cada paso que crea un CASLIB o promueve tablas es responsable de su cleanup.
 - **Parámetros específicos de módulos** (`threshold`, `num_rounds`, `num_bins`, etc.) **no** se declaran en `config.sas`. Se configuran en los steps de métodos o en la invocación del módulo. `config.sas` solo contiene parámetros estructurales de troncales/segmentos (identificadores, variables, rangos, listas, segmentación).
+- **Step 02 crea las carpetas de output del run** (`outputs/runs/<run_id>/...`) en cada corrida, independientemente de `data_prep_enabled`. Step 03 solo crea dirs de data.
 - **Step 03 crea automáticamente** las subcarpetas `data/processed/troncal_X/train/` y `data/processed/troncal_X/oot/` iterando `casuser.cfg_troncales`, garantizando que la estructura de directorios exista antes de la partición (Step 05).
 - **Steps 03–05 (data prep) se ejecutan una sola vez** por proyecto (o cuando se quiera regenerar data). El flag `data_prep_enabled` en `runner/main.sas` controla este comportamiento.
 - **Ciclo de vida estricto de CASLIBs**: todo CASLIB creado se dropea al final de la misma fase (`create → promote → work → drop`). Ningún CASLIB sobrevive entre fases.
+- **Restricción SAS open code**: `%if`/`%do` no se permiten fuera de una macro. Todo archivo `.sas` que use lógica condicional la encapsula en `%macro _stepNN_xxx; ... %mend; %_stepNN_xxx;`. Esto aplica a `runner/main.sas` (`%macro _main_pipeline`), a steps individuales (`_step02_load`, `_step04_import`, `_step05_partition`, `_step06_validate`, `_step09_validate`) y a cualquier futuro `.sas` que necesite `%if`/`%do`.
 - **`run_module.sas` promueve el input** desde CASLIB `PROC` como tabla `_active_input`, ejecuta el módulo, y dropea la tabla promovida al finalizar. Los módulos reciben `input_table=_active_input` en vez de un path.

@@ -1,3 +1,4 @@
-.github
-.docs
+.github/
+.docs/
+# do not include marketplace files:
 *.md

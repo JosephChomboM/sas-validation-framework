@@ -9,9 +9,12 @@
 
 %put NOTE: [step-05] partition_enabled=&partition_enabled.;
 
-%if &partition_enabled. = 1 %then %do;
-   %fw_prepare_processed(raw_table=&raw_table.);
-%end;
-%else %do;
-   %put NOTE: [step-05] skip fw_prepare_processed.;
-%end;
+%macro _step05_partition;
+   %if &partition_enabled. = 1 %then %do;
+      %fw_prepare_processed(raw_table=&raw_table.);
+   %end;
+   %else %do;
+      %put NOTE: [step-05] skip fw_prepare_processed.;
+   %end;
+%mend _step05_partition;
+%_step05_partition;

@@ -17,8 +17,8 @@ El diseño prioriza:
 El usuario configura el framework editando los **steps** (`steps/*.sas`) y luego ejecuta `runner/main.sas`:
 
 1. **Setup del proyecto**: definir ruta raíz.
-2. **Carga de configuración**: leer `config.sas` (troncales/segmentos).
-3. **Creación de carpetas**: estructura base de data, outputs y subcarpetas `troncal_X/train/oot/` por cada troncal.
+2. **Carga de configuración + creación de dirs del run**: leer `config.sas`, generar `run_id`, crear `outputs/runs/<run_id>/...`.
+3. **Creación de carpetas de data**: `data/raw/`, `data/processed/`, subcarpetas `troncal_X/train/oot/`.
 4. **Importación de datos desde ADLS** (opcional, una vez por proyecto): generar raw `.sashdat`.
 5. **Partición de data**: por troncal + split (`train/oot`) + scope (`universo/segmento`).
 
@@ -111,7 +111,8 @@ Notas:
 - `steps/*.sas` modelan el frontend del flujo: primero contexto de datos, luego selección de módulos por método.
 - El subflow de módulos se puede adjuntar al flujo principal y se ejecuta con el contexto promovido.
 - Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
-- Step 03 crea automáticamente `data/processed/troncal_X/train/` y `troncal_X/oot/` por cada troncal declarada en `casuser.cfg_troncales`, para que la estructura de directorios exista antes de la partición (Step 05).
+- Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/...`) en cada corrida, independientemente de `data_prep_enabled`.
+- Step 03 crea `data/raw/`, `data/processed/`, y subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal. Solo se ejecuta durante data prep.
 - Parámetros específicos de módulos de análisis (`threshold`, `num_rounds`, `num_bins`, etc.) **no** viven en `config.sas`; se configuran en los steps de métodos o dentro del módulo correspondiente.
 
 ### 3.0a Ciclo de vida de CASLIBs
@@ -134,7 +135,7 @@ Todo bloque que usa CASLIBs sigue estrictamente: **create → promote → work �
   - `OUT` → `outputs/runs/<run_id>/` (subdirs=1, creado por el runner)
 - Los módulos pueden crear CASLIBs scoped adicionales (ej. `MOD_GINI_<run_id>`) y son responsables de su cleanup.
 
-Nota técnica:
+**Restricción SAS open code:** `%if`/`%do` no se permiten fuera de una macro. Todo archivo `.sas` que use lógica condicional debe encapsularla en `%macro _stepNN_xxx; ... %mend; %_stepNN_xxx;`. Esto aplica a `runner/main.sas` (`%macro _main_pipeline`) y a steps individuales como `02`, `04`, `05`, `06`, `09`.
 - Se usa CASLIB/LIBNAME fijo `OUT` para outputs porque `LIBNAME` en SAS admite máximo 8 caracteres.
 - La separación por corrida se mantiene vía path físico `outputs/runs/<run_id>/`.
 - Convención estricta de naming operativo: usar solo `RAW` y `PROC` para capas de datos del framework (no usar `RAWDATA` ni `PROCESSED`).
@@ -196,8 +197,8 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 | Step | Archivo | Configura |
 |------|---------|-----------|
 | 01 | `steps/01_setup_project.sas` | Rutas del proyecto |
-| 02 | `steps/02_load_config.sas` | Carga y validación de `config.sas` |
-| 03 | `steps/03_create_folders.sas` | Creación de carpetas base + `troncal_X/train/oot/` |
+| 02 | `steps/02_load_config.sas` | Carga `config.sas` + dirs de output del run |
+| 03 | `steps/03_create_folders.sas` | Carpetas de data + `troncal_X/train/oot/` (solo data prep) |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS (una vez por proyecto) |
 | 05 | `steps/05_partition_data.sas` | Particiones por troncal/split/scope |
 | 06 | `steps/06_promote_segment_context.sas` | Contexto de ejecución para segmento |
