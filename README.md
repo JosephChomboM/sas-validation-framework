@@ -18,7 +18,7 @@ El usuario configura el framework editando los **steps** (`steps/*.sas`) y luego
 
 1. **Setup del proyecto**: definir ruta raíz.
 2. **Carga de configuración**: leer `config.sas` (troncales/segmentos).
-3. **Creación de carpetas**: estructura base de data y outputs.
+3. **Creación de carpetas**: estructura base de data, outputs y subcarpetas `troncal_X/train/oot/` por cada troncal.
 4. **Importación de datos desde ADLS** (opcional, una vez por proyecto): generar raw `.sashdat`.
 5. **Partición de data**: por troncal + split (`train/oot`) + scope (`universo/segmento`).
 6. **Promoción de contexto segmento**: elegir `troncal_id`, `split`, `seg_id` y promover ese input a ejecución.
@@ -83,7 +83,7 @@ project_root/
   steps/                             # FRONTEND — configuración previa a ejecutar controles
     01_setup_project.sas             # rutas del proyecto
     02_load_config.sas               # carga/validación de config.sas
-    03_create_folders.sas            # creación de carpetas base
+    03_create_folders.sas            # creación de carpetas base + troncal_X/train/oot
     04_import_raw_data.sas           # importación ADLS (una vez por proyecto)
     05_partition_data.sas            # particiones troncal/train/oot + universo/segmento
     06_promote_segment_context.sas   # seleccionar troncal/split/seg_id a promover
@@ -108,6 +108,8 @@ Notas:
 - `steps/*.sas` modelan el frontend del flujo: primero contexto de datos, luego selección de módulos por método.
 - El subflow de módulos se puede adjuntar al flujo principal y se ejecuta con el contexto promovido.
 - Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
+- Step 03 crea automáticamente `data/processed/troncal_X/train/` y `troncal_X/oot/` por cada troncal declarada en `casuser.cfg_troncales`, para que la estructura de directorios exista antes de la partición (Step 05).
+- Parámetros específicos de módulos de análisis (`threshold`, `num_rounds`, `num_bins`, etc.) **no** viven en `config.sas`; se configuran en los steps de métodos o dentro del módulo correspondiente.
 
 ---
 
@@ -185,7 +187,7 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 |------|---------|-----------|
 | 01 | `steps/01_setup_project.sas` | Rutas del proyecto |
 | 02 | `steps/02_load_config.sas` | Carga y validación de `config.sas` |
-| 03 | `steps/03_create_folders.sas` | Creación de carpetas base |
+| 03 | `steps/03_create_folders.sas` | Creación de carpetas base + `troncal_X/train/oot/` |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS (una vez por proyecto) |
 | 05 | `steps/05_partition_data.sas` | Particiones por troncal/split/scope |
 | 06 | `steps/06_promote_segment_context.sas` | Contexto de ejecución para segmento |

@@ -23,7 +23,7 @@ Este documento describe:
 - Flujo de steps:
   - `01_setup_project.sas` → rutas del proyecto
   - `02_load_config.sas` → carga/validación de `config.sas`
-  - `03_create_folders.sas` → creación de estructura de carpetas
+  - `03_create_folders.sas` → creación de estructura de carpetas (incluye `troncal_X/train/oot/` por cada troncal en config)
   - `04_import_raw_data.sas` → importación ADLS (una vez por proyecto)
   - `05_partition_data.sas` → materialización processed (universo + segmentos)
   - `06_promote_segment_context.sas` → seleccionar contexto segmento
@@ -152,7 +152,7 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 |------|---------|---------------|---------------------|
 | 01 | `steps/01_setup_project.sas` | Rutas del proyecto | `&fw_root` |
 | 02 | `steps/02_load_config.sas` | Cargar/validar `config.sas` | `cfg_troncales`, `cfg_segmentos` |
-| 03 | `steps/03_create_folders.sas` | Estructura de carpetas | (N/A) |
+| 03 | `steps/03_create_folders.sas` | Estructura de carpetas + troncal dirs | (N/A) |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS | `&adls_import_enabled`, `&adls_*`, `&raw_table` |
 | 05 | `steps/05_partition_data.sas` | Particiones universo/segmento | (N/A) |
 | 06 | `steps/06_promote_segment_context.sas` | Contexto segmento | `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id` |
@@ -162,7 +162,7 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 10 | `steps/10_config_methods_universe.sas` | Métodos (universo) | `&metodo_*_modules`, `&metodo_*_enabled` |
 | 11 | `steps/11_run_methods_universe.sas` | Ejecutar subflow universo | (N/A) |
 
-**Step 03** crea automáticamente la estructura de carpetas (`data/raw`, `data/processed`, `outputs/runs`) y las carpetas de salida por `run_id`.
+**Step 03** crea automáticamente la estructura de carpetas (`data/raw`, `data/processed`, `outputs/runs`), las carpetas de salida por `run_id`, y las subcarpetas `troncal_X/train/` y `troncal_X/oot/` bajo `data/processed/` para cada troncal declarada en `casuser.cfg_troncales`.
 
 Los steps de promoción (`06` y `09`) son obligatorios antes de ejecutar módulos: primero se promueve el contexto de datos, luego se configura qué módulos correr.
 
@@ -272,3 +272,5 @@ Cada módulo debe fallar temprano con mensajes claros si:
 - Se mantienen archivos al mismo nivel en `train/` y `oot/` (no carpetas por segmento).
 - **`casuser` es exclusivo para tablas de configuración** (`cfg_troncales`, `cfg_segmentos`). Todo dato operativo usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
 - Cada paso que crea un CASLIB o promueve tablas es responsable de su cleanup.
+- **Parámetros específicos de módulos** (`threshold`, `num_rounds`, `num_bins`, etc.) **no** se declaran en `config.sas`. Se configuran en los steps de métodos o en la invocación del módulo. `config.sas` solo contiene parámetros estructurales de troncales/segmentos (identificadores, variables, rangos, listas, segmentación).
+- **Step 03 crea automáticamente** las subcarpetas `data/processed/troncal_X/train/` y `data/processed/troncal_X/oot/` iterando `casuser.cfg_troncales`, garantizando que la estructura de directorios exista antes de la partición (Step 05).

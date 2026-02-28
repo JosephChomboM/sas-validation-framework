@@ -37,6 +37,11 @@ Convención de naming operativo:
 
 El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) a cada módulo vía `%run_module`.
 
+**Parámetros específicos de módulos:**
+- Parámetros como `threshold`, `num_rounds`, `num_bins` y similares **no** se declaran en `config.sas`.
+- Se configuran en los steps de métodos (`steps/07_config_methods_segment.sas`, `steps/10_config_methods_universe.sas`) o como argumentos de la macro `%<modulo>_run(...)`.
+- `config.sas` solo contiene parámetros estructurales de troncales/segmentos (identificadores, variables, rangos, listas, segmentación).
+
 Orden de ejecución recomendado:
 - Segmentos primero (si existen), luego universo.
 
