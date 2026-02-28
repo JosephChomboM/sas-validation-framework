@@ -37,6 +37,12 @@ Convención de naming operativo:
 
 El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) a cada módulo vía `%run_module`.
 
+**Ciclo de vida de CASLIBs en ejecución:**
+- `run_methods_segment_context` / `run_methods_universe_context` crean CASLIBs `PROC` y `OUT` al inicio del bloque.
+- Por cada contexto, `run_module.sas` promueve el input específico desde `PROC` como tabla `_active_input` (vía `%_promote_castable`), ejecuta el módulo, y dropea la tabla promovida.
+- Al final del bloque se dropean `PROC` y `OUT` (archivos en disco persisten).
+- Patrón obligatorio: **create → promote → work → drop**.
+
 **Parámetros específicos de módulos:**
 - Parámetros como `threshold`, `num_rounds`, `num_bins` y similares **no** se declaran en `config.sas`.
 - Se configuran en los steps de métodos (`steps/07_config_methods_segment.sas`, `steps/10_config_methods_universe.sas`) o como argumentos de la macro `%<modulo>_run(...)`.
@@ -79,6 +85,11 @@ La matriz es declarativa; el runner/subflow ejecuta solo métodos `enabled=1`.
 
 **API pública**
 - `%gini_run(...)`
+- Parámetros de entrada incluyen:
+  - `input_caslib=PROC` — CASLIB de entrada
+  - `input_table=_active_input` — tabla promovida por `run_module`
+  - `output_caslib=OUT` — CASLIB de salida
+  - `troncal_id`, `split`, `scope`, `run_id` — contexto
 
 **Inputs típicos**
 - Dataset input (universe o segmento) con:
@@ -107,6 +118,12 @@ La matriz es declarativa; el runner/subflow ejecuta solo métodos `enabled=1`.
 
 **API pública**
 - `%psi_run(...)`
+- Parámetros de entrada incluyen:
+  - `input_caslib=PROC` — CASLIB de entrada
+  - `input_table=_active_input` — tabla promovida por `run_module`
+  - `output_caslib=OUT` — CASLIB de salida
+  - `troncal_id`, `split`, `scope`, `run_id` — contexto
+  - Parámetros específicos del módulo (ej. `threshold`, `num_bins`) se pasan como argumentos adicionales
 
 **Inputs típicos**
 - Dos datasets comparables (por ejemplo baseline vs current) o un dataset con partición temporal.

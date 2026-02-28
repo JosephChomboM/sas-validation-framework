@@ -97,10 +97,12 @@
   %end;
 
   /* -----------------------------------------------------------------
-     5) Cleanup: dropear CASLIB LAKEHOUSE (el creador limpia)
+     5) Cleanup: dropear CASLIBs (el creador limpia)
      ----------------------------------------------------------------- */
   %_drop_caslib(caslib_name=lakehouse, cas_sess_name=conn, del_prom_tables=1);
+  %_drop_caslib(caslib_name=RAW,       cas_sess_name=conn, del_prom_tables=1);
 
-  %put NOTE: [fw_import_adls_to_cas] FIN — LAKEHOUSE CASLIB limpiado.;
+  %put NOTE: [fw_import_adls_to_cas] FIN — CASLIBs LAKEHOUSE y RAW limpiados.;
+  %put NOTE: [fw_import_adls_to_cas] Archivo &output_table..sashdat persiste en disco (data/raw/).;
 
 %mend fw_import_adls_to_cas;

@@ -2,9 +2,9 @@
    steps/04_import_raw_data.sas — Step 4: Config import ADLS (one-time)
 
    Backend del step:
-     - Carga utilidades comunes
-       - Crea CASLIB OUT
      - Ejecuta importación ADLS (si está habilitada)
+     - fw_import_adls_to_cas crea/dropea sus CASLIBs internamente
+       (LAKEHOUSE + RAW), siguiendo el patrón create → use → drop.
    ========================================================================= */
 
 %let adls_import_enabled = 1;
@@ -14,20 +14,6 @@
 %let raw_table           = mydataset;
 
 %put NOTE: [step-04] adls_import_enabled=&adls_import_enabled. raw_table=&raw_table.;
-
-/* Cargar utilidades comunes (cas_utils + import + prepare + paths) */
-%include "&fw_root./src/common/common_public.sas";
-
-/* Crear CASLIB de outputs del run */
-%_create_caslib(
-   cas_path         = &fw_root./outputs/runs/&run_id.,
-   caslib_name      = OUT,
-   lib_caslib       = OUT,
-   global           = Y,
-   cas_sess_name    = conn,
-   term_global_sess = 0,
-   subdirs_flg      = 1
-);
 
 /* Importación opcional desde ADLS */
 %if &adls_import_enabled. = 1 %then %do;

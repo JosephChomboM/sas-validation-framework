@@ -181,8 +181,12 @@
   %end; /* troncales */
 
   /* -----------------------------------------------------------------
-     3) Limpieza de macrovariables temporales
+     3) Cleanup: CASLIBs y macrovariables temporales
+        Los .sashdat persisten en disco; solo liberamos memoria CAS.
      ----------------------------------------------------------------- */
+  %_drop_caslib(caslib_name=RAW,  cas_sess_name=conn, del_prom_tables=1);
+  %_drop_caslib(caslib_name=PROC, cas_sess_name=conn, del_prom_tables=1);
+
   %do _t = 1 %to &_n_troncales.;
     %symdel _tr_id_&_t. _tr_byvar_&_t. _tr_tmin_&_t. _tr_tmax_&_t.
             _tr_omin_&_t. _tr_omax_&_t. _tr_vseg_&_t. _tr_nseg_&_t. / nowarn;

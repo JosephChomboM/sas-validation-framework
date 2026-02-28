@@ -21,6 +21,9 @@ El usuario configura el framework editando los **steps** (`steps/*.sas`) y luego
 3. **Creación de carpetas**: estructura base de data, outputs y subcarpetas `troncal_X/train/oot/` por cada troncal.
 4. **Importación de datos desde ADLS** (opcional, una vez por proyecto): generar raw `.sashdat`.
 5. **Partición de data**: por troncal + split (`train/oot`) + scope (`universo/segmento`).
+
+> **Steps 03–05 se ejecutan una sola vez por proyecto** (o cuando se quiera regenerar data). En corridas posteriores, setear `data_prep_enabled=0` en `runner/main.sas` para saltar de Step 02 directo a Step 06.
+
 6. **Promoción de contexto segmento**: elegir `troncal_id`, `split`, `seg_id` y promover ese input a ejecución.
 7. **Configuración de métodos para segmento**: cada “Método” (tabs/hojas) define su lista de módulos.
 8. **Ejecución subflow de análisis para segmento**: correr controles según selección.
@@ -111,6 +114,13 @@ Notas:
 - Step 03 crea automáticamente `data/processed/troncal_X/train/` y `troncal_X/oot/` por cada troncal declarada en `casuser.cfg_troncales`, para que la estructura de directorios exista antes de la partición (Step 05).
 - Parámetros específicos de módulos de análisis (`threshold`, `num_rounds`, `num_bins`, etc.) **no** viven en `config.sas`; se configuran en los steps de métodos o dentro del módulo correspondiente.
 
+### 3.0a Ciclo de vida de CASLIBs
+
+Todo bloque que usa CASLIBs sigue estrictamente: **create → promote → work → drop**.
+- Cada fase (data prep, ejecución segmento, ejecución universo) crea sus CASLIBs al inicio y los dropea al final.
+- `run_module.sas` promueve el input específico (`_active_input`) desde CASLIB `PROC`, ejecuta el módulo, y dropea la tabla promovida.
+- Ningún CASLIB sobrevive entre fases; los `.sashdat` en disco persisten.
+
 ---
 
 ## 3) Convenciones y estándares (para automatización)
@@ -198,11 +208,13 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 | 11 | `steps/11_run_methods_universe.sas` | Ejecutar subflow de módulos (universo) |
 
 ### 5.2 Cómo usar
-1. Configurar rutas/config/data prep (Steps 01–05).
-2. Elegir y promover contexto de segmento (Step 06).
-3. Definir Métodos (`Metodo 1..N`) y módulos para segmento (Step 07), ejecutar (Step 08).
-4. Elegir y promover contexto de universo (Step 09).
-5. Definir Métodos y módulos para universo (Step 10), ejecutar (Step 11).
+1. Configurar rutas/config (Steps 01–02). Siempre se ejecutan.
+2. **Primera corrida**: `data_prep_enabled=1` → ejecutar Steps 03–05 (carpetas, ADLS, partición).
+   **Corridas posteriores**: `data_prep_enabled=0` → saltar Steps 03–05.
+3. Elegir y promover contexto de segmento (Step 06).
+4. Definir Métodos (`Metodo 1..N`) y módulos para segmento (Step 07), ejecutar (Step 08).
+5. Elegir y promover contexto de universo (Step 09).
+6. Definir Métodos y módulos para universo (Step 10), ejecutar (Step 11).
 
 ### 5.3 Convención de IDs `_id_*`
 Cada step documenta variables `_id_*` que representan campos de un formulario de UI:

@@ -194,12 +194,18 @@ Ejemplos:
 
 ## 6) Orden de ejecución
 
-Secuencia recomendada:
+### 6.1 Fases del pipeline
+
+El pipeline se divide en dos fases con diferente frecuencia de ejecución:
+
+**Fase A — Data Prep (una vez por proyecto, `data_prep_enabled=1`)**
 1. Setup de rutas.
 2. Carga de `config.sas`.
-3. Creación de carpetas.
-4. Importación ADLS (opcional, una vez por proyecto).
+3. Creación de carpetas (incluye `troncal_X/train/oot/`).
+4. Importación ADLS (opcional).
 5. Partición y persistencia processed (universo + segmentos).
+
+**Fase B — Ejecución (cada corrida, siempre)**
 6. Promoción de contexto de **segmento**.
 7. Configuración de Métodos y módulos para segmento.
 8. Ejecución de subflow de módulos para segmento.
@@ -207,10 +213,41 @@ Secuencia recomendada:
 10. Configuración de Métodos y módulos para universo.
 11. Ejecución de subflow de módulos para universo.
 
-Motivo:
+El flag `data_prep_enabled` (en `runner/main.sas`) controla si se ejecutan los Steps 03–05.
+- Primera corrida: `data_prep_enabled=1` (crear carpetas, importar, particionar).
+- Corridas posteriores: `data_prep_enabled=0` (los datos ya existen en disco; saltar directo de Step 02 a Step 06).
+
+### 6.2 Ciclo de vida de CASLIBs (create → promote → work → drop)
+
+Todo bloque que usa CASLIBs sigue estrictamente este patrón:
+
+```
+1. %_create_caslib(...)       — crear CASLIB PATH-based
+2. %_promote_castable(...)    — cargar .sashdat y promover tabla en CAS
+3. <trabajo>                  — ejecutar módulos / data prep
+4. proc cas; table.dropTable  — eliminar tabla promovida
+5. %_drop_caslib(... del_prom_tables=1) — eliminar CASLIB + tablas de CAS
+```
+
+**Ningún CASLIB debe sobrevivir más allá de la fase que lo creó.**
+
+Aplicación por fase:
+
+| Fase | CASLIBs | Crea | Dropea |
+|------|---------|------|--------|
+| Data Prep — ADLS import (Step 04) | LAKEHOUSE, RAW | `fw_import_adls_to_cas` | `fw_import_adls_to_cas` (al final) |
+| Data Prep — Partición (Step 05) | RAW, PROC | `fw_prepare_processed` | `fw_prepare_processed` (al final) |
+| Ejecución segmento (Step 08) | PROC, OUT | inicio de `run_methods_segment_context` | final de `run_methods_segment_context` |
+| Ejecución universo (Step 11) | PROC, OUT | inicio de `run_methods_universe_context` | final de `run_methods_universe_context` |
+
+**Regla de promote en ejecución:** `run_module.sas` promueve el input específico (vía `%_promote_castable`) antes de ejecutar el módulo, y dropea la tabla promovida (`_active_input`) después. Los módulos reciben `input_table=_active_input` en vez de una ruta.
+
+### 6.3 Motivo de diseño
+
 - Separar contexto de datos y selección de módulos reduce ambigüedad operativa.
 - Mantener Métodos independientes permite re-ejecutar análisis sin acoplamiento.
 - Ejecutar primero segmento y luego universo mantiene diagnóstico granular antes del agregado.
+- El patrón create→promote→work→drop garantiza que no queden CASLIBs o tablas huérfanas en CAS.
 
 ---
 
@@ -238,17 +275,18 @@ Estas macros se incluyen vía `src/common/common_public.sas`.
 - Crear CASLIB temporal `LAKEHOUSE` apuntando a Azure Data Lake Storage (parquet).
 - Crear CASLIB `RAW` (PATH→`data/raw/`).
 - Cargar tabla parquet → CAS → persistir como `.sashdat` en `data/raw/`.
-- Cleanup: dropear CASLIB `LAKEHOUSE` al finalizar.
+- Cleanup: dropear CASLIBs `LAKEHOUSE` **y** `RAW` al finalizar (archivos en disco persisten).
 - Controlado por `&adls_import_enabled` (seteado en `steps/04_import_raw_data.sas`); si vale `0` se salta completamente.
 
 ### 7.4 Preparación idempotente
 `fw_prepare_processed` debe:
 - Crear CASLIB `RAW` (PATH→`data/raw/`) y CASLIB `PROC` (PATH→`data/processed/`, subdirs=1)
-- Leer raw desde CASLIB `RAW`, filtrar por ventanas mes, guardar en CASLIB `PROC`
+- Leer raw desde CASLIB `RAW`, filtrar por ventanas mes, guardar como `.sashdat` en CASLIB `PROC`
 - Sobrescribir outputs processed de manera controlada
-- Limpiar tablas temporales CAS (en `casuser`)
+- Limpiar tablas temporales CAS
 - Loggear conteos (nobs) para auditoría mínima
 - **No dejar tablas operativas en `casuser`**; solo temporales que se dropean al final
+- **Cleanup al finalizar**: dropear CASLIBs `RAW` y `PROC` (los `.sashdat` en disco persisten)
 
 ### 7.5 Contratos y validaciones
 Cada módulo debe fallar temprano con mensajes claros si:
@@ -274,3 +312,6 @@ Cada módulo debe fallar temprano con mensajes claros si:
 - Cada paso que crea un CASLIB o promueve tablas es responsable de su cleanup.
 - **Parámetros específicos de módulos** (`threshold`, `num_rounds`, `num_bins`, etc.) **no** se declaran en `config.sas`. Se configuran en los steps de métodos o en la invocación del módulo. `config.sas` solo contiene parámetros estructurales de troncales/segmentos (identificadores, variables, rangos, listas, segmentación).
 - **Step 03 crea automáticamente** las subcarpetas `data/processed/troncal_X/train/` y `data/processed/troncal_X/oot/` iterando `casuser.cfg_troncales`, garantizando que la estructura de directorios exista antes de la partición (Step 05).
+- **Steps 03–05 (data prep) se ejecutan una sola vez** por proyecto (o cuando se quiera regenerar data). El flag `data_prep_enabled` en `runner/main.sas` controla este comportamiento.
+- **Ciclo de vida estricto de CASLIBs**: todo CASLIB creado se dropea al final de la misma fase (`create → promote → work → drop`). Ningún CASLIB sobrevive entre fases.
+- **`run_module.sas` promueve el input** desde CASLIB `PROC` como tabla `_active_input`, ejecuta el módulo, y dropea la tabla promovida al finalizar. Los módulos reciben `input_table=_active_input` en vez de un path.
