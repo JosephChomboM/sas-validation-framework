@@ -7,6 +7,9 @@
        (LAKEHOUSE + RAW), siguiendo el patrón create → use → drop.
    ========================================================================= */
 
+/* Dependencias (cada step es independiente) */
+%include "&fw_root./src/common/common_public.sas";
+
 %let adls_import_enabled = 1;
 %let adls_storage        = adlscu1cemmbackp05;
 %let adls_container      = bcp-exp-mrm-vime-01;

@@ -56,6 +56,8 @@ Este documento describe:
   - API pública (`*_run.sas`)
   - Validaciones (`*_contract.sas`)
   - Implementación interna (`impl/`)
+- Módulos implementados: `correlacion` (referencia). Pendientes: `gini`, `psi`.
+- `run_module.sas` incluye dinámicamente `<modulo>_run.sas` y ejecuta `%<modulo>_run(...)`.
 
 6) **Runner**
 - `runner/main.sas`: entrypoint único, reemplaza `.flw`.
@@ -92,6 +94,7 @@ Reglas:
 - `outputs/runs/<run_id>/images`
 - `outputs/runs/<run_id>/tables`
 - `outputs/runs/<run_id>/manifests`
+- `outputs/runs/<run_id>/experiments` — outputs de análisis exploratorio (modo CUSTOM de módulos)
 
 ---
 
@@ -146,6 +149,12 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 - Algunos steps ejecutan acciones automáticas (ej. Step 03 crea carpetas).
 - El contexto de ejecución se define antes de seleccionar módulos.
 
+**Independencia de steps:** cada step es autónomo y carga sus propias dependencias:
+- Todo step que use macros del framework incluye `%include "&fw_root./src/common/common_public.sas";` al inicio (es idempotente).
+- Todo step que use CASLIBs operativos (RAW, PROC, OUT) los crea al inicio y los dropea al final, siguiendo `caslib_lifecycle.md`.
+- Las tablas promovidas se eliminan al finalizar el step (junto con el CASLIB que las contiene).
+- `casuser` es la excepción: es el CASLIB de sesión para config y no se dropea entre steps.
+
 ### 5.2 Flujo de steps
 
 | Step | Archivo | Qué configura | Macro vars que setea |
@@ -156,13 +165,13 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS | `&adls_import_enabled`, `&adls_*`, `&raw_table` |
 | 05 | `steps/05_partition_data.sas` | Particiones universo/segmento | (N/A) |
 | 06 | `steps/06_promote_segment_context.sas` | Contexto segmento | `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id` |
-| 07 | `steps/07_config_methods_segment.sas` | Métodos (segmento) | `&metodo_*_modules`, `&metodo_*_enabled` |
+| 07 | `steps/07_config_methods_segment.sas` | Métodos (segmento) + params módulos | `&metodo_*_modules`, `&metodo_*_enabled`, `&corr_mode`, `&corr_custom_vars` |
 | 08 | `steps/08_run_methods_segment.sas` | Ejecutar subflow segmento | (N/A) |
 | 09 | `steps/09_promote_universe_context.sas` | Contexto universo | `&ctx_troncal_id`, `&ctx_split=base` |
-| 10 | `steps/10_config_methods_universe.sas` | Métodos (universo) | `&metodo_*_modules`, `&metodo_*_enabled` |
+| 10 | `steps/10_config_methods_universe.sas` | Métodos (universo) + params módulos | `&metodo_*_modules`, `&metodo_*_enabled`, `&corr_mode`, `&corr_custom_vars` |
 | 11 | `steps/11_run_methods_universe.sas` | Ejecutar subflow universo | (N/A) |
 
-**Step 02** genera `run_id`, carga `config.sas`, y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|manifests`). Estas carpetas se crean **siempre** (cada corrida) porque son específicas del run.
+**Step 02** genera `run_id`, carga `config.sas`, y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|manifests|experiments`). Estas carpetas se crean **siempre** (cada corrida) porque son específicas del run.
 
 **Step 03** crea las carpetas de data (`data/raw`, `data/processed`) y las subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal en `casuser.cfg_troncales`. Solo se ejecuta durante data prep (`data_prep_enabled=1`).
 
@@ -320,6 +329,9 @@ Cada módulo debe fallar temprano con mensajes claros si:
 - **Step 02 crea las carpetas de output del run** (`outputs/runs/<run_id>/...`) en cada corrida, independientemente de `data_prep_enabled`. Step 03 solo crea dirs de data.
 - **Step 03 crea automáticamente** las subcarpetas `data/processed/troncal_X/train/` y `data/processed/troncal_X/oot/` iterando `casuser.cfg_troncales`, garantizando que la estructura de directorios exista antes de la partición (Step 05).
 - **Steps 03–05 (data prep) se ejecutan una sola vez** por proyecto (o cuando se quiera regenerar data). El flag `data_prep_enabled` en `runner/main.sas` controla este comportamiento.
-- **Ciclo de vida estricto de CASLIBs**: todo CASLIB creado se dropea al final de la misma fase (`create → promote → work → drop`). Ningún CASLIB sobrevive entre fases.
+- **Ciclo de vida estricto de CASLIBs**: todo CASLIB creado se dropea al final del mismo step (`create → promote → work → drop`). Ningún CASLIB sobrevive entre steps. Las tablas promovidas se eliminan al dropear el CASLIB.
+- **Independencia de steps**: cada step es autónomo. Si usa macros del framework, incluye `common_public.sas` al inicio de su archivo. Si usa CASLIBs operativos, los crea y dropea dentro de sí mismo. `casuser` (config) es la única excepción — persiste en la sesión CAS.
 - **Restricción SAS open code**: `%if`/`%do` no se permiten fuera de una macro. Todo archivo `.sas` que use lógica condicional la encapsula en `%macro _stepNN_xxx; ... %mend; %_stepNN_xxx;`. Esto aplica a `runner/main.sas` (`%macro _main_pipeline`), a steps individuales (`_step02_load`, `_step04_import`, `_step05_partition`, `_step06_validate`, `_step09_validate`) y a cualquier futuro `.sas` que necesite `%if`/`%do`.
 - **`run_module.sas` promueve el input** desde CASLIB `PROC` como tabla `_active_input`, ejecuta el módulo, y dropea la tabla promovida al finalizar. Los módulos reciben `input_table=_active_input` en vez de un path.
+- **Modo AUTO / CUSTOM por módulo**: los módulos que soportan personalización de variables exponen `<module>_mode` (AUTO | CUSTOM) y `<module>_custom_vars` en los steps de métodos (07/10). En modo AUTO, el módulo resuelve variables desde config; en modo CUSTOM, usa las variables definidas por el usuario.
+- **Carpeta `experiments/`**: los outputs generados en modo CUSTOM se rutan a `outputs/runs/<run_id>/experiments/` en lugar de `reports/` + `tables/`. Esto separa resultados oficiales de validación de análisis exploratorios ad-hoc. El prefijo `custom_` se añade a los archivos para identificarlos.

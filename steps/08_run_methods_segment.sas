@@ -8,7 +8,8 @@
      3) Drop CASLIBs PROC + OUT (libera memoria CAS; archivos en disco persisten)
    ========================================================================= */
 
-/* Cargar dispatch */
+/* Dependencias (cada step es independiente) */
+%include "&fw_root./src/common/common_public.sas";
 %include "&fw_root./src/dispatch/run_module.sas";
 %include "&fw_root./src/dispatch/run_method.sas";
 

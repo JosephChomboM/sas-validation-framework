@@ -77,6 +77,12 @@ project_root/
       run_method.sas
       run_module.sas
     modules/
+      correlacion/
+        correlacion_run.sas
+        correlacion_contract.sas
+        impl/
+          correlacion_compute.sas
+          correlacion_report.sas
       gini/...
       psi/...
 
@@ -104,6 +110,7 @@ project_root/
         images/
         tables/
         manifests/
+        experiments/           # outputs de análisis exploratorio (modo CUSTOM)
 ```
 
 Notas:
@@ -111,7 +118,7 @@ Notas:
 - `steps/*.sas` modelan el frontend del flujo: primero contexto de datos, luego selección de módulos por método.
 - El subflow de módulos se puede adjuntar al flujo principal y se ejecuta con el contexto promovido.
 - Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
-- Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/...`) en cada corrida, independientemente de `data_prep_enabled`.
+- Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/...` incluyendo `experiments/`) en cada corrida, independientemente de `data_prep_enabled`.
 - Step 03 crea `data/raw/`, `data/processed/`, y subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal. Solo se ejecuta durante data prep.
 - Parámetros específicos de módulos de análisis (`threshold`, `num_rounds`, `num_bins`, etc.) **no** viven en `config.sas`; se configuran en los steps de métodos o dentro del módulo correspondiente.
 
@@ -136,6 +143,8 @@ Todo bloque que usa CASLIBs sigue estrictamente: **create → promote → work �
 - Los módulos pueden crear CASLIBs scoped adicionales (ej. `MOD_GINI_<run_id>`) y son responsables de su cleanup.
 
 **Restricción SAS open code:** `%if`/`%do` no se permiten fuera de una macro. Todo archivo `.sas` que use lógica condicional debe encapsularla en `%macro _stepNN_xxx; ... %mend; %_stepNN_xxx;`. Esto aplica a `runner/main.sas` (`%macro _main_pipeline`) y a steps individuales como `02`, `04`, `05`, `06`, `09`.
+
+**Independencia de steps:** cada step carga sus propias dependencias (`%include "&fw_root./src/common/common_public.sas";`) y gestiona su propio ciclo de vida de CASLIBs (create → promote → work → drop). Ningún CASLIB operativo sobrevive entre steps. `casuser` (config) es la única excepción.
 - Se usa CASLIB/LIBNAME fijo `OUT` para outputs porque `LIBNAME` en SAS admite máximo 8 caracteres.
 - La separación por corrida se mantiene vía path físico `outputs/runs/<run_id>/`.
 - Convención estricta de naming operativo: usar solo `RAW` y `PROC` para capas de datos del framework (no usar `RAWDATA` ni `PROCESSED`).
@@ -157,6 +166,7 @@ Todo output va en:
 - `outputs/runs/<run_id>/images`
 - `outputs/runs/<run_id>/tables`
 - `outputs/runs/<run_id>/manifests`
+- `outputs/runs/<run_id>/experiments` — outputs exploratorios (modo CUSTOM de módulos)
 
 Reglas:
 - Ningún módulo escribe en `data/processed` (solo en `outputs/...`).
@@ -202,10 +212,10 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS (una vez por proyecto) |
 | 05 | `steps/05_partition_data.sas` | Particiones por troncal/split/scope |
 | 06 | `steps/06_promote_segment_context.sas` | Contexto de ejecución para segmento |
-| 07 | `steps/07_config_methods_segment.sas` | Selección de módulos por Método (segmento) |
+| 07 | `steps/07_config_methods_segment.sas` | Selección de módulos por Método (segmento) + params módulos |
 | 08 | `steps/08_run_methods_segment.sas` | Ejecutar subflow de módulos (segmento) |
 | 09 | `steps/09_promote_universe_context.sas` | Contexto de ejecución para universo |
-| 10 | `steps/10_config_methods_universe.sas` | Selección de módulos por Método (universo) |
+| 10 | `steps/10_config_methods_universe.sas` | Selección de módulos por Método (universo) + params módulos |
 | 11 | `steps/11_run_methods_universe.sas` | Ejecutar subflow de módulos (universo) |
 
 ### 5.2 Cómo usar
@@ -237,6 +247,8 @@ Ver `design.md §5` para el contrato completo.
    - `impl/<nuevo_modulo>_report.sas`
 3. Registrar el módulo en `configs/registry/modules_registry.sas`.
 4. Documentar inputs/outputs en `docs/module_catalog.md`.
+
+Ver `src/modules/correlacion/` como implementación de referencia.
 
 ---
 

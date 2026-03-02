@@ -43,6 +43,11 @@ El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) 
 - Al final del bloque se dropean `PROC` y `OUT` (archivos en disco persisten).
 - Patrón obligatorio: **create → promote → work → drop**.
 
+**Independencia de steps:**
+- Cada step es autónomo: carga sus dependencias vía `%include "&fw_root./src/common/common_public.sas";`.
+- Todo step que cree CASLIBs operativos (PROC, OUT, RAW) los dropea al finalizar, junto con las tablas promovidas.
+- `casuser` (config) no se dropea entre steps; persiste en la sesión CAS.
+
 **Restricción SAS open code:**
 - `%if`/`%do` no se permiten fuera de una macro. Todo `.sas` que use lógica condicional la encapsula en `%macro ... %mend;`.
 - Aplica tanto a steps (`_step06_validate`, etc.) como al runner (`%macro _main_pipeline`).
@@ -148,7 +153,85 @@ La matriz es declarativa; el runner/subflow ejecuta solo métodos `enabled=1`.
 
 ---
 
-## 4) Reglas para agregar módulos
+## 4) Módulo: Correlación
+
+**Ruta**
+- `src/modules/correlacion/`
+
+**API pública**
+- `%correlacion_run(...)`
+- Parámetros de entrada:
+  - `input_caslib=PROC` — CASLIB de entrada
+  - `input_table=_active_input` — tabla promovida por `run_module`
+  - `output_caslib=OUT` — CASLIB de salida
+  - `troncal_id`, `split`, `scope`, `run_id` — contexto
+
+**Estructura interna**
+```
+src/modules/correlacion/
+  correlacion_run.sas          %correlacion_run — entry point público
+  correlacion_contract.sas     %correlacion_contract — validaciones
+  impl/
+    correlacion_compute.sas    %_correlacion_compute — Pearson + Spearman
+    correlacion_report.sas     %_correlacion_report — HTML + Excel con semáforo
+```
+
+**Inputs típicos**
+- Dataset input (universo o segmento) con variables numéricas.
+- Variables numéricas se resuelven según el **modo de ejecución**:
+
+**Modos de ejecución (configurados en Steps 07/10)**
+
+| Modo | `corr_mode` | Variables | Output destino | Prefijo archivo |
+|------|-------------|-----------|----------------|----------------|
+| Automático | `AUTO` | `cfg_segmentos.num_list` → fallback `cfg_troncales.num_unv` | `reports/` + `tables/` | `correlacion_` |
+| Personalizado | `CUSTOM` | `corr_custom_vars` (lista manual del usuario) | `experiments/` | `custom_correlacion_` |
+
+- **AUTO** (por defecto): resuelve variables desde config. Segmento usa `cfg_segmentos.num_list` (si no vacío), fallback a `cfg_troncales.num_unv`. Universo usa `cfg_troncales.num_unv`.
+- **CUSTOM**: el usuario especifica variables en `corr_custom_vars` (separadas por espacio). Si `corr_custom_vars` está vacío, se hace fallback automático a AUTO con WARNING.
+- Los outputs CUSTOM van a `experiments/` para separar análisis exploratorio de resultados de validación estándar.
+- Solo opera sobre variables numéricas (no categóricas).
+
+**Validaciones (contract)**
+- Existencia del input (`table.tableExists` en CASLIB).
+- No vacío (nobs > 0).
+- Lista de variables numéricas no vacía.
+
+**Cómputo**
+- Correlación de **Pearson** (`proc corr outp=`).
+- Correlación de **Spearman** (`proc corr spearman outs=`).
+- Ambas matrices filtradas a `_type_='CORR'`.
+
+**Reportes — semáforo por |r|**
+- `|r| < 0.5` → lightgreen (débil)
+- `0.5 ≤ |r| < 0.6` → yellow (moderada)
+- `|r| ≥ 0.6` → red (fuerte)
+
+Formato SAS `CorrSignif` aplicado vía `style(column)={backgroundcolor=CorrSignif.}` en ODS.
+
+**Outputs esperados**
+
+*Modo AUTO (validación estándar):*
+- `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.html` — matrices coloreadas
+- `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.xlsx` — hojas Pearson + Spearman
+- `outputs/runs/<run_id>/tables/correlacion_troncal_X_<split>_<scope>_pearson.sashdat` — datos Pearson
+- `outputs/runs/<run_id>/tables/correlacion_troncal_X_<split>_<scope>_spearman.sashdat` — datos Spearman
+
+*Modo CUSTOM (análisis exploratorio):*
+- `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>.html`
+- `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>.xlsx`
+- `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>_pearson.sashdat`
+- `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>_spearman.sashdat`
+
+**Compatibilidad de contexto**: segmento y universo.
+
+**Cleanup**
+- Tablas temporales en `work` (`_corr_pearson`, `_corr_spearman`) se eliminan al finalizar.
+- Tablas temporales en CAS OUT (`_corr_prsn_tmp`, `_corr_sprm_tmp`) se dropean tras persistir.
+
+---
+
+## 5) Reglas para agregar módulos
 
 Para agregar un módulo nuevo:
 1. Crear carpeta `src/modules/<modulo>/`.
@@ -176,3 +259,5 @@ Recomendación:
 Ejemplo:
 - `gini_troncal_1_train_base.xlsx`
 - `gini_troncal_1_train_seg001.xlsx`
+- `correlacion_troncal_1_train_base.html`
+- `correlacion_troncal_1_oot_seg002.xlsx`

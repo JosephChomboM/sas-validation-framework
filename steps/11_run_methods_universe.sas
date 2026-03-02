@@ -9,7 +9,8 @@
      4) Terminar sesión CAS
    ========================================================================= */
 
-/* Cargar dispatch */
+/* Dependencias (cada step es independiente) */
+%include "&fw_root./src/common/common_public.sas";
 %include "&fw_root./src/dispatch/run_module.sas";
 %include "&fw_root./src/dispatch/run_method.sas";
 

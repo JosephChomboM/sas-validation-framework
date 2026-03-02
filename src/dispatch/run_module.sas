@@ -52,10 +52,9 @@
   /* 3) Ejecutar módulo ---------------------------------------------------
      El módulo lee de PROC._active_input y escribe en &_out_caslib.
      Si necesita un CASLIB scoped propio, lo crea y limpia internamente.
-
-     STUB: cuando los módulos existan, descomentar las líneas siguientes.
-
-  %include "&fw_root./src/modules/&module./&module._contract.sas";
+     _run.sas es el entry point: incluye contract + impl internamente.
+     ------------------------------------------------------------------- */
+  %include "&fw_root./src/modules/&module./&module._run.sas";
   %&module._run(
     input_caslib = PROC,
     input_table  = _active_input,
@@ -65,9 +64,8 @@
     scope        = &_scope.,
     run_id       = &run_id.
   );
-  */
 
-  %put NOTE: [run_module] (STUB) &module. completado para troncal_&troncal_id./&split./&_scope.;
+  %put NOTE: [run_module] &module. completado para troncal_&troncal_id./&split./&_scope.;
 
   /* 4) Drop: eliminar tabla promovida de PROC */
   proc cas;

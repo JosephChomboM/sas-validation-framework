@@ -27,7 +27,9 @@
    %include "&fw_root./steps/02_load_config.sas";
 
    /* Cargar macros comunes (cas_utils, fw_paths, fw_import, fw_prepare)
-      Se cargan siempre — son definiciones de macros, no ejecutan nada. */
+      Cada step también incluye sus dependencias para ser independiente.
+      Esta carga es redundante (idempotente) pero documenta las dependencias
+      del pipeline completo. */
    %include "&fw_root./src/common/common_public.sas";
 
    /* =====================================================================
