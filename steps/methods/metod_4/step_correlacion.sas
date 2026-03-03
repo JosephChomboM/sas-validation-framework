@@ -1,19 +1,25 @@
 /* =========================================================================
    steps/methods/metod_4/step_correlacion.sas
-   Step de módulo: Correlación (Método 4)
+   Step de módulo: Correlación (Método 4.3)
 
    Flujo:
-     1) Configuración propia del módulo (corr_mode, corr_custom_vars)
-     2) Crear CASLIBs PROC + OUT
-     3) Bloque SEGMENTO — iterar según ctx_segment_* (Step 06)
-     4) Bloque UNIVERSO — iterar según ctx_universe_* (Step 09)
+     1) Check flag run_correlacion (skip si deshabilitado)
+     2) Configuración propia del módulo (corr_mode, corr_custom_vars)
+     3) Crear CASLIBs PROC + OUT
+     4) Iteración según ctx_scope:
+        - SEGMENTO → itera troncales + segmentos (ctx_segment_*)
+        - UNIVERSO → itera troncales base (ctx_universe_*)
      5) Cleanup CASLIBs
 
    Dependencias:
-     - Macro vars de Step 06 (ctx_segment_mode, ctx_segment_troncal_id,
-       ctx_segment_split, ctx_segment_seg_id)
-     - Macro vars de Step 09 (ctx_universe_mode, ctx_universe_troncal_id,
-       ctx_universe_split)
+     - &ctx_scope (SEGMENTO | UNIVERSO) — seteado por el context.sas del
+       swimlane correspondiente
+     - &run_correlacion (0|1) — seteado por select_modules.sas
+     - Macro vars de contexto según scope:
+       SEGMENTO: ctx_segment_mode, ctx_segment_troncal_id,
+                 ctx_segment_split, ctx_segment_seg_id
+       UNIVERSO: ctx_universe_mode, ctx_universe_troncal_id,
+                 ctx_universe_split
      - casuser.cfg_troncales / cfg_segmentos (promovidas en Step 02)
      - &fw_root., &run_id (Steps 01 y 02)
 
@@ -34,10 +40,16 @@
 %let corr_mode        = AUTO;
 %let corr_custom_vars = ;
 
-%put NOTE: [step_correlacion] corr_mode=&corr_mode.;
-
 /* ---- EJECUCIÓN -------------------------------------------------------- */
 %macro _step_correlacion;
+
+  /* ---- 0) Check flag de habilitación ---------------------------------- */
+  %if &run_correlacion. ne 1 %then %do;
+    %put NOTE: [step_correlacion] Módulo deshabilitado (run_correlacion=&run_correlacion.). Saltando.;
+    %return;
+  %end;
+
+  %put NOTE: [step_correlacion] Iniciando — scope=&ctx_scope. corr_mode=&corr_mode.;
 
   /* ---- 1) Crear CASLIBs PROC + OUT ----------------------------------- */
   %_create_caslib(
@@ -59,122 +71,134 @@
     subdirs_flg  = 1
   );
 
-  /* ==================================================================
-     2) BLOQUE SEGMENTO — usa ctx_segment_* de Step 06
-     ================================================================== */
+  /* ---- 2) Resolver contexto según scope ------------------------------- */
   %local _sp1 _sp2;
 
-  %if %upcase(&ctx_segment_split.) = TRAIN %then %do;
-    %let _sp1 = train; %let _sp2 = ;
-  %end;
-  %else %if %upcase(&ctx_segment_split.) = OOT %then %do;
-    %let _sp1 = oot; %let _sp2 = ;
-  %end;
-  %else %do;
-    %let _sp1 = train; %let _sp2 = oot;
-  %end;
+  %if %upcase(&ctx_scope.) = SEGMENTO %then %do;
 
-  %put NOTE: [step_correlacion] === SEGMENTO: mode=&ctx_segment_mode. split=&ctx_segment_split. ===;
+    /* Splits */
+    %if %upcase(&ctx_segment_split.) = TRAIN %then %do;
+      %let _sp1 = train; %let _sp2 = ;
+    %end;
+    %else %if %upcase(&ctx_segment_split.) = OOT %then %do;
+      %let _sp1 = oot; %let _sp2 = ;
+    %end;
+    %else %do;
+      %let _sp1 = train; %let _sp2 = oot;
+    %end;
 
-  %if %upcase(&ctx_segment_mode.) = ALL %then %do;
+    %put NOTE: [step_correlacion] SEGMENTO: mode=&ctx_segment_mode. split=&ctx_segment_split.;
 
-    proc sql noprint;
-      select count(*) into :_n_tr trimmed from casuser.cfg_troncales;
-    quit;
-    data _null_;
-      set casuser.cfg_troncales;
-      call symputx(cats('_cr_tid_', _n_), troncal_id);
-      call symputx(cats('_cr_nsg_', _n_), n_segments);
-    run;
+    /* ---- mode=ALL: iterar todos los troncales + segmentos ------------- */
+    %if %upcase(&ctx_segment_mode.) = ALL %then %do;
 
-    %do _i = 1 %to &_n_tr.;
-      %let _tid = &&_cr_tid_&_i.;
-      %let _nsg = &&_cr_nsg_&_i.;
+      proc sql noprint;
+        select count(*) into :_n_tr trimmed from casuser.cfg_troncales;
+      quit;
+      data _null_;
+        set casuser.cfg_troncales;
+        call symputx(cats('_cr_tid_', _n_), troncal_id);
+        call symputx(cats('_cr_nsg_', _n_), n_segments);
+      run;
 
-      %if &_nsg. > 0 %then %do;
-        %do _sg = 1 %to &_nsg.;
+      %do _i = 1 %to &_n_tr.;
+        %let _tid = &&_cr_tid_&_i.;
+        %let _nsg = &&_cr_nsg_&_i.;
+
+        %if &_nsg. > 0 %then %do;
+          %do _sg = 1 %to &_nsg.;
+            %if %superq(_sp1) ne %then
+              %run_module(module=correlacion, troncal_id=&_tid., split=&_sp1., seg_id=&_sg., run_id=&run_id.);
+            %if %superq(_sp2) ne %then
+              %run_module(module=correlacion, troncal_id=&_tid., split=&_sp2., seg_id=&_sg., run_id=&run_id.);
+          %end;
+        %end;
+      %end;
+
+    %end;
+    %else %do;
+      /* ---- mode=ONE: troncal y seg_id específicos --------------------- */
+      %let _tid = &ctx_segment_troncal_id.;
+
+      %if %upcase(&ctx_segment_seg_id.) = ALL %then %do;
+        proc sql noprint;
+          select n_segments into :_nsg_one trimmed
+          from casuser.cfg_troncales where troncal_id = &_tid.;
+        quit;
+
+        %do _sg = 1 %to &_nsg_one.;
           %if %superq(_sp1) ne %then
             %run_module(module=correlacion, troncal_id=&_tid., split=&_sp1., seg_id=&_sg., run_id=&run_id.);
           %if %superq(_sp2) ne %then
             %run_module(module=correlacion, troncal_id=&_tid., split=&_sp2., seg_id=&_sg., run_id=&run_id.);
         %end;
       %end;
-    %end;
-
-  %end;
-  %else %do;
-    /* mode=ONE: troncal y seg_id específicos */
-    %let _tid = &ctx_segment_troncal_id.;
-
-    %if %upcase(&ctx_segment_seg_id.) = ALL %then %do;
-      proc sql noprint;
-        select n_segments into :_nsg_one trimmed
-        from casuser.cfg_troncales where troncal_id = &_tid.;
-      quit;
-
-      %do _sg = 1 %to &_nsg_one.;
+      %else %do;
         %if %superq(_sp1) ne %then
-          %run_module(module=correlacion, troncal_id=&_tid., split=&_sp1., seg_id=&_sg., run_id=&run_id.);
+          %run_module(module=correlacion, troncal_id=&_tid., split=&_sp1., seg_id=&ctx_segment_seg_id., run_id=&run_id.);
         %if %superq(_sp2) ne %then
-          %run_module(module=correlacion, troncal_id=&_tid., split=&_sp2., seg_id=&_sg., run_id=&run_id.);
+          %run_module(module=correlacion, troncal_id=&_tid., split=&_sp2., seg_id=&ctx_segment_seg_id., run_id=&run_id.);
       %end;
     %end;
-    %else %do;
-      %if %superq(_sp1) ne %then
-        %run_module(module=correlacion, troncal_id=&_tid., split=&_sp1., seg_id=&ctx_segment_seg_id., run_id=&run_id.);
-      %if %superq(_sp2) ne %then
-        %run_module(module=correlacion, troncal_id=&_tid., split=&_sp2., seg_id=&ctx_segment_seg_id., run_id=&run_id.);
+
+  %end;  /* fin SEGMENTO */
+
+  %else %if %upcase(&ctx_scope.) = UNIVERSO %then %do;
+
+    /* Splits */
+    %if %upcase(&ctx_universe_split.) = TRAIN %then %do;
+      %let _sp1 = train; %let _sp2 = ;
     %end;
-  %end;
+    %else %if %upcase(&ctx_universe_split.) = OOT %then %do;
+      %let _sp1 = oot; %let _sp2 = ;
+    %end;
+    %else %do;
+      %let _sp1 = train; %let _sp2 = oot;
+    %end;
 
-  /* ==================================================================
-     3) BLOQUE UNIVERSO — usa ctx_universe_* de Step 09
-     ================================================================== */
-  %if %upcase(&ctx_universe_split.) = TRAIN %then %do;
-    %let _sp1 = train; %let _sp2 = ;
-  %end;
-  %else %if %upcase(&ctx_universe_split.) = OOT %then %do;
-    %let _sp1 = oot; %let _sp2 = ;
-  %end;
-  %else %do;
-    %let _sp1 = train; %let _sp2 = oot;
-  %end;
+    %put NOTE: [step_correlacion] UNIVERSO: mode=&ctx_universe_mode. split=&ctx_universe_split.;
 
-  %put NOTE: [step_correlacion] === UNIVERSO: mode=&ctx_universe_mode. split=&ctx_universe_split. ===;
+    /* ---- mode=ALL: iterar todos los troncales (base) ------------------ */
+    %if %upcase(&ctx_universe_mode.) = ALL %then %do;
 
-  %if %upcase(&ctx_universe_mode.) = ALL %then %do;
+      proc sql noprint;
+        select count(*) into :_n_tr_u trimmed from casuser.cfg_troncales;
+      quit;
+      data _null_;
+        set casuser.cfg_troncales;
+        call symputx(cats('_cr_utid_', _n_), troncal_id);
+      run;
 
-    proc sql noprint;
-      select count(*) into :_n_tr_u trimmed from casuser.cfg_troncales;
-    quit;
-    data _null_;
-      set casuser.cfg_troncales;
-      call symputx(cats('_cr_utid_', _n_), troncal_id);
-    run;
+      %do _i = 1 %to &_n_tr_u.;
+        %let _tid = &&_cr_utid_&_i.;
+        %if %superq(_sp1) ne %then
+          %run_module(module=correlacion, troncal_id=&_tid., split=&_sp1., seg_id=, run_id=&run_id.);
+        %if %superq(_sp2) ne %then
+          %run_module(module=correlacion, troncal_id=&_tid., split=&_sp2., seg_id=, run_id=&run_id.);
+      %end;
 
-    %do _i = 1 %to &_n_tr_u.;
-      %let _tid = &&_cr_utid_&_i.;
+    %end;
+    %else %do;
+      /* ---- mode=ONE: troncal específico (base) ----------------------- */
+      %let _tid = &ctx_universe_troncal_id.;
       %if %superq(_sp1) ne %then
         %run_module(module=correlacion, troncal_id=&_tid., split=&_sp1., seg_id=, run_id=&run_id.);
       %if %superq(_sp2) ne %then
         %run_module(module=correlacion, troncal_id=&_tid., split=&_sp2., seg_id=, run_id=&run_id.);
     %end;
 
-  %end;
+  %end;  /* fin UNIVERSO */
+
   %else %do;
-    %let _tid = &ctx_universe_troncal_id.;
-    %if %superq(_sp1) ne %then
-      %run_module(module=correlacion, troncal_id=&_tid., split=&_sp1., seg_id=, run_id=&run_id.);
-    %if %superq(_sp2) ne %then
-      %run_module(module=correlacion, troncal_id=&_tid., split=&_sp2., seg_id=, run_id=&run_id.);
+    %put ERROR: [step_correlacion] ctx_scope=&ctx_scope. no reconocido. Debe ser SEGMENTO o UNIVERSO.;
   %end;
 
-  /* ---- 4) Cleanup CASLIBs --------------------------------------------- */
+  /* ---- 3) Cleanup CASLIBs --------------------------------------------- */
   %_drop_caslib(caslib_name=OUT,  cas_sess_name=conn, del_prom_tables=1);
   %_drop_caslib(caslib_name=PROC, cas_sess_name=conn, del_prom_tables=1);
 
   %put NOTE: ======================================================;
-  %put NOTE: [step_correlacion] Completado (mode=&corr_mode.);
+  %put NOTE: [step_correlacion] Completado (scope=&ctx_scope. mode=&corr_mode.);
   %put NOTE: ======================================================;
 
 %mend _step_correlacion;

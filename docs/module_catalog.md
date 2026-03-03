@@ -31,17 +31,24 @@ Convención de naming operativo:
 3. Se ejecuta el subflow de módulos para ese contexto.
 
 **Selección de módulos por Método:**
-- Cada Método agrupa módulos lógicamente en `steps/methods/metod_N/`.
+- Cada swimlane tiene su propio `select_modules.sas` donde se habilitan/deshabilitan módulos.
+- Los flags `%let run_<modulo> = 1|0;` controlan qué módulos se ejecutan.
 - Cada módulo tiene su propio step file independiente (`step_<modulo>.sas`).
 - En el `.flw`, cada step de módulo es un nodo que puede ejecutarse vía background submit.
-- Cada step de módulo crea CASLIBs PROC/OUT, itera segmentos+universo, y limpia al final.
+- Cada step de módulo checa su flag, lee `&ctx_scope`, crea CASLIBs PROC/OUT, itera, y limpia.
+
+**Swimlanes (dos flujos de ejecución):**
+- **SEGMENTO**: `steps/segmento/context.sas` → `steps/segmento/select_modules.sas` → módulos (itera troncales + segmentos)
+- **UNIVERSO**: `steps/universo/context.sas` → `steps/universo/select_modules.sas` → módulos (itera troncales, solo base)
 
 El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) a cada módulo vía `%run_module`.
 
 **Ciclo de vida de CASLIBs en ejecución:**
 - Cada step de módulo (`step_<modulo>.sas`) crea CASLIBs `PROC` y `OUT` al inicio.
+- Lee `&ctx_scope` para determinar si itera segmentos (SEGMENTO) o base/troncal (UNIVERSO).
 - Por cada contexto, `run_module.sas` promueve el input específico desde `PROC` como tabla `_active_input` (vía `%_promote_castable`), ejecuta el módulo, y dropea la tabla promovida.
 - Al final del step se dropean `PROC` y `OUT` (archivos en disco persisten).
+- El mismo archivo step se incluye en ambos swimlanes (seg y unv). En cada swimlane, `ctx_scope` tiene un valor diferente.
 - Patrón obligatorio: **create → promote → work → drop**.
 
 **Independencia de steps:**
@@ -51,13 +58,17 @@ El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) 
 
 **Restricción SAS open code:**
 - `%if`/`%do` no se permiten fuera de una macro. Todo `.sas` que use lógica condicional la encapsula en `%macro ... %mend;`.
-- Aplica tanto a steps (`_step06_validate`, etc.) como al runner (`%macro _main_pipeline`).
+- Aplica tanto a steps (`_ctx_seg_validate`, etc.) como al runner (`%macro _main_pipeline`).
 - Si un módulo necesita condicionales en su entry point, debe usar el mismo patrón.
 
 **Parámetros específicos de módulos:**
 - Parámetros como `threshold`, `num_rounds`, `num_bins`, `corr_mode` y similares **no** se declaran en `config.sas`.
 - Se configuran en el step del módulo correspondiente (`steps/methods/metod_N/step_<modulo>.sas`).
-- `config.sas` solo contiene parámetros estructurales de troncales/segmentos (identificadores, variables, rangos, listas, segmentación).
+- `config.sas` solo contiene parámetros estructurales de troncales/segmentos.
+
+**Flag de habilitación:**
+- Cada step de módulo checa `&run_<modulo>` al inicio. Si vale 0, se salta la ejecución.
+- Estos flags se setean en `steps/segmento/select_modules.sas` y `steps/universo/select_modules.sas`.
 
 Orden de ejecución recomendado:
 - Segmentos primero (si existen), luego universo.
@@ -77,14 +88,17 @@ Si el contexto no está completo, el módulo debe fallar temprano con mensaje cl
 
 Cada Método agrupa módulos lógicamente. Los steps de módulos están en `steps/methods/metod_N/`.
 
-| Método | Carpeta | Módulos (steps) |
-|--------|---------|------------------|
-| Metodo 1 | `steps/methods/metod_1/` | universe (futuro) |
-| Metodo 2 | `steps/methods/metod_2/` | target (futuro) |
-| Metodo 3 | `steps/methods/metod_3/` | segmentacion (futuro) |
-| Metodo 4 | `steps/methods/metod_4/` | fillrate, missing, bivariado, **correlación**, gini |
+| Método | Sub-método | Carpeta | Módulos (steps) |
+|--------|------------|---------|------------------|
+| Metodo 1 | — | `steps/methods/metod_1/` | universe (futuro) |
+| Metodo 2 | — | `steps/methods/metod_2/` | target (futuro) |
+| Metodo 3 | — | `steps/methods/metod_3/` | segmentacion (futuro) |
+| Metodo 4 | 4.2 | `steps/methods/metod_4/` | estabilidad, fillrate, missings, psi |
+| Metodo 4 | 4.3 | `steps/methods/metod_4/` | bivariado, **correlación**, gini |
 
-Cada módulo-step es independiente: tiene su propia configuración, crea CASLIBs, itera segmentos+universo, y limpia.
+Los sub-métodos organizan la selección en el UI y las carpetas de output (`reports/metod_4_2/`, `reports/metod_4_3/`).
+
+Cada módulo-step es independiente: checa `&run_<modulo>`, lee `&ctx_scope`, crea CASLIBs, itera seg o unv, y limpia.
 
 ---
 
@@ -241,12 +255,14 @@ Para agregar un módulo nuevo:
    - `impl/<modulo>_compute.sas`
    - `impl/<modulo>_report.sas` (si aplica)
 3. Crear step de módulo en `steps/methods/metod_N/step_<modulo>.sas`:
+   - Check de flag `&run_<modulo>` al inicio (→ skip si 0)
    - Sección de configuración propia (params editables)
    - Crea CASLIBs PROC + OUT
-   - Itera contexto segmento (vía `ctx_segment_*` de Step 06)
-   - Itera contexto universo (vía `ctx_universe_*` de Step 09)
+   - Lee `&ctx_scope` para decidir iteración:
+     - SEGMENTO → itera via `ctx_segment_*`
+     - UNIVERSO → itera via `ctx_universe_*`
    - Cleanup CASLIBs al final
-4. Añadir seccin en este documento con:
+4. Añadir flags en ambos `select_modules.sas` (segmento y universo).
    - Inputs esperados
    - Outputs generados
    - Validaciones

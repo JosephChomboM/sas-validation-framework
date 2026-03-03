@@ -2,14 +2,15 @@
    runner/main.sas — Orquestador liviano
 
    Responsabilidad:
-     - Incluir secuencialmente los steps 01..11.
-     - Cada step contiene su parte frontend + backend.
+     - Incluir secuencialmente los steps compartidos (01–05).
+     - Ejecutar dos swimlanes independientes:
+       SEGMENTO: contexto seg → selección módulos → módulos (solo seg)
+       UNIVERSO: contexto unv → selección módulos → módulos (solo unv)
 
    data_prep_enabled (0|1):
      - 1 = ejecutar steps 03-05 (crear carpetas de data, importar ADLS, particionar).
            Usar en la primera corrida o al re-generar data.
      - 0 = saltar steps 03-05 (data/carpetas ya existen en disco).
-           Permite ir directo de config (step 02) a ejecución (step 06+).
 
    Nota SAS: toda lógica condicional (%if/%do) debe vivir dentro de una
    macro. Por eso el pipeline completo se define en %_main_pipeline.
@@ -46,24 +47,46 @@
    %end;
 
    /* =====================================================================
-      EXECUTION (cada corrida)
+      EXECUTION — SWIMLANE SEGMENTO
+      Contexto → selección de módulos → ejecución (solo segmentos)
       ===================================================================== */
-   /* Contexto: qué data analizar (troncal, split, seg_id) */
-   %include "&fw_root./steps/06_promote_segment_context.sas";
-   %include "&fw_root./steps/09_promote_universe_context.sas";
+   %include "&fw_root./steps/segmento/context.sas";
+   %include "&fw_root./steps/segmento/select_modules.sas";
 
-   /* Módulos: cada step crea CASLIBs, itera contexto seg+unv, y limpia */
-   /* -- Método 4 ----------------------------------------------------- */
+   /* Módulos: cada step checa su flag run_<modulo>, crea CASLIBs,
+      itera segmentos según ctx_segment_*, y limpia */
+   /* -- Método 4.2 --------------------------------------------------- */
+   /* %include "&fw_root./steps/methods/metod_4/step_estabilidad.sas"; */
+   /* %include "&fw_root./steps/methods/metod_4/step_fillrate.sas";    */
+   /* %include "&fw_root./steps/methods/metod_4/step_missings.sas";    */
+   /* %include "&fw_root./steps/methods/metod_4/step_psi.sas";         */
+   /* -- Método 4.3 --------------------------------------------------- */
+   /* %include "&fw_root./steps/methods/metod_4/step_bivariado.sas";   */
    %include "&fw_root./steps/methods/metod_4/step_correlacion.sas";
-   /* %include "&fw_root./steps/methods/metod_4/step_gini.sas";       */
-   /* %include "&fw_root./steps/methods/metod_4/step_fillrate.sas";   */
-   /* %include "&fw_root./steps/methods/metod_4/step_missing.sas";    */
-   /* %include "&fw_root./steps/methods/metod_4/step_bivariado.sas";  */
+   /* %include "&fw_root./steps/methods/metod_4/step_gini.sas";        */
 
-   /* -- Métodos 1-3 (futuro) ---------------------------------------- */
-   /* %include "&fw_root./steps/methods/metod_1/step_universe.sas";   */
-   /* %include "&fw_root./steps/methods/metod_2/step_target.sas";     */
+   /* -- Métodos 1-3 (futuro) ----------------------------------------- */
+   /* %include "&fw_root./steps/methods/metod_1/step_universe.sas";    */
+   /* %include "&fw_root./steps/methods/metod_2/step_target.sas";      */
    /* %include "&fw_root./steps/methods/metod_3/step_segmentacion.sas"; */
+
+   /* =====================================================================
+      EXECUTION — SWIMLANE UNIVERSO
+      Contexto → selección de módulos → ejecución (solo base/troncal)
+      ===================================================================== */
+   %include "&fw_root./steps/universo/context.sas";
+   %include "&fw_root./steps/universo/select_modules.sas";
+
+   /* Mismos steps de módulo: ahora ctx_scope=UNIVERSO → itera base */
+   /* -- Método 4.2 --------------------------------------------------- */
+   /* %include "&fw_root./steps/methods/metod_4/step_estabilidad.sas"; */
+   /* %include "&fw_root./steps/methods/metod_4/step_fillrate.sas";    */
+   /* %include "&fw_root./steps/methods/metod_4/step_missings.sas";    */
+   /* %include "&fw_root./steps/methods/metod_4/step_psi.sas";         */
+   /* -- Método 4.3 --------------------------------------------------- */
+   /* %include "&fw_root./steps/methods/metod_4/step_bivariado.sas";   */
+   %include "&fw_root./steps/methods/metod_4/step_correlacion.sas";
+   /* %include "&fw_root./steps/methods/metod_4/step_gini.sas";        */
 
    %put NOTE: ======================================================;
    %put NOTE: [main] Run &run_id. completado.;

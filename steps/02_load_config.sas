@@ -1,84 +1,86 @@
 /* =========================================================================
-   steps/02_load_config.sas — Step 2: Carga/validación de config.sas
-   Backend del step:
-     - Inicializa sesión CAS
-     - Genera run_id
-     - Carga config.sas (cfg_troncales/cfg_segmentos)
-     - Crea carpetas de output del run actual (siempre, cada corrida)
-   ========================================================================= */
-
-%let config_file = &fw_root./config.sas;
+steps/02_load_config.sas — Step 2: Carga/validación de config.sas
+Backend del step:
+- Inicializa sesión CAS
+- Genera run_id
+- Carga config.sas (cfg_troncales/cfg_segmentos)
+- Crea carpetas de output del run actual (siempre, cada corrida)
+========================================================================= */
+%let config_file=&fw_root./config.sas;
 
 %macro _step02_load;
 
-  %if %sysfunc(fileexist(&config_file.)) = 0 %then %do;
-    %put ERROR: [step-02] No existe config_file=&config_file.;
-    %return;
-  %end;
-  %else %do;
-    %put NOTE: [step-02] config_file=&config_file.;
-  %end;
+	%if %sysfunc(fileexist(&config_file.))=0 %then %do;
+		%put ERROR: [step-02] No existe config_file=&config_file.;
+		%return;
+	%end;
+	%else %do;
+		%put NOTE: [step-02] config_file=&config_file.;
+	%end;
 
-  /* --- Backend: CAS init + run_id + carga config ----------------------- */
-  cas conn;
-  libname casuser cas caslib=casuser;
-  options casdatalimit=ALL;
+	/* --- Backend: CAS init + run_id + carga config ----------------------- */
+	cas conn;
+	libname casuser cas caslib=casuser;
+	options casdatalimit=ALL;
 
-  data _null_;
-    _ts = put(datetime(), E8601DT19.);
-    _ts = translate(_ts, "-", ":");
-    _ts = compress(_ts, "T");
-    call symputx("run_id", cats("run_", _ts));
-  run;
+	data _null_;
+		_ts=put(datetime(), E8601DT19.);
+		_ts=translate(_ts, "-", ":");
+		_ts=compress(_ts, "T");
+		call symputx("run_id", cats("run_", _ts));
+	run;
 
-  %include "&config_file.";
+	/* --- Promover tablas de config (necesario para background submit) --- */
 
-  /* --- Promover tablas de config (necesario para background submit) --- */
-  /* Drop promovidas anteriores (si existen) y volver a promover         */
-  proc cas;
-    session conn;
-    table.dropTable / caslib="casuser" name="cfg_troncales" quiet=true;
-    table.dropTable / caslib="casuser" name="cfg_segmentos" quiet=true;
-  quit;
+	/* Drop promovidas anteriores (si existen) y volver a promover         */
+	proc cas;
+		session conn;
+		table.dropTable / caslib="casuser" name="cfg_troncales" quiet=true;
+		table.dropTable / caslib="casuser" name="cfg_segmentos" quiet=true;
+	quit;
 
-  /* config.sas crea las tablas via DATA step; ahora promoverlas */
-  proc casutil;
-    promote incaslib="casuser" casdata="cfg_troncales"
-            outcaslib="casuser" casout="cfg_troncales";
-  quit;
-  proc casutil;
-    promote incaslib="casuser" casdata="cfg_segmentos"
-            outcaslib="casuser" casout="cfg_segmentos";
-  quit;
+	%include "&config_file.";
 
-  %put NOTE: [step-02] CAS inicializado, config cargado y promovido. run_id=&run_id.;
+	/* config.sas crea las tablas via DATA step; ahora promoverlas */
+	proc casutil;
+		promote incaslib="casuser" casdata="cfg_troncales" outcaslib="casuser"
+			casout="cfg_troncales";
+	quit;
+
+	proc casutil;
+		promote incaslib="casuser" casdata="cfg_segmentos" outcaslib="casuser"
+			casout="cfg_segmentos";
+	quit;
+
+	%put NOTE: [step-02] CAS inicializado, config cargado y promovido.
+		run_id=&run_id.;
 
 %mend _step02_load;
 %_step02_load;
 
 /* --- Crear carpetas de output del run (cada corrida) ----------------- */
 %macro _create_run_dirs;
-   options dlcreatedir;
+	options dlcreatedir;
 
-   libname _mkout1 "&fw_root./outputs";
-   libname _mkout1 clear;
-   libname _mkout2 "&fw_root./outputs/runs";
-   libname _mkout2 clear;
+	libname _mkout1 "&fw_root./outputs";
+	libname _mkout1 clear;
+	libname _mkout2 "&fw_root./outputs/runs";
+	libname _mkout2 clear;
 
-   %let _base = &fw_root./outputs/runs/&run_id.;
-   %let _dirs = logs reports images tables manifests experiments;
-   %let _nd   = %sysfunc(countw(&_dirs., %str( )));
+	%let _base=&fw_root./outputs/runs/&run_id.;
+	%let _dirs=logs reports images tables manifests experiments;
+	%let _nd=%sysfunc(countw(&_dirs., %str( )));
 
-   libname _mkrun "&_base.";
-   libname _mkrun clear;
+	libname _mkrun "&_base.";
+	libname _mkrun clear;
 
-   %do _d = 1 %to &_nd.;
-      %let _dir = %scan(&_dirs., &_d., %str( ));
-      libname _mksub "&_base./&_dir.";
-      libname _mksub clear;
-   %end;
+	%do _d=1 %to &_nd.;
+		%let _dir=%scan(&_dirs., &_d., %str( ));
+		libname _mksub "&_base./&_dir.";
+		libname _mksub clear;
+	%end;
 
-   options nodlcreatedir;
+	options nodlcreatedir;
 %mend _create_run_dirs;
 %_create_run_dirs;
 

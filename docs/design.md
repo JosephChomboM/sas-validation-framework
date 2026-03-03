@@ -26,9 +26,14 @@ Este documento describe:
   - `03_create_folders.sas` → creación de estructura de carpetas (incluye `troncal_X/train/oot/` por cada troncal en config)
   - `04_import_raw_data.sas` → importación ADLS (una vez por proyecto)
   - `05_partition_data.sas` → materialización processed (universo + segmentos)
-  - `06_promote_segment_context.sas` → seleccionar contexto segmento
-  - `09_promote_universe_context.sas` → seleccionar contexto universo
-  - `methods/metod_N/step_<modulo>.sas` → config + ejecución de cada módulo (seg+unv)
+  - **Swimlane SEGMENTO:**
+    - `segmento/context.sas` → seleccionar troncal + segmento + split
+    - `segmento/select_modules.sas` → habilitar/deshabilitar módulos
+    - `methods/metod_N/step_<modulo>.sas` → ejecución (solo segmentos)
+  - **Swimlane UNIVERSO:**
+    - `universo/context.sas` → seleccionar troncal + split
+    - `universo/select_modules.sas` → habilitar/deshabilitar módulos
+    - `methods/metod_N/step_<modulo>.sas` → ejecución (solo base/troncal)
 
 2) **Configuración**
 - Fuente: `config.sas` (generado desde HTML).
@@ -161,8 +166,10 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 03 | `steps/03_create_folders.sas` | Carpetas de data + troncal dirs (solo data prep) | (N/A) |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS | `&adls_import_enabled`, `&adls_*`, `&raw_table` |
 | 05 | `steps/05_partition_data.sas` | Particiones universo/segmento | (N/A) |
-| 06 | `steps/06_promote_segment_context.sas` | Contexto segmento | `&ctx_segment_mode`, `&ctx_segment_troncal_id`, `&ctx_segment_split`, `&ctx_segment_seg_id` |
-| 09 | `steps/09_promote_universe_context.sas` | Contexto universo | `&ctx_universe_mode`, `&ctx_universe_troncal_id`, `&ctx_universe_split` |
+| — | `steps/segmento/context.sas` | Contexto segmento (troncal + seg + split) | `&ctx_scope=SEGMENTO`, `&ctx_segment_mode`, `&ctx_segment_troncal_id`, `&ctx_segment_split`, `&ctx_segment_seg_id` |
+| — | `steps/segmento/select_modules.sas` | Módulos habilitados para segmento | `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
+| — | `steps/universo/context.sas` | Contexto universo (troncal + split) | `&ctx_scope=UNIVERSO`, `&ctx_universe_mode`, `&ctx_universe_troncal_id`, `&ctx_universe_split` |
+| — | `steps/universo/select_modules.sas` | Módulos habilitados para universo | `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
 | — | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación | `&corr_mode`, `&corr_custom_vars` |
 | — | `steps/methods/metod_4/step_gini.sas` | Config + ejecución gini (futuro) | — |
 
@@ -170,7 +177,7 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 
 **Step 03** crea las carpetas de data (`data/raw`, `data/processed`) y las subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal en `casuser.cfg_troncales`. Solo se ejecuta durante data prep (`data_prep_enabled=1`).
 
-Los steps de contexto (`06` y `09`) son obligatorios antes de ejecutar módulos: definen qué data analizar. Los steps de módulos (en `steps/methods/`) leen esas macro variables y ejecutan autónomamente.
+Cada swimlane tiene su propio `context.sas` + `select_modules.sas` que se ejecutan antes de los módulos. Los steps de módulos (en `steps/methods/`) leen `&ctx_scope` y los flags `&run_<modulo>` para decidir qué ejecutar.
 
 ### 5.3 Convención de IDs `_id_*`
 
@@ -179,8 +186,9 @@ Los IDs de UI se nombran como: `_id_<entidad>_<campo>`
 Ejemplos:
 - `_id_project_root` (Step 01)
 - `_id_import_enabled`, `_id_adls_storage`, `_id_adls_container`, `_id_adls_parquet_path`, `_id_raw_table_name` (Step 04)
-- `_id_ctx_troncal_id`, `_id_ctx_split`, `_id_ctx_seg_id` (Step 06)
-- `_id_metodo_1_enabled`, `_id_metodo_1_modules`, ..., `_id_metodo_n_enabled`, `_id_metodo_n_modules` (Steps 07/10)
+- `_id_ctx_seg_mode`, `_id_ctx_seg_troncal_id`, `_id_ctx_seg_split`, `_id_ctx_seg_seg_id` (segmento/context)
+- `_id_ctx_unv_mode`, `_id_ctx_unv_troncal_id`, `_id_ctx_unv_split` (universo/context)
+- Módulos: `run_estabilidad`, `run_fillrate`, `run_missings`, `run_psi`, `run_bivariado`, `run_correlacion`, `run_gini` (select_modules)
 
 ### 5.4 Relación entre steps y config.sas
 - **Steps**: parámetros simples (rutas, flags, listas). El usuario los edita como un formulario.
@@ -193,12 +201,15 @@ Ejemplos:
 - En el `.flw`, cada módulo es un **nodo independiente** que puede ejecutarse via background submit.
 - Cada step de módulo es auto-contenido: tiene su config, crea CASLIBs, itera seg+unv, limpia.
 
-| Método | Carpeta | Módulos |
-|--------|---------|----------|
-| Metodo 1 | `steps/methods/metod_1/` | universe (futuro) |
-| Metodo 2 | `steps/methods/metod_2/` | target (futuro) |
-| Metodo 3 | `steps/methods/metod_3/` | segmentacion (futuro) |
-| Metodo 4 | `steps/methods/metod_4/` | fillrate, missing, bivariado, correlacion, gini |
+| Método | Sub-método | Carpeta | Módulos |
+|--------|------------|---------|----------|
+| Metodo 1 | — | `steps/methods/metod_1/` | universe (futuro) |
+| Metodo 2 | — | `steps/methods/metod_2/` | target (futuro) |
+| Metodo 3 | — | `steps/methods/metod_3/` | segmentacion (futuro) |
+| Metodo 4 | 4.2 | `steps/methods/metod_4/` | estabilidad, fillrate, missings, psi |
+| Metodo 4 | 4.3 | `steps/methods/metod_4/` | bivariado, correlacion, gini |
+
+Los sub-métodos (4.2, 4.3) definen la agrupación lógica para la selección en el UI y la organización de carpetas de output (`reports/metod_4_2/`, `reports/metod_4_3/`). Los step files viven todos en la misma carpeta `metod_4/`.
 
 ---
 
@@ -218,15 +229,20 @@ El pipeline se divide en dos fases con diferente frecuencia de ejecución:
 **Fase B — Ejecución (cada corrida, siempre)**
 1. Setup de rutas (Step 01).
 2. Carga de `config.sas` + promote config + creación de dirs del run (Step 02).
-6. Definición de contexto de **segmento** (Step 06).
-9. Definición de contexto de **universo** (Step 09).
-10. Ejecución de steps de módulos (`steps/methods/metod_N/step_<modulo>.sas`). Cada step crea CASLIBs PROC/OUT, itera sobre segmentos y universo, ejecuta el módulo, y limpia.
+3. **Swimlane SEGMENTO:**
+   a. Contexto segmento (`steps/segmento/context.sas`) → `ctx_scope=SEGMENTO`, define troncal/seg/split.
+   b. Selección de módulos (`steps/segmento/select_modules.sas`) → flags `run_<modulo>`.
+   c. Ejecución de steps de módulos (`steps/methods/metod_N/step_<modulo>.sas`). Cada step checa su flag, crea CASLIBs PROC/OUT, itera segmentos, y limpia.
+4. **Swimlane UNIVERSO:**
+   a. Contexto universo (`steps/universo/context.sas`) → `ctx_scope=UNIVERSO`, define troncal/split.
+   b. Selección de módulos (`steps/universo/select_modules.sas`) → flags `run_<modulo>`.
+   c. Ejecución de steps de módulos (mismos archivos). Ahora `ctx_scope=UNIVERSO` → itera sobre base/troncal.
 
 El flag `data_prep_enabled` (en `runner/main.sas`) controla si se ejecutan los Steps 03–05.
 - Primera corrida: `data_prep_enabled=1` (crear carpetas de data, importar, particionar).
 - Corridas posteriores: `data_prep_enabled=0` (los datos ya existen en disco; Steps 01–02 siempre corren para generar el `run_id` y crear dirs de output del run).
 
-**Nota SAS:** `%if`/`%do` no se permiten en open code. **Todo** archivo `.sas` que necesite lógica condicional debe encapsularla dentro de un `%macro ... %mend;`. Esto aplica tanto a `runner/main.sas` (`%macro _main_pipeline`) como a cualquier step que use `%if` (ej. `_step02_load`, `_step04_import`, `_step05_partition`, `_step06_validate`, `_step09_validate`).
+**Nota SAS:** `%if`/`%do` no se permiten en open code. **Todo** archivo `.sas` que necesite lógica condicional debe encapsularla dentro de un `%macro ... %mend;`. Esto aplica tanto a `runner/main.sas` (`%macro _main_pipeline`) como a cualquier step que use `%if` (ej. `_step02_load`, `_step04_import`, `_step05_partition`, `_ctx_seg_validate`, `_ctx_unv_validate`).
 
 ### 6.2 Ciclo de vida de CASLIBs (create → promote → work → drop)
 
@@ -248,7 +264,8 @@ Aplicación por fase:
 |------|---------|------|--------|
 | Data Prep — ADLS import (Step 04) | LAKEHOUSE, RAW | `fw_import_adls_to_cas` | `fw_import_adls_to_cas` (al final) |
 | Data Prep — Partición (Step 05) | RAW, PROC | `fw_prepare_processed` | `fw_prepare_processed` (al final) |
-| Ejecución módulo (step_*.sas) | PROC, OUT | inicio del step de módulo | final del step de módulo |
+| Swimlane seg — módulo (step_*.sas) | PROC, OUT | inicio del step de módulo | final del step de módulo |
+| Swimlane unv — módulo (step_*.sas) | PROC, OUT | inicio del step de módulo | final del step de módulo |
 
 **Regla de promote en ejecución:** `run_module.sas` promueve el input específico (vía `%_promote_castable`) antes de ejecutar el módulo, y dropea la tabla promovida (`_active_input`) después. Los módulos reciben `input_table=_active_input` en vez de una ruta.
 
@@ -326,10 +343,13 @@ Cada módulo debe fallar temprano con mensajes claros si:
 - **Steps 03–05 (data prep) se ejecutan una sola vez** por proyecto (o cuando se quiera regenerar data). El flag `data_prep_enabled` en `runner/main.sas` controla este comportamiento.
 - **Ciclo de vida estricto de CASLIBs**: todo CASLIB creado se dropea al final del mismo step (`create → promote → work → drop`). Ningún CASLIB sobrevive entre steps. Las tablas promovidas se eliminan al dropear el CASLIB.
 - **Independencia de steps**: cada step es autónomo. Si usa macros del framework, incluye `common_public.sas` al inicio de su archivo. Si usa CASLIBs operativos, los crea y dropea dentro de sí mismo. `casuser` (config) es la única excepción — persiste en la sesión CAS.
-- **Restricción SAS open code**: `%if`/`%do` no se permiten fuera de una macro. Todo archivo `.sas` que use lógica condicional la encapsula en `%macro _stepNN_xxx; ... %mend; %_stepNN_xxx;`. Esto aplica a `runner/main.sas` (`%macro _main_pipeline`), a steps individuales (`_step02_load`, `_step04_import`, `_step05_partition`, `_step06_validate`, `_step09_validate`) y a cualquier futuro `.sas` que necesite `%if`/`%do`.
+- **Restricción SAS open code**: `%if`/`%do` no se permiten fuera de una macro. Todo archivo `.sas` que use lógica condicional la encapsula en `%macro ... %mend;`. Esto aplica a `runner/main.sas` (`%macro _main_pipeline`), a steps individuales (`_step02_load`, `_step04_import`, `_step05_partition`, `_ctx_seg_validate`, `_ctx_unv_validate`) y a cualquier futuro `.sas` que necesite `%if`/`%do`.
 - **`run_module.sas` promueve el input** desde CASLIB `PROC` como tabla `_active_input`, ejecuta el módulo, y dropea la tabla promovida al finalizar. Los módulos reciben `input_table=_active_input` en vez de un path.
 - **Modo AUTO / CUSTOM por módulo**: los módulos que soportan personalización de variables exponen `<module>_mode` (AUTO | CUSTOM) y `<module>_custom_vars` en su step de módulo (`steps/methods/metod_N/step_<modulo>.sas`). En modo AUTO, el módulo resuelve variables desde config; en modo CUSTOM, usa las variables definidas por el usuario.
 - **Carpeta `experiments/`**: los outputs generados en modo CUSTOM se rutan a `outputs/runs/<run_id>/experiments/` en lugar de `reports/` + `tables/`. Esto separa resultados oficiales de validación de análisis exploratorios ad-hoc. El prefijo `custom_` se añade a los archivos para identificarlos.
-- **Arquitectura module-as-step**: cada módulo tiene su propio step SAS en `steps/methods/metod_N/`. Cada step es independiente (config + CASLIBs + iteración seg/unv + cleanup). Se eliminaron los steps genéricos de configuración/ejecución de métodos (anteriores 07/08/10/11).
-- **Métodos**: agrupación lógica de módulos. Metodo 1=universe, Metodo 2=target, Metodo 3=segmentacion, Metodo 4=fillrate+missing+bivariado+correlacion+gini.
+- **Dos swimlanes**: la ejecución se organiza en dos swimlanes secuenciales:
+  - **SEGMENTO**: `context.sas` (troncal+seg+split) → `select_modules.sas` (flags) → módulos (solo iteran segmentos).
+  - **UNIVERSO**: `context.sas` (troncal+split) → `select_modules.sas` (flags) → módulos (solo iteran base/troncal).
+- **Arquitectura module-as-step**: cada módulo tiene su propio step SAS en `steps/methods/metod_N/`. Cada step checa su flag `&run_<modulo>`, lee `&ctx_scope` para saber qué contexto iterar, crea CASLIBs, ejecuta, y limpia. El mismo archivo se incluye en ambos swimlanes.
+- **Sub-métodos**: Metodo 4 se subdivide en 4.2 (estabilidad, fillrate, missings, psi) y 4.3 (bivariado, correlacion, gini). Los sub-métodos organizan la selección en el UI y las carpetas de output.
 - **Step 02 promueve tablas config**: `cfg_troncales` y `cfg_segmentos` se promueven en Step 02 después de ser creadas por `config.sas`. Drop previo + promote, necesario para background submit en `.flw`.
