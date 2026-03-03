@@ -8,6 +8,7 @@
 /* Dependencias (cada step es independiente) */
 %include "&fw_root./src/common/common_public.sas";
 
+%let raw_table = &fw_sas_dataset_name.;
 %let partition_enabled = 1;
 
 %put NOTE: [step-05] partition_enabled=&partition_enabled.;

@@ -11,9 +11,11 @@
 /*                       en el filesystem accesible por el servidor CAS.     */
 /*                       Tipo: texto (ruta de filesystem)                    */
 /*                       Ejemplo: /data/projects/framework_validacion        */
-%let fw_root = /path/to/framework_validacion;
-
+%global fw_root fw_sas_dataset_name;
+%let fw_root = &_id_project_root.;
+%let fw_sas_dataset_name = &_id_sas_dataset_name.;
 %put NOTE: ======================================================;
 %put NOTE: [step-01] fw_root = &fw_root.;
+%put NOTE: [step-01] fw_sas_dataset_name = &fw_sas_dataset_name.;
 %put NOTE: [step-01] Ruta del proyecto configurada. Carpeta se crea en Step 03.;
 %put NOTE: ======================================================;

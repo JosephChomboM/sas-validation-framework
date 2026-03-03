@@ -11,10 +11,10 @@
 %include "&fw_root./src/common/common_public.sas";
 
 %let adls_import_enabled = 1;
-%let adls_storage        = adlscu1cemmbackp05;
-%let adls_container      = bcp-exp-mrm-vime-01;
-%let adls_parquet_path   = data/modelo/dataset_v1.parquet;
-%let raw_table           = mydataset;
+%let adls_storage        = &_id_storage.;
+%let adls_container      = &id_container.;
+%let adls_parquet_path   = &id_container_path.;
+%let raw_table           = &fw_sas_dataset_name.;
 
 %put NOTE: [step-04] adls_import_enabled=&adls_import_enabled. raw_table=&raw_table.;
 
