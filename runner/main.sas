@@ -48,12 +48,22 @@
    /* =====================================================================
       EXECUTION (cada corrida)
       ===================================================================== */
+   /* Contexto: qué data analizar (troncal, split, seg_id) */
    %include "&fw_root./steps/06_promote_segment_context.sas";
-   %include "&fw_root./steps/07_config_methods_segment.sas";
-   %include "&fw_root./steps/08_run_methods_segment.sas";
    %include "&fw_root./steps/09_promote_universe_context.sas";
-   %include "&fw_root./steps/10_config_methods_universe.sas";
-   %include "&fw_root./steps/11_run_methods_universe.sas";
+
+   /* Módulos: cada step crea CASLIBs, itera contexto seg+unv, y limpia */
+   /* -- Método 4 ----------------------------------------------------- */
+   %include "&fw_root./steps/methods/metod_4/step_correlacion.sas";
+   /* %include "&fw_root./steps/methods/metod_4/step_gini.sas";       */
+   /* %include "&fw_root./steps/methods/metod_4/step_fillrate.sas";   */
+   /* %include "&fw_root./steps/methods/metod_4/step_missing.sas";    */
+   /* %include "&fw_root./steps/methods/metod_4/step_bivariado.sas";  */
+
+   /* -- Métodos 1-3 (futuro) ---------------------------------------- */
+   /* %include "&fw_root./steps/methods/metod_1/step_universe.sas";   */
+   /* %include "&fw_root./steps/methods/metod_2/step_target.sas";     */
+   /* %include "&fw_root./steps/methods/metod_3/step_segmentacion.sas"; */
 
    %put NOTE: ======================================================;
    %put NOTE: [main] Run &run_id. completado.;

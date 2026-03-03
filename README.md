@@ -91,16 +91,22 @@ project_root/
 
   steps/                             # FRONTEND — configuración previa a ejecutar controles
     01_setup_project.sas             # rutas del proyecto
-    02_load_config.sas               # carga/validación de config.sas
+    02_load_config.sas               # carga/validación de config.sas + promote config
     03_create_folders.sas            # creación de carpetas base + troncal_X/train/oot
     04_import_raw_data.sas           # importación ADLS (una vez por proyecto)
     05_partition_data.sas            # particiones troncal/train/oot + universo/segmento
-    06_promote_segment_context.sas   # seleccionar troncal/split/seg_id a promover
-    07_config_methods_segment.sas    # tabs Metodo 1..N para segmento
-    08_run_methods_segment.sas       # ejecución subflow segmento
-    09_promote_universe_context.sas  # seleccionar troncal/split base a promover
-    10_config_methods_universe.sas   # tabs Metodo 1..N para universo
-    11_run_methods_universe.sas      # ejecución subflow universo
+    06_promote_segment_context.sas   # contexto segmento (troncal/split/seg_id)
+    09_promote_universe_context.sas  # contexto universo (troncal/split=base)
+    methods/                         # Steps de módulos organizados por método
+      metod_1/                       # Método 1: universe (futuro)
+      metod_2/                       # Método 2: target (futuro)
+      metod_3/                       # Método 3: segmentación (futuro)
+      metod_4/                       # Método 4: análisis de variables
+        step_correlacion.sas         # config + ejecución correlación (seg+unv)
+        step_gini.sas                # (futuro)
+        step_fillrate.sas            # (futuro)
+        step_missing.sas             # (futuro)
+        step_bivariado.sas           # (futuro)
 
   outputs/
     runs/
@@ -114,13 +120,13 @@ project_root/
 ```
 
 Notas:
-- `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las únicas tablas persistentes en `casuser`.
-- `steps/*.sas` modelan el frontend del flujo: primero contexto de datos, luego selección de módulos por método.
-- El subflow de módulos se puede adjuntar al flujo principal y se ejecuta con el contexto promovido.
+- `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las únicas tablas persistentes en `casuser`. Step 02 las promueve para compatibilidad con background submit.
+- `steps/*.sas` modelan el frontend del flujo: primero contexto de datos, luego módulos independientes.
+- Cada módulo tiene su propio step en `steps/methods/metod_N/` que ejecuta sobre segmentos y universo.
 - Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
 - Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/...` incluyendo `experiments/`) en cada corrida, independientemente de `data_prep_enabled`.
 - Step 03 crea `data/raw/`, `data/processed/`, y subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal. Solo se ejecuta durante data prep.
-- Parámetros específicos de módulos de análisis (`threshold`, `num_rounds`, `num_bins`, etc.) **no** viven en `config.sas`; se configuran en los steps de métodos o dentro del módulo correspondiente.
+- Parámetros específicos de módulos de análisis (`threshold`, `corr_mode`, etc.) **no** viven en `config.sas`; se configuran en el step del módulo correspondiente.
 
 ### 3.0a Ciclo de vida de CASLIBs
 
@@ -207,31 +213,29 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 | Step | Archivo | Configura |
 |------|---------|-----------|
 | 01 | `steps/01_setup_project.sas` | Rutas del proyecto |
-| 02 | `steps/02_load_config.sas` | Carga `config.sas` + dirs de output del run |
+| 02 | `steps/02_load_config.sas` | Carga `config.sas` + promote config + dirs de output del run |
 | 03 | `steps/03_create_folders.sas` | Carpetas de data + `troncal_X/train/oot/` (solo data prep) |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS (una vez por proyecto) |
 | 05 | `steps/05_partition_data.sas` | Particiones por troncal/split/scope |
 | 06 | `steps/06_promote_segment_context.sas` | Contexto de ejecución para segmento |
-| 07 | `steps/07_config_methods_segment.sas` | Selección de módulos por Método (segmento) + params módulos |
-| 08 | `steps/08_run_methods_segment.sas` | Ejecutar subflow de módulos (segmento) |
 | 09 | `steps/09_promote_universe_context.sas` | Contexto de ejecución para universo |
-| 10 | `steps/10_config_methods_universe.sas` | Selección de módulos por Método (universo) + params módulos |
-| 11 | `steps/11_run_methods_universe.sas` | Ejecutar subflow de módulos (universo) |
+| — | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación (seg+unv) |
+| — | `steps/methods/metod_4/step_gini.sas` | (futuro) |
+| — | `steps/methods/metod_4/step_*.sas` | fillrate, missing, bivariado (futuro) |
 
 ### 5.2 Cómo usar
 1. Configurar rutas/config (Steps 01–02). Siempre se ejecutan.
 2. **Primera corrida**: `data_prep_enabled=1` → ejecutar Steps 03–05 (carpetas, ADLS, partición).
    **Corridas posteriores**: `data_prep_enabled=0` → saltar Steps 03–05.
-3. Elegir y promover contexto de segmento (Step 06).
-4. Definir Métodos (`Metodo 1..N`) y módulos para segmento (Step 07), ejecutar (Step 08).
-5. Elegir y promover contexto de universo (Step 09).
-6. Definir Métodos y módulos para universo (Step 10), ejecutar (Step 11).
+3. Definir contexto segmento (Step 06) y contexto universo (Step 09).
+4. Ejecutar los steps de módulos deseados (`steps/methods/metod_N/step_<modulo>.sas`).
+   Cada step de módulo tiene su propia configuración y ejecuta sobre segmentos + universo.
 
 ### 5.3 Convención de IDs `_id_*`
 Cada step documenta variables `_id_*` que representan campos de un formulario de UI:
 - Contexto de segmento: `_id_ctx_troncal_id`, `_id_ctx_split`, `_id_ctx_seg_id`
 - Contexto de universo: `_id_ctx_troncal_id`, `_id_ctx_split=base`
-- Métodos: `_id_metodo_1_modules`, `_id_metodo_1_enabled`, ..., `_id_metodo_n_modules`
+- Módulos: params específicos dentro de cada step de módulo (ej. `corr_mode`, `corr_custom_vars`)
 
 Ver `design.md §5` para el contrato completo.
 
@@ -245,10 +249,16 @@ Ver `design.md §5` para el contrato completo.
    - `<nuevo_modulo>_contract.sas`
    - `impl/<nuevo_modulo>_compute.sas`
    - `impl/<nuevo_modulo>_report.sas`
-3. Registrar el módulo en `configs/registry/modules_registry.sas`.
+3. Crear step del módulo en `steps/methods/metod_N/step_<nuevo_modulo>.sas`:
+   - Sección de configuración propia del módulo (params editables)
+   - Crea CASLIBs PROC + OUT
+   - Itera contexto segmento (via `ctx_segment_*` de Step 06)
+   - Itera contexto universo (via `ctx_universe_*` de Step 09)
+   - Cleanup CASLIBs al final
 4. Documentar inputs/outputs en `docs/module_catalog.md`.
+5. Añadir `%include` en `runner/main.sas` (o como nodo en `.flw`).
 
-Ver `src/modules/correlacion/` como implementación de referencia.
+Ver `steps/methods/metod_4/step_correlacion.sas` y `src/modules/correlacion/` como implementación de referencia.
 
 ---
 

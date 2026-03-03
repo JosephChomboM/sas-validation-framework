@@ -31,16 +31,17 @@ Convención de naming operativo:
 3. Se ejecuta el subflow de módulos para ese contexto.
 
 **Selección de módulos por Método:**
-- Cada Método es independiente (`enabled`, `module_list`).
-- Por defecto, la selección de módulos se ejecuta primero sobre **segmento**.
-- Universo/troncal se configura en un bloque de contexto separado.
+- Cada Método agrupa módulos lógicamente en `steps/methods/metod_N/`.
+- Cada módulo tiene su propio step file independiente (`step_<modulo>.sas`).
+- En el `.flw`, cada step de módulo es un nodo que puede ejecutarse vía background submit.
+- Cada step de módulo crea CASLIBs PROC/OUT, itera segmentos+universo, y limpia al final.
 
 El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) a cada módulo vía `%run_module`.
 
 **Ciclo de vida de CASLIBs en ejecución:**
-- `run_methods_segment_context` / `run_methods_universe_context` crean CASLIBs `PROC` y `OUT` al inicio del bloque.
+- Cada step de módulo (`step_<modulo>.sas`) crea CASLIBs `PROC` y `OUT` al inicio.
 - Por cada contexto, `run_module.sas` promueve el input específico desde `PROC` como tabla `_active_input` (vía `%_promote_castable`), ejecuta el módulo, y dropea la tabla promovida.
-- Al final del bloque se dropean `PROC` y `OUT` (archivos en disco persisten).
+- Al final del step se dropean `PROC` y `OUT` (archivos en disco persisten).
 - Patrón obligatorio: **create → promote → work → drop**.
 
 **Independencia de steps:**
@@ -54,8 +55,8 @@ El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) 
 - Si un módulo necesita condicionales en su entry point, debe usar el mismo patrón.
 
 **Parámetros específicos de módulos:**
-- Parámetros como `threshold`, `num_rounds`, `num_bins` y similares **no** se declaran en `config.sas`.
-- Se configuran en los steps de métodos (`steps/07_config_methods_segment.sas`, `steps/10_config_methods_universe.sas`) o como argumentos de la macro `%<modulo>_run(...)`.
+- Parámetros como `threshold`, `num_rounds`, `num_bins`, `corr_mode` y similares **no** se declaran en `config.sas`.
+- Se configuran en el step del módulo correspondiente (`steps/methods/metod_N/step_<modulo>.sas`).
 - `config.sas` solo contiene parámetros estructurales de troncales/segmentos (identificadores, variables, rangos, listas, segmentación).
 
 Orden de ejecución recomendado:
@@ -74,17 +75,16 @@ Si el contexto no está completo, el módulo debe fallar temprano con mensaje cl
 
 ### 1.2 Matriz Método → módulos (contrato funcional)
 
-Como contrato de diseño, cada tab/hoja `Metodo N` define una lista de módulos.
+Cada Método agrupa módulos lógicamente. Los steps de módulos están en `steps/methods/metod_N/`.
 
-Ejemplo referencial:
+| Método | Carpeta | Módulos (steps) |
+|--------|---------|------------------|
+| Metodo 1 | `steps/methods/metod_1/` | universe (futuro) |
+| Metodo 2 | `steps/methods/metod_2/` | target (futuro) |
+| Metodo 3 | `steps/methods/metod_3/` | segmentacion (futuro) |
+| Metodo 4 | `steps/methods/metod_4/` | fillrate, missing, bivariado, **correlación**, gini |
 
-| Método | enabled | module_list | scope objetivo |
-|--------|---------|-------------|----------------|
-| Metodo 1 | 1 | estabilidad fillrate missings psi | segmento |
-| Metodo 2 | 1 | bivariado correlacion | segmento |
-| Metodo 3 | 0 | gini | universo |
-
-La matriz es declarativa; el runner/subflow ejecuta solo métodos `enabled=1`.
+Cada módulo-step es independiente: tiene su propia configuración, crea CASLIBs, itera segmentos+universo, y limpia.
 
 ---
 
@@ -180,7 +180,7 @@ src/modules/correlacion/
 - Dataset input (universo o segmento) con variables numéricas.
 - Variables numéricas se resuelven según el **modo de ejecución**:
 
-**Modos de ejecución (configurados en Steps 07/10)**
+**Modos de ejecución (configurados en `steps/methods/metod_4/step_correlacion.sas`)**
 
 | Modo | `corr_mode` | Variables | Output destino | Prefijo archivo |
 |------|-------------|-----------|----------------|----------------|
@@ -240,12 +240,18 @@ Para agregar un módulo nuevo:
    - `<modulo>_contract.sas` (validaciones)
    - `impl/<modulo>_compute.sas`
    - `impl/<modulo>_report.sas` (si aplica)
-3. Registrar en `configs/registry/modules_registry.sas`.
-4. Añadir sección en este documento con:
+3. Crear step de módulo en `steps/methods/metod_N/step_<modulo>.sas`:
+   - Sección de configuración propia (params editables)
+   - Crea CASLIBs PROC + OUT
+   - Itera contexto segmento (vía `ctx_segment_*` de Step 06)
+   - Itera contexto universo (vía `ctx_universe_*` de Step 09)
+   - Cleanup CASLIBs al final
+4. Añadir seccin en este documento con:
    - Inputs esperados
    - Outputs generados
    - Validaciones
   - Compatibilidad de contexto (`segmento`, `universo`, o ambos)
+5. Añadir `%include` en `runner/main.sas` (o como nodo en `.flw`).
 
 Recomendación:
 - Mantener nombres de outputs que incluyan:

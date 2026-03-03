@@ -72,15 +72,10 @@
     %if &del_prom_tables = 1 %then %do;
         proc cas;
             table.tableInfo result=r / caslib="&caslib_name.";
-            /* Cuando no hay tablas en memoria, tableInfo devuelve
-               una estructura vacía (array, no dictionary).
-               Verificar tipo antes de acceder a .nrows.            */
-            if typeof(r) = 'Dictionary' and exists(r, 'TableInfo') then do;
-                if r.TableInfo.nrows > 0 then do;
-                    do i = 1 to r.TableInfo.nrows;
-                        table.dropTable / caslib="&caslib_name."
-                            name=r.TableInfo[i, 'Name'] quiet=true;
-                    end;
+            if r.TableInfo.nrows > 0 then do;
+                do i = 1 to r.TableInfo.nrows;
+                    table.dropTable / caslib="&caslib_name."
+                        name=r.TableInfo[i, "Name"] quiet=true;
                 end;
             end;
         quit;

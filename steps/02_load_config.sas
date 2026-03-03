@@ -33,7 +33,25 @@
 
   %include "&config_file.";
 
-  %put NOTE: [step-02] CAS inicializado y config cargado. run_id=&run_id.;
+  /* --- Promover tablas de config (necesario para background submit) --- */
+  /* Drop promovidas anteriores (si existen) y volver a promover         */
+  proc cas;
+    session conn;
+    table.dropTable / caslib="casuser" name="cfg_troncales" quiet=true;
+    table.dropTable / caslib="casuser" name="cfg_segmentos" quiet=true;
+  quit;
+
+  /* config.sas crea las tablas via DATA step; ahora promoverlas */
+  proc casutil;
+    promote incaslib="casuser" casdata="cfg_troncales"
+            outcaslib="casuser" casout="cfg_troncales";
+  quit;
+  proc casutil;
+    promote incaslib="casuser" casdata="cfg_segmentos"
+            outcaslib="casuser" casout="cfg_segmentos";
+  quit;
+
+  %put NOTE: [step-02] CAS inicializado, config cargado y promovido. run_id=&run_id.;
 
 %mend _step02_load;
 %_step02_load;
