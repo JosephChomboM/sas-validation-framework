@@ -4,6 +4,20 @@
    Habilitar (1) o deshabilitar (0) cada módulo para el swimlane de
    universo/troncal. Los módulos deshabilitados se saltan automáticamente.
 
+   UI: checkbox por módulo (0 = no seleccionado, 1 = seleccionado).
+   Se usa checkbox en vez de list_control porque:
+     - Siempre resuelve a 0|1, sin WARNING de macro vars inexistentes.
+     - Mapeo directo a flag run_<modulo>.
+
+   Variables UI (.flw checkbox):
+     _id_run_estabilidad : 0|1
+     _id_run_fillrate    : 0|1
+     _id_run_missings    : 0|1
+     _id_run_psi         : 0|1
+     _id_run_bivariado   : 0|1
+     _id_run_correlacion : 0|1
+     _id_run_gini        : 0|1
+
    Agrupación por sub-método (para organización de outputs):
      Método 4.2: estabilidad, fillrate, missings, psi
      Método 4.3: bivariado, correlación, gini
