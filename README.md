@@ -246,8 +246,8 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 
 ### 5.3 Convención de IDs `_id_*`
 Cada step documenta variables `_id_*` que representan campos de un formulario de UI:
-- Contexto de segmento (`segmento/context.sas`): `_id_ctx_seg_mode`, `_id_ctx_seg_troncal_id`, `_id_ctx_seg_split`, `_id_ctx_seg_seg_id`
-- Contexto de universo (`universo/context.sas`): `_id_ctx_unv_mode`, `_id_ctx_unv_troncal_id`, `_id_ctx_unv_split`
+- Contexto de segmento (`segmento/context.sas`): `ctx_segment_troncal_id`, `ctx_segment_split`
+- Contexto de universo (`universo/context.sas`): `ctx_universe_troncal_id`, `ctx_universe_split`
 - Selección de módulos (`select_modules.sas`): `run_estabilidad`, `run_fillrate`, `run_missings`, `run_psi`, `run_bivariado`, `run_correlacion`, `run_gini`
 - Módulos: params específicos dentro de cada step de módulo (ej. `corr_mode`, `corr_custom_vars`)
 

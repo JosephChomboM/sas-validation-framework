@@ -166,9 +166,9 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 03 | `steps/03_create_folders.sas` | Carpetas de data + troncal dirs (solo data prep) | (N/A) |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS | `&adls_import_enabled`, `&adls_*`, `&raw_table` |
 | 05 | `steps/05_partition_data.sas` | Particiones universo/segmento | (N/A) |
-| — | `steps/segmento/context.sas` | Contexto segmento (troncal + seg + split) | `&ctx_scope=SEGMENTO`, `&ctx_segment_mode`, `&ctx_segment_troncal_id`, `&ctx_segment_split`, `&ctx_segment_seg_id` |
+| — | `steps/segmento/context.sas` | Contexto segmento (troncal + split) | `&ctx_scope=SEGMENTO`, `&ctx_segment_troncal_id`, `&ctx_segment_split`, `&ctx_segment_n_segments` |
 | — | `steps/segmento/select_modules.sas` | Módulos habilitados para segmento | `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
-| — | `steps/universo/context.sas` | Contexto universo (troncal + split) | `&ctx_scope=UNIVERSO`, `&ctx_universe_mode`, `&ctx_universe_troncal_id`, `&ctx_universe_split` |
+| — | `steps/universo/context.sas` | Contexto universo (troncal + split) | `&ctx_scope=UNIVERSO`, `&ctx_universe_troncal_id`, `&ctx_universe_split` |
 | — | `steps/universo/select_modules.sas` | Módulos habilitados para universo | `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
 | — | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación | `&corr_mode`, `&corr_custom_vars` |
 | — | `steps/methods/metod_4/step_gini.sas` | Config + ejecución gini (futuro) | — |
@@ -186,8 +186,8 @@ Los IDs de UI se nombran como: `_id_<entidad>_<campo>`
 Ejemplos:
 - `_id_project_root` (Step 01)
 - `_id_import_enabled`, `_id_adls_storage`, `_id_adls_container`, `_id_adls_parquet_path`, `_id_raw_table_name` (Step 04)
-- `_id_ctx_seg_mode`, `_id_ctx_seg_troncal_id`, `_id_ctx_seg_split`, `_id_ctx_seg_seg_id` (segmento/context)
-- `_id_ctx_unv_mode`, `_id_ctx_unv_troncal_id`, `_id_ctx_unv_split` (universo/context)
+- Contexto de segmento: `ctx_segment_troncal_id`, `ctx_segment_split` (segmento/context)
+- Contexto de universo: `ctx_universe_troncal_id`, `ctx_universe_split` (universo/context)
 - Módulos: `run_estabilidad`, `run_fillrate`, `run_missings`, `run_psi`, `run_bivariado`, `run_correlacion`, `run_gini` (select_modules)
 
 ### 5.4 Relación entre steps y config.sas
