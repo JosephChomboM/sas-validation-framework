@@ -91,8 +91,9 @@
 
   %put NOTE: [run_module] &module. completado para troncal_&troncal_id./&split./&_scope.;
 
-  /* 4) Drop: eliminar tabla promovida de PROC */
+  /* 4) Drop: eliminar tabla promovida de PROC (session + global scope) */
   proc cas;
+    session conn;
     table.dropTable / caslib="PROC" name="_active_input" quiet=true;
   quit;
 

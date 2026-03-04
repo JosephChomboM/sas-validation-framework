@@ -131,6 +131,10 @@
 /* ------------------------------------------------------------------
    %_promote_castable — Load .sashdat and promote into a global CASLIB
    IMPORTANT: caller MUST drop promoted table at end of step (Rule 2).
+
+   Idempotent: drops any existing table (session + global scope) in the
+   target caslib before load + promote.  Safe for iterative calls
+   (e.g., multiple segments / splits within the same step).
    ------------------------------------------------------------------ */
 %macro _promote_castable(
     m_cas_sess_name=,
@@ -141,11 +145,20 @@
         cas &m_cas_sess_name.;
     %end;
 
+    /* ---- Pre-cleanup: drop any leftover (session or global scope) ---- */
+    proc cas;
+        session &m_cas_sess_name.;
+        table.dropTable /
+            caslib="&m_output_caslib." name="&m_output_data." quiet=true;
+    quit;
+
+    /* ---- Load .sashdat into session-scope ----------------------------- */
     proc casutil;
         load incaslib="&m_input_caslib" casdata="&m_subdir_data..sashdat"
             outcaslib="&m_output_caslib" casout="&m_output_data" replace;
     quit;
 
+    /* ---- Promote to global scope -------------------------------------- */
     proc casutil;
         promote incaslib="&m_output_caslib" casdata="&m_output_data"
             outcaslib="&m_output_caslib" casout="&m_output_data";
