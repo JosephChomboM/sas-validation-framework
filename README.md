@@ -77,7 +77,6 @@ project_root/
         fw_import_adls_to_cas.sas
         fw_prepare_processed.sas
     dispatch/
-      run_method.sas
       run_module.sas
     modules/
       correlacion/

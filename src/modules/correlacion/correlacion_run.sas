@@ -53,8 +53,10 @@
     run_id        =
 );
 
-  /* _corr_rc es %global — lo declara correlacion_contract.sas.
-     NO declararlo %local aquí (conflicto de scope). */
+  /* ---- Return code: owned here, used by contract -------------------- */
+  %global _corr_rc;
+  %let _corr_rc = 0;
+
   %local _corr_vars _report_path _file_prefix _seg_num
          _corr_is_custom _table_subdir;
 

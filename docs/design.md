@@ -50,8 +50,7 @@ Este documento describe:
 
 4) **Dispatch**
 - Orquestación de ejecución:
-  - `run_method.sas`: ejecuta un método (conjunto de módulos)
-  - `run_module.sas`: ejecuta un módulo en un contexto dado (troncal/split/segmento)
+  - `run_module.sas`: ejecuta un módulo en un contexto dado (troncal/split/segmento). Resuelve path, promueve input, llama al módulo, limpia.
 
 5) **Modules**
 - Implementación por control:

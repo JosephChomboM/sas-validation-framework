@@ -6,13 +6,15 @@
      2) Tabla tiene observaciones (nobs > 0)
      3) Lista de variables numéricas no está vacía
 
-   Setea macro variable global &_corr_rc:
+   Setea macro variable &_corr_rc (declarada %global por correlacion_run):
      0 = OK, 1 = fallo (el módulo no debe ejecutarse)
    ========================================================================= */
 
 %macro correlacion_contract(input_caslib=, input_table=, variables=);
 
-  %global _corr_rc;
+  /* _corr_rc is declared %global by correlacion_run (the caller).
+     Do NOT re-declare %global here — causes conflict if a stale
+     local copy exists in the SAS session from a prior failed run. */
   %let _corr_rc = 0;
 
   /* ---- 1) Validar existencia de la tabla en CASLIB -------------------- */

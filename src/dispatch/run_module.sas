@@ -43,11 +43,12 @@
   /* Nombre del CASLIB de output del run */
   %let _out_caslib = OUT;
 
-  /* 2) Promote: cargar .sashdat desde PROC y promover como _active_input */
+  /* 2) Promote: cargar .sashdat desde PROC y promover como _active_input
+     fw_path_processed retorna ruta SIN extensión; _promote_castable agrega .sashdat */
   %_promote_castable(
     m_cas_sess_name = conn,
     m_input_caslib  = PROC,
-    m_subdir_data   = %sysfunc(tranwrd(&_input_path., .sashdat, )),
+    m_subdir_data   = &_input_path.,
     m_output_caslib = PROC,
     m_output_data   = _active_input
   );

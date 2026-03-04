@@ -6,11 +6,12 @@
      %fw_path_processed(outvar=, troncal_id=, split=, seg_id=)
 
    Convención (design.md §3.2):
-     - Universo  : troncal_<id>/<split>/base.sashdat
-     - Segmento  : troncal_<id>/<split>/seg<NNN>.sashdat  (z3. padding)
+     - Universo  : troncal_<id>/<split>/base
+     - Segmento  : troncal_<id>/<split>/seg<NNN>  (z3. padding)
 
-  Las rutas devueltas son RELATIVAS al CASLIB PROC (PATH-based,
-   subdirs=1, mapeado a data/processed/).  NO son rutas de casuser.
+   Las rutas devueltas son RELATIVAS al CASLIB PROC (PATH-based,
+   subdirs=1, mapeado a data/processed/).  NO incluyen extensión
+   (.sashdat lo agrega el consumidor: _promote_castable, _load_cas_data, etc.).
    ========================================================================= */
 
 %macro fw_path_processed(outvar=, troncal_id=, split=, seg_id=);
@@ -33,13 +34,13 @@
   %global &outvar.;
 
   %if %superq(seg_id) = %then %do;
-    /* Universo (base) */
-    %let &outvar. = troncal_&troncal_id./%lowcase(&split.)/base.sashdat;
+    /* Universo (base) — sin extensión; el consumidor agrega .sashdat */
+    %let &outvar. = troncal_&troncal_id./%lowcase(&split.)/base;
   %end;
   %else %do;
-    /* Segmento con padding z3. */
+    /* Segmento con padding z3. — sin extensión */
     %let _seg_pad = %sysfunc(putn(&seg_id., z3.));
-    %let &outvar. = troncal_&troncal_id./%lowcase(&split.)/seg&_seg_pad..sashdat;
+    %let &outvar. = troncal_&troncal_id./%lowcase(&split.)/seg&_seg_pad.;
     %symdel _seg_pad / nowarn;
   %end;
 
