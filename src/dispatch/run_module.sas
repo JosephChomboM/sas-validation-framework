@@ -26,6 +26,9 @@
 
 %macro run_module(module=, troncal_id=, split=, seg_id=, run_id=);
 
+  /* ---- Locals (no incluir _input_path: es %global vía fw_path_processed) */
+  %local _scope _out_caslib _promote_ok;
+
   %put NOTE: -----------------------------------------------------;
   %put NOTE: [run_module] module=&module. troncal=&troncal_id. split=&split. seg_id=&seg_id.;
   %put NOTE: -----------------------------------------------------;
@@ -48,6 +51,27 @@
     m_output_caslib = PROC,
     m_output_data   = _active_input
   );
+
+  /* ---- Validate promote succeeded (fail-fast) ----------------------- */
+  %let _promote_ok = 0;
+  proc cas;
+    session conn;
+    table.tableExists result=_r / caslib="PROC" name="_active_input";
+    call symputx('_promote_ok', _r.exists);
+  quit;
+
+  %if &_promote_ok. = 0 %then %do;
+    %put ERROR: =====================================================;
+    %put ERROR: [run_module] No se pudo cargar _active_input.;
+    %put ERROR: [run_module]   module   = &module.;
+    %put ERROR: [run_module]   troncal  = &troncal_id.;
+    %put ERROR: [run_module]   split    = &split.;
+    %put ERROR: [run_module]   seg_id   = &seg_id.;
+    %put ERROR: [run_module]   archivo  = &_input_path.;
+    %put ERROR: [run_module] Verifique que el .sashdat existe en data/processed/.;
+    %put ERROR: =====================================================;
+    %return;
+  %end;
 
   /* 3) Ejecutar módulo ---------------------------------------------------
      El módulo lee de PROC._active_input y escribe en &_out_caslib.

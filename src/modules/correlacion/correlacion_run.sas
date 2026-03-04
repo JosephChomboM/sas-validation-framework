@@ -15,7 +15,7 @@
    Flujo interno:
      1) Determinar modo (AUTO / CUSTOM) y resolver variables numéricas
         - AUTO   → cfg_segmentos / cfg_troncales (num_list / num_unv)
-        - CUSTOM → &corr_custom_vars (definidas en Steps 07/10)
+        - CUSTOM → &corr_custom_vars (definidas en step_correlacion.sas)
      2) Ejecutar contract (validaciones)
      3) Calcular matrices Pearson + Spearman
      4) Generar reportes HTML + Excel
@@ -26,11 +26,11 @@
         - CUSTOM → experiments/  (exploratorio)
      6) Cleanup tablas temporales (work + CAS)
 
-   Variables globales leídas (definidas en Steps 07/10):
+   Variables globales leídas (definidas en step_correlacion.sas):
      &corr_mode         — AUTO | CUSTOM
      &corr_custom_vars  — lista vars numéricas (solo si CUSTOM)
 
-   Dependencias (cargadas por step 08/11 vía common_public.sas):
+   Dependencias (cargadas por step_correlacion.sas vía common_public.sas):
      - %_save_into_caslib (cas_utils.sas)
 
    Solo recibe variables numéricas.
@@ -53,7 +53,9 @@
     run_id        =
 );
 
-  %local _corr_rc _corr_vars _report_path _file_prefix _seg_num
+  /* _corr_rc es %global — lo declara correlacion_contract.sas.
+     NO declararlo %local aquí (conflicto de scope). */
+  %local _corr_vars _report_path _file_prefix _seg_num
          _corr_is_custom _table_subdir;
 
   %put NOTE: ======================================================;

@@ -13,7 +13,7 @@ ctx_segment_seg_id     : ALL (todos los segmentos) | número específico
 
 /* ---- Configuración del contexto (editar aquí) ------------------------- */
 /* Troncal a analizar                                                      */
-%let ctx_segment_troncal_id=&_id_id_segmento_troncal_id.;
+%let ctx_segment_troncal_id=&_id_segment_troncal_id.;
 
 /* ctx_segment_split:
 TRAIN → solo train
@@ -24,10 +24,10 @@ BOTH  → train y oot                                                   */
 /* ctx_segment_seg_id (radio button):
 ALL → correr TODOS los segmentos del troncal
 <N> → correr solo el segmento N (ej. 1, 2, 3...)                      */
-%let ctx_segment_seg_id=&_id_segmento_seg_id.;
+%let ctx_segment_seg_id=&_id_segment_seg_id.;
 
 %if &ctx_segment_seg_id. eq CUSTOM %then %do;
-    %let ctx_segment_seg_id=&_id_segmento_seg_seg_num.;
+    %let ctx_segment_seg_id=&_id_segmento_seg_num.;
 %end;
 
 %put NOTE: [segmento/context] scope=&ctx_scope. troncal=&ctx_segment_troncal_id.split=&ctx_segment_split. seg=&ctx_segment_seg_id.;
