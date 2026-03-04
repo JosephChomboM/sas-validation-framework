@@ -21,17 +21,17 @@
      4) Generar reportes HTML + Excel
         - AUTO   → outputs/runs/<run_id>/reports/   (validación estándar)
         - CUSTOM → outputs/runs/<run_id>/experiments/ (análisis exploratorio)
-     5) Persistir tablas de correlación → CASLIB OUT
-        - AUTO   → tables/   (estándar)
+     5) Persistir tablas de correlación → .sas7bdat en disco
+        - AUTO   → reports/   (estándar)
         - CUSTOM → experiments/  (exploratorio)
-     6) Cleanup tablas temporales (work + CAS)
+     6) Cleanup tablas temporales (work)
 
    Variables globales leídas (definidas en step_correlacion.sas):
      &corr_mode         — AUTO | CUSTOM
      &corr_custom_vars  — lista vars numéricas (solo si CUSTOM)
 
    Dependencias (cargadas por step_correlacion.sas vía common_public.sas):
-     - %_save_into_caslib (cas_utils.sas)
+     - Ninguna de cas_utils para outputs (usa libname SAS directo)
 
    Solo recibe variables numéricas.
 
@@ -163,42 +163,21 @@
   );
 
   /* ==================================================================
-     5) Persistir tablas de correlación en CASLIB OUT
+     5) Persistir tablas como .sas7bdat en directorio de output
      ================================================================== */
+  libname _outlib "&_report_path.";
 
-  /* Mover Pearson de work a CAS OUT */
-  data &output_caslib.._corr_prsn_tmp;
+  data _outlib.&_file_prefix._pearson;
     set work._corr_pearson;
   run;
 
-  %_save_into_caslib(
-    m_cas_sess_name = conn,
-    m_input_caslib  = &output_caslib.,
-    m_input_data    = _corr_prsn_tmp,
-    m_output_caslib = &output_caslib.,
-    m_subdir_data   = &_table_subdir./&_file_prefix._pearson
-  );
-
-  proc cas;
-    table.dropTable / caslib="&output_caslib." name="_corr_prsn_tmp" quiet=true;
-  quit;
-
-  /* Mover Spearman de work a CAS OUT */
-  data &output_caslib.._corr_sprm_tmp;
+  data _outlib.&_file_prefix._spearman;
     set work._corr_spearman;
   run;
 
-  %_save_into_caslib(
-    m_cas_sess_name = conn,
-    m_input_caslib  = &output_caslib.,
-    m_input_data    = _corr_sprm_tmp,
-    m_output_caslib = &output_caslib.,
-    m_subdir_data   = &_table_subdir./&_file_prefix._spearman
-  );
+  libname _outlib clear;
 
-  proc cas;
-    table.dropTable / caslib="&output_caslib." name="_corr_sprm_tmp" quiet=true;
-  quit;
+  %put NOTE: [correlacion_run] Tablas .sas7bdat guardadas en &_report_path.;
 
   /* ==================================================================
      6) Cleanup — eliminar tablas temporales de work
