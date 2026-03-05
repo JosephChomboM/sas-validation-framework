@@ -135,35 +135,112 @@ Cada módulo-step es independiente: checa `&run_<modulo>`, lee `&ctx_scope`, cre
 
 ---
 
-## 3) Módulo: PSI
+## 3) Módulo: PSI (Population Stability Index)
 
 **Ruta**
 - `src/modules/psi/`
 
 **API pública**
 - `%psi_run(...)`
-- Parámetros de entrada incluyen:
+- Parámetros de entrada:
   - `input_caslib=PROC` — CASLIB de entrada
-  - `input_table=_active_input` — tabla promovida por `run_module`
+  - `train_table=_psi_train` — tabla TRAIN promovida por `step_psi`
+  - `oot_table=_psi_oot` — tabla OOT promovida por `step_psi`
   - `output_caslib=OUT` — CASLIB de salida
-  - `troncal_id`, `split`, `scope`, `run_id` — contexto
-  - Parámetros específicos del módulo (ej. `threshold`, `num_bins`) se pasan como argumentos adicionales
+  - `troncal_id`, `scope`, `run_id` — contexto
+
+**Nota arquitectónica:** PSI compara TRAIN vs OOT → necesita DOS tablas promovidas simultáneamente. Por eso **no usa `run_module.sas`** (que promueve un solo input). `step_psi.sas` maneja la promoción de ambas tablas directamente vía `_promote_castable`. El split del contexto se ignora (PSI siempre usa train+oot).
+
+**Estructura interna**
+```
+src/modules/psi/
+  psi_run.sas              %psi_run — entry point público
+  psi_contract.sas         %psi_contract — validaciones
+  impl/
+    psi_compute.sas        %_psi_calc — PSI para una variable (core)
+                           %_psi_compute — orquestador: variables × periodos
+    psi_report.sas         %_psi_report — Excel + HTML + gráficos PNG
+                           %_psi_plot_tendencia — serie temporal por variable
+                           %_psi_plot_heatmap — heatmap Variable × Periodo
+                           %_psi_plot_resumen — rangos min-max + total
+```
 
 **Inputs típicos**
-- Dos datasets comparables (por ejemplo baseline vs current) o un dataset con partición temporal.
-- Variables numéricas/categóricas definidas por configuración (`var_num_list`, `var_cat_list`).
-- Variable de corte (`mes_var`) si se calcula PSI por periodo.
+- Dos datasets: TRAIN (development) y OOT (out-of-time), promovidos como `_psi_train` y `_psi_oot`.
+- Variables numéricas definidas por configuración (`num_list` / `num_unv`).
+- Variables categóricas definidas por configuración (`cat_list` / `cat_unv`).
+- Variable temporal (`mes_var`) para breakdown mensual del PSI.
+
+**Modos de ejecución (configurados en `steps/methods/metod_4/step_psi.sas`)**
+
+| Modo | `psi_mode` | Variables | Output destino | Prefijo archivo |
+|------|------------|-----------|----------------|----------------|
+| Automático | `AUTO` | config → `num_list`/`cat_list` + fallback `num_unv`/`cat_unv` | `reports/`+`tables/`+`images/` | `psi_` |
+| Personalizado | `CUSTOM` | `psi_custom_vars_num/cat` + `psi_custom_byvar` | `experiments/` | `custom_psi_` |
+
+Parámetros adicionales del step:
+- `psi_n_buckets` — número de bins para PROC RANK (default 10)
+- `psi_mensual` — 1 = breakdown mensual, 0 = solo PSI total
+- `psi_custom_vars_num`, `psi_custom_vars_cat`, `psi_custom_byvar` (solo CUSTOM)
 
 **Validaciones (contract)**
-- Existencia de inputs.
-- Consistencia de variables entre inputs.
-- No vacío (nobs > 0).
+- Tabla TRAIN accesible y no vacía (nobs > 0) vía `proc sql count(*)`.
+- Tabla OOT accesible y no vacía (nobs > 0) vía `proc sql count(*)`.
+- Al menos una lista de variables (num o cat) no vacía.
+- Variable temporal (`byvar`) existe en ambas tablas si se proporcionó.
+- **No usar `table.tableExists`** (no confiable). Usar `proc sql` contra `dictionary.tables` o count directo.
+
+**Cómputo**
+- Discretización: PROC RANK (variables continuas, buckets definidos por TRAIN) o valores directos (categóricas).
+- Heurística: variables numéricas con ≤ 10 valores distintos se tratan como categóricas.
+- Suavizado Laplace para evitar log(0): `(n + 0.5) / (total + 0.5 * n_buckets)`.
+- PSI Mensual: cada periodo en OOT vs TRAIN completo.
+- PSI Total: OOT completo vs TRAIN completo.
+- Tablas temporales usan sufijo aleatorio (`&rnd.`) para evitar colisiones.
+
+**Tablas intermedias (work)**
+- `_psi_cubo` — detalle: Variable × Periodo × PSI × Tipo.
+- `_psi_cubo_wide` — pivot: Variable × mes_1 … mes_N × PSI_Total.
+- `_psi_resumen` — resumen con estadísticas, semáforo y alertas de tendencia.
+
+**Reportes — semáforo por PSI**
+- `PSI < 0.10` → lightgreen (estable)
+- `0.10 ≤ PSI < 0.25` → yellow (alerta)
+- `PSI ≥ 0.25` → red (crítico)
+
+Formato SAS `PsiSignif` aplicado vía `style(column)={backgroundcolor=PsiSignif.}` en ODS.
+
+Excel multi-hoja: PSI Detalle | PSI Cubo Wide | Resumen | Gráficos.
+HTML con cubo + resumen para vista rápida.
+Imágenes PNG: tendencia temporal, heatmap, resumen barras.
 
 **Outputs esperados**
-- `outputs/runs/<run_id>/tables/psi_*.sas7bdat`
-- `outputs/runs/<run_id>/reports/psi_*.xlsx` o HTML
-- `outputs/runs/<run_id>/images/psi_*.png` (si aplica)
-- Logs en `outputs/runs/<run_id>/logs/`
+
+*Modo AUTO (validación estándar):*
+- `outputs/runs/<run_id>/reports/psi_troncal_X_<scope>.html` — cubo + resumen coloreado
+- `outputs/runs/<run_id>/reports/psi_troncal_X_<scope>.xlsx` — 4 hojas con semáforo
+- `outputs/runs/<run_id>/tables/psi_tX_<scope>_cubo.sas7bdat` — detalle Variable × Periodo
+- `outputs/runs/<run_id>/tables/psi_tX_<scope>_wide.sas7bdat` — pivot Variable × meses
+- `outputs/runs/<run_id>/tables/psi_tX_<scope>_rsmn.sas7bdat` — resumen con alertas
+- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_tend_*.png` — tendencia temporal
+- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_heatmap.png` — heatmap
+- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_resumen.png` — barras resumen
+
+*Modo CUSTOM (análisis exploratorio):*
+- `outputs/runs/<run_id>/experiments/custom_psi_troncal_X_<scope>.*` (mismos tipos)
+- Tablas con prefijo `cx_psi_tX_<scope>_*`
+
+*Naming compacto de tablas .sas7bdat (≤ 32 chars, límite SAS):*
+- `<scope>` = `base` | `segNNN`
+- Ejemplo: `psi_t1_base_cubo` (16 chars), `psi_t1_seg001_rsmn` (19 chars)
+- CUSTOM: `cx_psi_t1_base_cubo` (20 chars)
+
+**Compatibilidad de contexto**: segmento y universo.
+
+**Cleanup**
+- Tablas temporales en `work` (`_psi_cubo`, `_psi_cubo_wide`, `_psi_resumen`, `_psi_dev`, `_psi_oot`) se eliminan al finalizar.
+- No se usan tablas temporales CAS para outputs (se persisten directamente como `.sas7bdat` vía `libname`).
+- Tablas promovidas (`_psi_train`, `_psi_oot`) se dropean por `step_psi.sas` después de cada iteración.
 
 ---
 
