@@ -185,7 +185,10 @@ Todo output va en:
 
 Reglas:
 - Ningún módulo escribe en `data/processed` (solo en `outputs/...`).
-- Los outputs se persisten vía CASLIB `OUT` o un CASLIB scoped del módulo.
+- **Tablas .sas7bdat**: se persisten vía `libname` + DATA step directo en `tables/` (no vía CAS `_save_into_caslib`).
+- **Reportes (.html/.xlsx)**: se generan con ODS en `reports/`.
+- En modo CUSTOM, ambos tipos de output van a `experiments/`.
+- **Nombres de datasets SAS** deben respetar el **límite de 32 caracteres**: usar formato compacto `<mod>_t<N>_<spl>_<scope>_<tipo>` (ej. `corr_t1_trn_seg001_prsn`). Reportes pueden usar nombres descriptivos completos.
 
 ### 3.3 API pública de módulos
 Cada módulo implementa:
@@ -195,7 +198,7 @@ Cada módulo implementa:
 
 ### 3.4 Validaciones obligatorias
 Antes de ejecutar un módulo:
-- existencia del input (tabla/archivo)
+- existencia del input (tabla/archivo) — vía `proc sql` contra `dictionary.tables` o count directo (**no usar `table.tableExists`**)
 - columnas requeridas para el módulo
 - tipos/formatos mínimos (cuando aplique)
 

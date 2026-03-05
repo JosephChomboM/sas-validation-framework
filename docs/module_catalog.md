@@ -207,9 +207,9 @@ src/modules/correlacion/
 - Solo opera sobre variables numéricas (no categóricas).
 
 **Validaciones (contract)**
-- Existencia del input (`table.tableExists` en CASLIB).
-- No vacío (nobs > 0).
+- Tabla accesible y no vacía (nobs > 0) vía `proc sql count(*)`.
 - Lista de variables numéricas no vacía.
+- **No usar `table.tableExists`** (no confiable). Usar `proc sql` contra `dictionary.tables` o count directo.
 
 **Cómputo**
 - Correlación de **Pearson** (`proc corr outp=`).
@@ -228,20 +228,26 @@ Formato SAS `CorrSignif` aplicado vía `style(column)={backgroundcolor=CorrSigni
 *Modo AUTO (validación estándar):*
 - `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.html` — matrices coloreadas
 - `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.xlsx` — hojas Pearson + Spearman
-- `outputs/runs/<run_id>/tables/correlacion_troncal_X_<split>_<scope>_pearson.sashdat` — datos Pearson
-- `outputs/runs/<run_id>/tables/correlacion_troncal_X_<split>_<scope>_spearman.sashdat` — datos Spearman
+- `outputs/runs/<run_id>/tables/corr_tX_<spl>_<scope>_prsn.sas7bdat` — datos Pearson
+- `outputs/runs/<run_id>/tables/corr_tX_<spl>_<scope>_sprm.sas7bdat` — datos Spearman
 
 *Modo CUSTOM (análisis exploratorio):*
 - `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>.html`
 - `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>.xlsx`
-- `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>_pearson.sashdat`
-- `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>_spearman.sashdat`
+- `outputs/runs/<run_id>/experiments/cx_corr_tX_<spl>_<scope>_prsn.sas7bdat`
+- `outputs/runs/<run_id>/experiments/cx_corr_tX_<spl>_<scope>_sprm.sas7bdat`
+
+*Naming compacto de tablas .sas7bdat (≤ 32 chars, límite SAS):*
+- `<spl>` = `trn` | `oot`
+- `<scope>` = `base` | `segNNN`
+- Ejemplo: `corr_t1_trn_seg001_prsn` (24 chars)
+- Reportes (.html/.xlsx) usan nombres descriptivos completos (sin límite de 32 chars).
 
 **Compatibilidad de contexto**: segmento y universo.
 
 **Cleanup**
 - Tablas temporales en `work` (`_corr_pearson`, `_corr_spearman`) se eliminan al finalizar.
-- Tablas temporales en CAS OUT (`_corr_prsn_tmp`, `_corr_sprm_tmp`) se dropean tras persistir.
+- No se usan tablas temporales CAS para outputs (se persisten directamente como `.sas7bdat` vía `libname`).
 
 ---
 
@@ -270,12 +276,16 @@ Para agregar un módulo nuevo:
 5. Añadir `%include` en `runner/main.sas` (o como nodo en `.flw`).
 
 Recomendación:
-- Mantener nombres de outputs que incluyan:
-  - troncal_X
-  - split (train/oot)
-  - scope (base o segNNN)
-  - nombre del módulo
-- Los outputs se persisten vía CASLIB `OUT` o un CASLIB scoped del módulo (ej. `MOD_GINI_<run_id>`), siguiendo `docs/caslib_lifecycle.md`.
+- **Nombres de tablas .sas7bdat** deben respetar el límite de **32 caracteres** de SAS:
+  - Formato compacto: `<mod>_t<N>_<spl>_<scope>_<tipo>`
+  - Ejemplo: `corr_t1_trn_seg001_prsn` (24 chars), `gini_t2_oot_base` (16 chars)
+  - Usar abreviaturas: `trn`/`oot`, `prsn`/`sprm`, `cx_` para CUSTOM
+- **Nombres de reportes (.html/.xlsx)** pueden ser descriptivos (sin límite):
+  - `correlacion_troncal_1_train_seg001.html`
+- Outputs tabulares se persisten como **`.sas7bdat`** vía `libname` + DATA step (no CAS `_save_into_caslib`).
+- Rutas de salida separadas: `_report_path` para .html/.xlsx, `_tables_path` para .sas7bdat.
+- **Validación de existencia**: usar `proc sql` contra `dictionary.tables` o count directo. **No usar `table.tableExists`**.
+- Los outputs se persisten en `reports/` + `tables/` (modo AUTO) o `experiments/` (modo CUSTOM), siguiendo `docs/caslib_lifecycle.md`.
 - El módulo debe declarar explícitamente si soporta ejecución en `segmento`, `universo` o ambos.
 
 Ejemplo:

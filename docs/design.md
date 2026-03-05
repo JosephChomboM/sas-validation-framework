@@ -249,11 +249,13 @@ Todo bloque que usa CASLIBs sigue estrictamente este patrón:
 
 ```
 1. %_create_caslib(...)       — crear CASLIB PATH-based
-2. %_promote_castable(...)    — cargar .sashdat y promover tabla en CAS
+2. %_promote_castable(...)    — cargar .sashdat y promover tabla en CAS (idempotente: hace drop previo)
 3. <trabajo>                  — ejecutar módulos / data prep
-4. proc cas; table.dropTable  — eliminar tabla promovida
+4. proc cas; table.dropTable  — eliminar tabla promovida (scope=session)
 5. %_drop_caslib(... del_prom_tables=1) — eliminar CASLIB + tablas de CAS
 ```
+
+**Nota:** `_promote_castable` es idempotente — ejecuta `table.dropTable` antes de load+promote para evitar colisiones en llamadas iterativas (múltiples splits/segmentos).
 
 **Ningún CASLIB debe sobrevivir más allá de la fase que lo creó.**
 
@@ -267,6 +269,8 @@ Aplicación por fase:
 | Swimlane unv — módulo (step_*.sas) | PROC, OUT | inicio del step de módulo | final del step de módulo |
 
 **Regla de promote en ejecución:** `run_module.sas` promueve el input específico (vía `%_promote_castable`) antes de ejecutar el módulo, y dropea la tabla promovida (`_active_input`) después. Los módulos reciben `input_table=_active_input` en vez de una ruta.
+
+**Validación post-promote:** `run_module.sas` verifica existencia del input promovido vía `proc sql` contra `dictionary.tables` (no usa `table.tableExists`).
 
 ### 6.3 Motivo de diseño
 
@@ -282,8 +286,9 @@ Aplicación por fase:
 ### 7.1 Resolver único de paths
 Implementar `src/common/fw_paths.sas` con una macro pública que construya rutas de processed, evitando hardcode:
 - `%fw_path_processed(outvar=, troncal_id=, split=, seg_id=)`
-  - si `seg_id` vacío: devuelve `troncal_X/<split>/base.sashdat`
-  - si `seg_id` presente: devuelve `troncal_X/<split>/segNNN.sashdat`
+  - si `seg_id` vacío: devuelve `troncal_X/<split>/base`
+  - si `seg_id` presente: devuelve `troncal_X/<split>/segNNN`
+- Las rutas **NO incluyen extensión** (`.sashdat` lo agrega el consumidor, ej. `_promote_castable`).
 - Estas rutas son **relativas al CASLIB `PROC`** (con subdirs habilitado), no a `casuser`.
 
 ### 7.2 CAS utility macros
@@ -319,6 +324,46 @@ Cada módulo debe fallar temprano con mensajes claros si:
 - faltan columnas
 - el input está vacío
 - el split/segmento no existe
+
+**Método de validación de existencia:** usar `proc sql` contra `dictionary.tables` o `count(*)` directo sobre la tabla. **Nunca usar `proc cas; table.tableExists`** (no es confiable en todos los entornos SAS Viya).
+
+### 7.6 Límite de 32 caracteres en nombres de datasets SAS
+SAS impone un máximo de **32 bytes** para nombres de datasets (`.sas7bdat`). Los nombres largos generan `ERROR 307-185`.
+
+**Convención compacta para nombres de tablas .sas7bdat:**
+```
+<mod_abbr>_t<N>_<spl>_<scope>_<tipo>
+```
+
+| Componente | Abreviatura | Ejemplo |
+|------------|-------------|---------|
+| Módulo | 4 chars max | `corr`, `gini`, `psi` |
+| Troncal | `t<N>` | `t1`, `t2` |
+| Split | 3 chars | `trn` (train), `oot` |
+| Scope | variable | `base`, `seg001` |
+| Tipo | 4 chars max | `prsn` (pearson), `sprm` (spearman) |
+| CUSTOM prefix | `cx_` | `cx_corr_t1_trn_base_prsn` |
+
+Ejemplo: `corr_t1_trn_seg001_prsn` = 24 chars (✓ ≤ 32).
+
+**Reportes (.html, .xlsx)** no tienen límite de 32 chars (nombres de archivo del filesystem). Usan nombres descriptivos completos: `correlacion_troncal_1_train_seg001.html`.
+
+### 7.7 Outputs tabulares: .sas7bdat vía libname (no CAS)
+Los módulos persisten tablas de resultados como **`.sas7bdat`** usando `libname` + DATA step directo:
+```sas
+libname _outlib "&_tables_path.";
+data _outlib.&_tbl_prefix._prsn;
+  set work._corr_pearson;
+run;
+libname _outlib clear;
+```
+**No usar `_save_into_caslib` ni CAS para outputs tabulares de módulos.** CAS se usa solo para inputs (load/promote de `.sashdat` vía `_promote_castable`).
+
+### 7.8 Separación de rutas: reports vs tables
+Los módulos usan dos rutas de salida independientes:
+- `_report_path` → `outputs/runs/<run_id>/reports/` para `.html` y `.xlsx`
+- `_tables_path` → `outputs/runs/<run_id>/tables/` para `.sas7bdat`
+- En modo CUSTOM ambas apuntan a `experiments/`.
 
 ---
 

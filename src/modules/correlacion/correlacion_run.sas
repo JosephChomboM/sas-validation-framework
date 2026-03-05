@@ -57,8 +57,8 @@
   %global _corr_rc;
   %let _corr_rc = 0;
 
-  %local _corr_vars _report_path _file_prefix _seg_num
-         _corr_is_custom _table_subdir;
+  %local _corr_vars _report_path _tables_path _file_prefix _tbl_prefix _seg_num
+         _corr_is_custom;
 
   %put NOTE: ======================================================;
   %put NOTE: [correlacion_run] INICIO;
@@ -115,19 +115,35 @@
 
   /* ==================================================================
      Determinar rutas de salida según modo
-     AUTO   → reports/ + tables/       (validación estándar)
-     CUSTOM → experiments/             (análisis exploratorio)
+     AUTO   → reports/ (html/xlsx) + tables/ (.sas7bdat)
+     CUSTOM → experiments/ (todo junto)
+
+     Naming de tablas .sas7bdat — máximo 32 caracteres (límite SAS):
+       Formato compacto: <mod>_t<N>_<spl>_<scope>_<tipo>
+       Ej: corr_t1_trn_s001_prsn (21 chars)
+       Reportes pueden usar nombres largos (filesystem, no SAS dataset).
      ================================================================== */
+
+  /* -- Abreviaturas para table naming --------------------------------- */
+  %local _spl_abbr _scope_abbr;
+  %if %upcase(&split.) = TRAIN %then %let _spl_abbr = trn;
+  %else %let _spl_abbr = oot;
+
+  %if %substr(&scope., 1, 3) = seg %then %let _scope_abbr = &scope.;
+  %else %let _scope_abbr = base;
+
   %if &_corr_is_custom. = 1 %then %do;
     %let _report_path = &fw_root./outputs/runs/&run_id./experiments;
-    %let _table_subdir = experiments;
-    %let _file_prefix  = custom_correlacion_troncal_&troncal_id._&split._&scope.;
+    %let _tables_path = &fw_root./outputs/runs/&run_id./experiments;
+    %let _file_prefix = custom_correlacion_troncal_&troncal_id._&split._&scope.;
+    %let _tbl_prefix  = cx_corr_t&troncal_id._&_spl_abbr._&_scope_abbr.;
     %put NOTE: [correlacion_run] Output → experiments/ (exploratorio);
   %end;
   %else %do;
     %let _report_path = &fw_root./outputs/runs/&run_id./reports;
-    %let _table_subdir = tables;
-    %let _file_prefix  = correlacion_troncal_&troncal_id._&split._&scope.;
+    %let _tables_path = &fw_root./outputs/runs/&run_id./tables;
+    %let _file_prefix = correlacion_troncal_&troncal_id._&split._&scope.;
+    %let _tbl_prefix  = corr_t&troncal_id._&_spl_abbr._&_scope_abbr.;
     %put NOTE: [correlacion_run] Output → reports/ + tables/ (estándar);
   %end;
 
@@ -163,21 +179,24 @@
   );
 
   /* ==================================================================
-     5) Persistir tablas como .sas7bdat en directorio de output
+     5) Persistir tablas como .sas7bdat en directorio de tables
+        Usa _tables_path (separado de _report_path) y _tbl_prefix (≤32 ch)
      ================================================================== */
-  libname _outlib "&_report_path.";
+  libname _outlib "&_tables_path.";
 
-  data _outlib.&_file_prefix._pearson;
+  data _outlib.&_tbl_prefix._prsn;
     set work._corr_pearson;
   run;
 
-  data _outlib.&_file_prefix._spearman;
+  data _outlib.&_tbl_prefix._sprm;
     set work._corr_spearman;
   run;
 
   libname _outlib clear;
 
-  %put NOTE: [correlacion_run] Tablas .sas7bdat guardadas en &_report_path.;
+  %put NOTE: [correlacion_run] Tablas .sas7bdat guardadas en &_tables_path.;
+  %put NOTE: [correlacion_run]   &_tbl_prefix._prsn  (pearson);
+  %put NOTE: [correlacion_run]   &_tbl_prefix._sprm  (spearman);
 
   /* ==================================================================
      6) Cleanup — eliminar tablas temporales de work

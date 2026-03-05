@@ -55,10 +55,11 @@
 
   /* ---- Validate promote succeeded (fail-fast) ----------------------- */
   %let _promote_ok = 0;
-  proc cas;
-    session conn;
-    table.tableExists result=_r / caslib="PROC" name="_active_input";
-    call symputx('_promote_ok', _r.exists);
+  proc sql noprint;
+    select count(*) into :_promote_ok trimmed
+    from dictionary.tables
+    where upcase(libname) = 'PROC'
+      and upcase(memname) = '_ACTIVE_INPUT';
   quit;
 
   %if &_promote_ok. = 0 %then %do;
