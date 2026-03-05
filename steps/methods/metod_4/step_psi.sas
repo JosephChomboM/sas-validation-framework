@@ -18,11 +18,10 @@
      El split del contexto se ignora (PSI siempre usa train+oot).
 
    Dependencias:
-     - &ctx_scope (SEGMENTO | UNIVERSO) — seteado por context.sas
-     - &run_psi (0|1) — seteado por select_modules.sas
-     - SEGMENTO: &ctx_segment_troncal_id, &ctx_segment_n_segments,
-                 &ctx_segment_seg_id (ALL|N)
-     - UNIVERSO: &ctx_universe_troncal_id
+     - &ctx_scope (SEGMENTO | UNIVERSO) — seteado por context_and_modules.sas
+     - &run_psi (0|1) — seteado por context_and_modules.sas
+     - &ctx_troncal_id — contexto común
+     - SEGMENTO: &ctx_n_segments, &ctx_seg_id (ALL|N)
      - casuser.cfg_troncales / cfg_segmentos (promovidas en Step 02)
      - &fw_root., &run_id (Steps 01 y 02)
 
@@ -86,25 +85,22 @@
     );
 
     /* ---- 2) Iterar según ctx_scope ----------------------------------- */
-    %local _tid _nsg _sg _scope _train_path _oot_path;
+    %local _scope _train_path _oot_path;
 
     %if %upcase(&ctx_scope.) = SEGMENTO %then %do;
 
-        %let _tid = &ctx_segment_troncal_id.;
-        %let _nsg = &ctx_segment_n_segments.;
+        %put NOTE: [step_psi] SEGMENTO: troncal=&ctx_troncal_id. n_segments=&ctx_n_segments. seg_id=&ctx_seg_id.;
 
-        %put NOTE: [step_psi] SEGMENTO: troncal=&_tid. n_segments=&_nsg. seg_id=&ctx_segment_seg_id.;
-
-        %if &_nsg. = 0 %then %do;
-            %put WARNING: [step_psi] Troncal &_tid. tiene 0 segmentos. Nada que ejecutar.;
+        %if &ctx_n_segments. = 0 %then %do;
+            %put WARNING: [step_psi] Troncal &ctx_troncal_id. tiene 0 segmentos. Nada que ejecutar.;
         %end;
-        %else %if %upcase(&ctx_segment_seg_id.) ne ALL %then %do;
+        %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
 
             /* ---- Segmento específico ---- */
-            %let _scope = seg%sysfunc(putn(&ctx_segment_seg_id., z3.));
+            %let _scope = seg%sysfunc(putn(&ctx_seg_id., z3.));
 
-            %fw_path_processed(outvar=_train_path, troncal_id=&_tid., split=train, seg_id=&ctx_segment_seg_id.);
-            %fw_path_processed(outvar=_oot_path,   troncal_id=&_tid., split=oot,   seg_id=&ctx_segment_seg_id.);
+            %fw_path_processed(outvar=_train_path, troncal_id=&ctx_troncal_id., split=train, seg_id=&ctx_seg_id.);
+            %fw_path_processed(outvar=_oot_path,   troncal_id=&ctx_troncal_id., split=oot,   seg_id=&ctx_seg_id.);
 
             %_promote_castable(m_cas_sess_name=conn, m_input_caslib=PROC,
                 m_subdir_data=&_train_path., m_output_caslib=PROC, m_output_data=_psi_train);
@@ -116,7 +112,7 @@
                 train_table  = _psi_train,
                 oot_table    = _psi_oot,
                 output_caslib = OUT,
-                troncal_id   = &_tid.,
+                troncal_id   = &ctx_troncal_id.,
                 scope        = &_scope.,
                 run_id       = &run_id.
             );
@@ -131,11 +127,11 @@
         %else %do;
 
             /* ---- Todos los segmentos ---- */
-            %do _sg = 1 %to &_nsg.;
+            %do _sg = 1 %to &ctx_n_segments.;
                 %let _scope = seg%sysfunc(putn(&_sg., z3.));
 
-                %fw_path_processed(outvar=_train_path, troncal_id=&_tid., split=train, seg_id=&_sg.);
-                %fw_path_processed(outvar=_oot_path,   troncal_id=&_tid., split=oot,   seg_id=&_sg.);
+                %fw_path_processed(outvar=_train_path, troncal_id=&ctx_troncal_id., split=train, seg_id=&_sg.);
+                %fw_path_processed(outvar=_oot_path,   troncal_id=&ctx_troncal_id., split=oot,   seg_id=&_sg.);
 
                 %_promote_castable(m_cas_sess_name=conn, m_input_caslib=PROC,
                     m_subdir_data=&_train_path., m_output_caslib=PROC, m_output_data=_psi_train);
@@ -147,7 +143,7 @@
                     train_table  = _psi_train,
                     oot_table    = _psi_oot,
                     output_caslib = OUT,
-                    troncal_id   = &_tid.,
+                    troncal_id   = &ctx_troncal_id.,
                     scope        = &_scope.,
                     run_id       = &run_id.
                 );
@@ -164,13 +160,11 @@
     %end; /* fin SEGMENTO */
     %else %if %upcase(&ctx_scope.) = UNIVERSO %then %do;
 
-        %let _tid = &ctx_universe_troncal_id.;
-
-        %put NOTE: [step_psi] UNIVERSO: troncal=&_tid.;
+        %put NOTE: [step_psi] UNIVERSO: troncal=&ctx_troncal_id.;
 
         /* Promote train + oot del universo (base) */
-        %fw_path_processed(outvar=_train_path, troncal_id=&_tid., split=train, seg_id=);
-        %fw_path_processed(outvar=_oot_path,   troncal_id=&_tid., split=oot,   seg_id=);
+        %fw_path_processed(outvar=_train_path, troncal_id=&ctx_troncal_id., split=train, seg_id=);
+        %fw_path_processed(outvar=_oot_path,   troncal_id=&ctx_troncal_id., split=oot,   seg_id=);
 
         %_promote_castable(m_cas_sess_name=conn, m_input_caslib=PROC,
             m_subdir_data=&_train_path., m_output_caslib=PROC, m_output_data=_psi_train);
@@ -182,7 +176,7 @@
             train_table   = _psi_train,
             oot_table     = _psi_oot,
             output_caslib = OUT,
-            troncal_id    = &_tid.,
+            troncal_id    = &ctx_troncal_id.,
             scope         = base,
             run_id        = &run_id.
         );

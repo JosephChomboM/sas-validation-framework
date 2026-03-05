@@ -31,15 +31,15 @@ Convención de naming operativo:
 3. Se ejecuta el subflow de módulos para ese contexto.
 
 **Selección de módulos por Método:**
-- Cada swimlane tiene su propio `select_modules.sas` donde se habilitan/deshabilitan módulos.
+- `context_and_modules.sas` es el único step donde se habilitan/deshabilitan módulos.
 - Los flags `%let run_<modulo> = 1|0;` controlan qué módulos se ejecutan.
 - Cada módulo tiene su propio step file independiente (`step_<modulo>.sas`).
 - En el `.flw`, cada step de módulo es un nodo que puede ejecutarse vía background submit.
 - Cada step de módulo checa su flag, lee `&ctx_scope`, crea CASLIBs PROC/OUT, itera, y limpia.
 
-**Swimlanes (dos flujos de ejecución):**
-- **SEGMENTO**: `steps/segmento/context.sas` → `steps/segmento/select_modules.sas` → módulos (itera troncales + segmentos)
-- **UNIVERSO**: `steps/universo/context.sas` → `steps/universo/select_modules.sas` → módulos (itera troncales, solo base)
+**Contexto unificado:**
+- `steps/context_and_modules.sas` → seleccionar scope (UNIVERSO|SEGMENTO), troncal, split, segmento + módulos habilitados
+- `steps/methods/metod_N/step_<modulo>.sas` → cada step lee `ctx_scope` para iterar base o segmentos
 
 El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) a cada módulo vía `%run_module`.
 
@@ -48,7 +48,6 @@ El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) 
 - Lee `&ctx_scope` para determinar si itera segmentos (SEGMENTO) o base/troncal (UNIVERSO).
 - Por cada contexto, `run_module.sas` promueve el input específico desde `PROC` como tabla `_active_input` (vía `%_promote_castable`), ejecuta el módulo, y dropea la tabla promovida.
 - Al final del step se dropean `PROC` y `OUT` (archivos en disco persisten).
-- El mismo archivo step se incluye en ambos swimlanes (seg y unv). En cada swimlane, `ctx_scope` tiene un valor diferente.
 - Patrón obligatorio: **create → promote → work → drop**.
 
 **Independencia de steps:**
@@ -68,7 +67,7 @@ El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) 
 
 **Flag de habilitación:**
 - Cada step de módulo checa `&run_<modulo>` al inicio. Si vale 0, se salta la ejecución.
-- Estos flags se setean en `steps/segmento/select_modules.sas` y `steps/universo/select_modules.sas`.
+- Estos flags se setean en `steps/context_and_modules.sas`.
 
 Orden de ejecución recomendado:
 - Segmentos primero (si existen), luego universo.
@@ -342,10 +341,10 @@ Para agregar un módulo nuevo:
    - Sección de configuración propia (params editables)
    - Crea CASLIBs PROC + OUT
    - Lee `&ctx_scope` para decidir iteración:
-     - SEGMENTO → itera via `ctx_segment_*`
-     - UNIVERSO → itera via `ctx_universe_*`
+     - SEGMENTO → itera via `ctx_n_segments`, `ctx_seg_id`
+     - UNIVERSO → ejecuta base/troncal via `ctx_troncal_id`
    - Cleanup CASLIBs al final
-4. Añadir flags en ambos `select_modules.sas` (segmento y universo).
+4. Añadir flag `run_<nuevo_modulo>` en `steps/context_and_modules.sas`.
    - Inputs esperados
    - Outputs generados
    - Validaciones

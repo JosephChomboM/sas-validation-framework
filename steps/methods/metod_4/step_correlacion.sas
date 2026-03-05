@@ -1,27 +1,27 @@
 /* =========================================================================
-steps/methods/metod_4/step_correlacion.sas
-Step de módulo: Correlación (Método 4.3)
+   steps/methods/metod_4/step_correlacion.sas
+   Step de módulo: Correlación (Método 4.3)
 
-Flujo:
-1) Check flag run_correlacion (skip si deshabilitado)
-2) Configuración propia del módulo (corr_mode, corr_custom_vars)
-3) Crear CASLIBs PROC + OUT
-4) Iteración según ctx_scope:
-- SEGMENTO → itera segmentos del troncal definido en context.sas
-- UNIVERSO → corre base del troncal definido en context.sas
-5) Cleanup CASLIBs
+   Flujo:
+     1) Check flag run_correlacion (skip si deshabilitado)
+     2) Configuración propia del módulo (corr_mode, corr_custom_vars)
+     3) Crear CASLIBs PROC + OUT
+     4) Resolver splits (común para ambos scopes)
+     5) Iteración según ctx_scope:
+        - SEGMENTO → itera segmentos del troncal
+        - UNIVERSO → corre base del troncal
+     6) Cleanup CASLIBs
 
-Dependencias:
-- &ctx_scope (SEGMENTO | UNIVERSO) — seteado por context.sas
-- &run_correlacion (0|1) — seteado por select_modules.sas
-- SEGMENTO: &ctx_segment_troncal_id, &ctx_segment_split,
-&ctx_segment_n_segments, &ctx_segment_seg_id (ALL|N)
-- UNIVERSO: &ctx_universe_troncal_id, &ctx_universe_split
-- casuser.cfg_troncales / cfg_segmentos (promovidas en Step 02)
-- &fw_root., &run_id (Steps 01 y 02)
+   Dependencias:
+     - &ctx_scope (SEGMENTO | UNIVERSO) — seteado por context_and_modules.sas
+     - &run_correlacion (0|1) — seteado por context_and_modules.sas
+     - &ctx_troncal_id, &ctx_split — contexto común
+     - SEGMENTO: &ctx_n_segments, &ctx_seg_id (ALL|N)
+     - casuser.cfg_troncales / cfg_segmentos (promovidas en Step 02)
+     - &fw_root., &run_id (Steps 01 y 02)
 
-Cada step es independiente: carga sus propias dependencias.
-========================================================================= */
+   Cada step es independiente: carga sus propias dependencias.
+   ========================================================================= */
 /* ---- Dependencias ----------------------------------------------------- */
 %include "&fw_root./src/common/common_public.sas";
 %include "&fw_root./src/dispatch/run_module.sas";
@@ -56,51 +56,49 @@ Outputs van a experiments/ (análisis exploratorio).           */
         lib_caslib=OUT, global=Y, cas_sess_name=conn, term_global_sess=0,
         subdirs_flg=1 );
 
-    /* ---- 2) Resolver splits --------------------------------------------- */
-    %local _sp1 _sp2 _tid _nsg;
+    /* ---- 2) Resolver splits (común para ambos scopes) ------------------- */
+    %local _sp1 _sp2;
 
+    %if %upcase(&ctx_split.)=TRAIN %then %do;
+        %let _sp1=train;
+        %let _sp2= ;
+    %end;
+    %else %if %upcase(&ctx_split.)=OOT %then %do;
+        %let _sp1=oot;
+        %let _sp2= ;
+    %end;
+    %else %do;
+        %let _sp1=train;
+        %let _sp2=oot;
+    %end;
+
+    /* ---- 3) Iterar según ctx_scope -------------------------------------- */
     %if %upcase(&ctx_scope.)=SEGMENTO %then %do;
 
-        %let _tid=&ctx_segment_troncal_id.;
-        %let _nsg=&ctx_segment_n_segments.;
+        %put NOTE: [step_correlacion] SEGMENTO: troncal=&ctx_troncal_id.
+            n_segments=&ctx_n_segments. seg_id=&ctx_seg_id. split=&ctx_split.;
 
-        %if %upcase(&ctx_segment_split.)=TRAIN %then %do;
-            %let _sp1=train;
-            %let _sp2= ;
+        %if &ctx_n_segments.=0 %then %do;
+            %put WARNING: [step_correlacion] Troncal &ctx_troncal_id. tiene
+                0 segmentos. Nada que ejecutar.;
         %end;
-        %else %if %upcase(&ctx_segment_split.)=OOT %then %do;
-            %let _sp1=oot;
-            %let _sp2= ;
-        %end;
-        %else %do;
-            %let _sp1=train;
-            %let _sp2=oot;
-        %end;
-
-        %put NOTE: [step_correlacion] SEGMENTO: troncal=&_tid. n_segments=&_nsg.
-            seg_id=&ctx_segment_seg_id. split=&ctx_segment_split.;
-
-        %if &_nsg.=0 %then %do;
-            %put WARNING: [step_correlacion] Troncal &_tid. tiene 0 segmentos.
-                Nada que ejecutar.;
-        %end;
-        %else %if %upcase(&ctx_segment_seg_id.) ne ALL %then %do;
+        %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             /* Segmento específico */
             %if %superq(_sp1) ne %then %run_module(module=correlacion,
-                troncal_id=&_tid., split=&_sp1., seg_id=&ctx_segment_seg_id.,
+                troncal_id=&ctx_troncal_id., split=&_sp1., seg_id=&ctx_seg_id.,
                 run_id=&run_id.);
             %if %superq(_sp2) ne %then %run_module(module=correlacion,
-                troncal_id=&_tid., split=&_sp2., seg_id=&ctx_segment_seg_id.,
+                troncal_id=&ctx_troncal_id., split=&_sp2., seg_id=&ctx_seg_id.,
                 run_id=&run_id.);
         %end;
         %else %do;
             /* Todos los segmentos */
-            %do _sg=1 %to &_nsg.;
+            %do _sg=1 %to &ctx_n_segments.;
                 %if %superq(_sp1) ne %then %run_module(module=correlacion,
-                    troncal_id=&_tid., split=&_sp1., seg_id=&_sg.,
+                    troncal_id=&ctx_troncal_id., split=&_sp1., seg_id=&_sg.,
                     run_id=&run_id.);
                 %if %superq(_sp2) ne %then %run_module(module=correlacion,
-                    troncal_id=&_tid., split=&_sp2., seg_id=&_sg.,
+                    troncal_id=&ctx_troncal_id., split=&_sp2., seg_id=&_sg.,
                     run_id=&run_id.);
             %end;
         %end;
@@ -108,29 +106,14 @@ Outputs van a experiments/ (análisis exploratorio).           */
     %end; /* fin SEGMENTO */
     %else %if %upcase(&ctx_scope.)=UNIVERSO %then %do;
 
-        %let _tid=&ctx_universe_troncal_id.;
-
-        %if %upcase(&ctx_universe_split.)=TRAIN %then %do;
-            %let _sp1=train;
-            %let _sp2= ;
-        %end;
-        %else %if %upcase(&ctx_universe_split.)=OOT %then %do;
-            %let _sp1=oot;
-            %let _sp2= ;
-        %end;
-        %else %do;
-            %let _sp1=train;
-            %let _sp2=oot;
-        %end;
-
-        %put NOTE: [step_correlacion] UNIVERSO: troncal=&_tid.
-            split=&ctx_universe_split.;
+        %put NOTE: [step_correlacion] UNIVERSO: troncal=&ctx_troncal_id.
+            split=&ctx_split.;
 
         /* Ejecutar base (universo) del troncal */
         %if %superq(_sp1) ne %then %run_module(module=correlacion,
-            troncal_id=&_tid., split=&_sp1., seg_id=, run_id=&run_id.);
+            troncal_id=&ctx_troncal_id., split=&_sp1., seg_id=, run_id=&run_id.);
         %if %superq(_sp2) ne %then %run_module(module=correlacion,
-            troncal_id=&_tid., split=&_sp2., seg_id=, run_id=&run_id.);
+            troncal_id=&ctx_troncal_id., split=&_sp2., seg_id=, run_id=&run_id.);
 
     %end; /* fin UNIVERSO */
     %else %do;
@@ -138,7 +121,7 @@ Outputs van a experiments/ (análisis exploratorio).           */
             ser SEGMENTO o UNIVERSO.;
     %end;
 
-    /* ---- 3) Cleanup CASLIBs --------------------------------------------- */
+    /* ---- 4) Cleanup CASLIBs --------------------------------------------- */
     %_drop_caslib(caslib_name=OUT, cas_sess_name=conn, del_prom_tables=1);
     %_drop_caslib(caslib_name=PROC, cas_sess_name=conn, del_prom_tables=1);
 

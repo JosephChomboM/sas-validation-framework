@@ -22,22 +22,19 @@ El usuario configura el framework editando los **steps** (`steps/*.sas`) y luego
 4. **Importación de datos desde ADLS** (opcional, una vez por proyecto): generar raw `.sashdat`.
 5. **Partición de data**: por troncal + split (`train/oot`) + scope (`universo/segmento`).
 
-> **Steps 03–05 se ejecutan una sola vez por proyecto** (o cuando se quiera regenerar data). En corridas posteriores, setear `data_prep_enabled=0` en `runner/main.sas` para saltar de Step 02 directo al swimlane de segmento.
+> **Steps 03–05 se ejecutan una sola vez por proyecto** (o cuando se quiera regenerar data). En corridas posteriores, setear `data_prep_enabled=0` en `runner/main.sas` para saltar de Step 02 directo al contexto.
 
-6. **Swimlane SEGMENTO**:
-   a. **Selección de contexto segmento**: elegir troncal, segmento, split.
-   b. **Selección de módulos**: habilitar qué controles correr (fillrate, correlacion, gini, etc.).
-   c. **Ejecución**: cada módulo habilitado itera los segmentos seleccionados.
-7. **Swimlane UNIVERSO**:
-   a. **Selección de contexto troncal**: elegir troncal, split (sin segmento).
-   b. **Selección de módulos**: habilitar qué controles correr.
-   c. **Ejecución**: cada módulo habilitado itera los troncales (solo base).
+6. **Contexto + módulos** (`steps/context_and_modules.sas`):
+   a. **Selección de scope**: elegir UNIVERSO (troncal completa) o SEGMENTO.
+   b. **Selección de troncal, split y segmento** (si scope=SEGMENTO).
+   c. **Selección de módulos**: habilitar qué controles correr (fillrate, correlacion, gini, etc.).
+7. **Ejecución**: cada módulo habilitado lee `ctx_scope` e itera los segmentos o base según corresponda.
 
 Reglas clave:
 - La selección de contexto (qué data correr) ocurre **antes** de seleccionar módulos.
 - Los métodos (`Metodo 1..N`) son **independientes** entre sí.
-- Cada swimlane tiene su propio contexto y selección de módulos independiente.
-- Los mismos step files de módulos se usan en ambos swimlanes (leen `&ctx_scope`).
+- Un solo step de contexto unificado define scope + troncal + split + segmento + módulos.
+- Los steps de módulos leen `&ctx_scope` para decidir si iterar segmentos o base.
 
 ---
 
@@ -97,12 +94,7 @@ project_root/
     03_create_folders.sas            # creación de carpetas base + troncal_X/train/oot
     04_import_raw_data.sas           # importación ADLS (una vez por proyecto)
     05_partition_data.sas            # particiones troncal/train/oot + universo/segmento
-    segmento/                        # Swimlane SEGMENTO
-      context.sas                    # contexto: troncal + segmento + split
-      select_modules.sas             # selección de módulos a ejecutar
-    universo/                        # Swimlane UNIVERSO
-      context.sas                    # contexto: troncal + split (solo base)
-      select_modules.sas             # selección de módulos a ejecutar
+    context_and_modules.sas          # contexto unificado: scope + troncal + split + seg + módulos
     methods/                         # Steps de módulos organizados por método
       metod_1/                       # Método 1: universe (futuro)
       metod_2/                       # Método 2: target (futuro)
@@ -129,7 +121,7 @@ project_root/
 
 Notas:
 - `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las únicas tablas persistentes en `casuser`. Step 02 las promueve para compatibilidad con background submit.
-- `steps/*.sas` modelan el frontend del flujo: dos swimlanes (segmento y universo), cada uno con contexto + selección de módulos + ejecución.
+- `steps/*.sas` modelan el frontend del flujo: un step de contexto unificado (scope + troncal + split + segmento + módulos) seguido de ejecución de módulos.
 - Cada módulo tiene su propio step en `steps/methods/metod_N/` que lee `&ctx_scope` para saber si iterar segmentos o base.
 - Los módulos se agrupan en sub-métodos: Método 4.2 (estabilidad, fillrate, missings, psi) y Método 4.3 (bivariado, correlacion, gini).
 - Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
@@ -229,11 +221,9 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 | 03 | `steps/03_create_folders.sas` | Carpetas de data + `troncal_X/train/oot/` (solo data prep) |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS (una vez por proyecto) |
 | 05 | `steps/05_partition_data.sas` | Particiones por troncal/split/scope |
-| — | `steps/segmento/context.sas` | Contexto segmento (troncal + seg + split) |
-| — | `steps/segmento/select_modules.sas` | Módulos habilitados para segmento |
-| — | `steps/universo/context.sas` | Contexto universo (troncal + split) |
-| — | `steps/universo/select_modules.sas` | Módulos habilitados para universo |
+| — | `steps/context_and_modules.sas` | Contexto (scope + troncal + split + seg) + módulos |
 | — | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación |
+| — | `steps/methods/metod_4/step_psi.sas` | Config + ejecución PSI |
 | — | `steps/methods/metod_4/step_gini.sas` | (futuro) |
 | — | `steps/methods/metod_4/step_*.sas` | estabilidad, fillrate, missings, psi, bivariado (futuro) |
 
@@ -241,17 +231,14 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 1. Configurar rutas/config (Steps 01–02). Siempre se ejecutan.
 2. **Primera corrida**: `data_prep_enabled=1` → ejecutar Steps 03–05 (carpetas, ADLS, partición).
    **Corridas posteriores**: `data_prep_enabled=0` → saltar Steps 03–05.
-3. **Swimlane SEGMENTO**: configurar contexto (`steps/segmento/context.sas`) y módulos a correr (`steps/segmento/select_modules.sas`).
-4. Los steps de módulos se ejecutan con `ctx_scope=SEGMENTO`, iterando segmentos.
-5. **Swimlane UNIVERSO**: configurar contexto (`steps/universo/context.sas`) y módulos a correr (`steps/universo/select_modules.sas`).
-6. Los mismos steps de módulos se ejecutan con `ctx_scope=UNIVERSO`, iterando base/troncal.
+3. **Contexto + módulos**: configurar scope, troncal, split, segmento y módulos a correr en `steps/context_and_modules.sas`.
+4. Los steps de módulos se ejecutan leyendo `ctx_scope` para iterar segmentos (SEGMENTO) o base/troncal (UNIVERSO).
 
 ### 5.3 Convención de IDs `_id_*`
 Cada step documenta variables `_id_*` que representan campos de un formulario de UI:
-- Contexto de segmento (`segmento/context.sas`): `ctx_segment_troncal_id`, `ctx_segment_split`
-- Contexto de universo (`universo/context.sas`): `ctx_universe_troncal_id`, `ctx_universe_split`
-- Selección de módulos (`select_modules.sas`): `run_estabilidad`, `run_fillrate`, `run_missings`, `run_psi`, `run_bivariado`, `run_correlacion`, `run_gini`
-- Módulos: params específicos dentro de cada step de módulo (ej. `corr_mode`, `corr_custom_vars`)
+- Contexto (`context_and_modules.sas`): `_id_scope`, `_id_troncal_id`, `_id_split`, `_id_seg_id`, `_id_seg_num`
+- Módulos (`context_and_modules.sas`): `_id_run_estabilidad`, `_id_run_fillrate`, `_id_run_missings`, `_id_run_psi`, `_id_run_bivariado`, `_id_run_correlacion`, `_id_run_gini`
+- Módulos: params específicos dentro de cada step de módulo (ej. `corr_mode`, `corr_custom_vars`, `psi_mode`, `psi_n_buckets`)
 
 Ver `design.md §5` para el contrato completo.
 
@@ -270,12 +257,12 @@ Ver `design.md §5` para el contrato completo.
    - Sección de configuración propia del módulo (params editables)
    - Crea CASLIBs PROC + OUT
    - Lee `&ctx_scope` para iterar:
-     - SEGMENTO → usa `ctx_segment_*`
-     - UNIVERSO → usa `ctx_universe_*`
+     - SEGMENTO → usa `ctx_troncal_id`, `ctx_n_segments`, `ctx_seg_id`
+     - UNIVERSO → usa `ctx_troncal_id`
    - Cleanup CASLIBs al final
-4. Añadir flag `run_<nuevo_modulo>` en ambos `select_modules.sas` (segmento y universo).
+4. Añadir flag `run_<nuevo_modulo>` en `steps/context_and_modules.sas`.
 5. Documentar inputs/outputs en `docs/module_catalog.md`.
-6. Añadir `%include` en `runner/main.sas` (en ambos swimlanes) o como nodo en `.flw`.
+6. Añadir `%include` en `runner/main.sas` o como nodo en `.flw`.
 
 Ver `steps/methods/metod_4/step_correlacion.sas` y `src/modules/correlacion/` como implementación de referencia.
 
