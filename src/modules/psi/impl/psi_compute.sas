@@ -3,11 +3,11 @@ psi_compute.sas - Core de cómputo del PSI
 
 Contiene dos macros:
 
-1) %_psi_calc — PSI para UNA variable (core unitario)
+1) %_psi_calc - PSI para UNA variable (core unitario)
 Input:  dos datasets (dev, oot) y nombre de variable
 Output: macro variable &psi_valor con el valor PSI
 
-2) %_psi_compute — Orquestador: itera variables × periodos
+2) %_psi_compute - Orquestador: itera variables × periodos
 Input:  tablas CAS promovidas (vía caslib.table), listas de vars,
 variable temporal (byvar), parámetros de discretización
 Output: tres tablas en WORK:
@@ -20,7 +20,7 @@ Adaptado para tablas CAS (input_caslib.table en lugar de datasets locales).
 ========================================================================= */
 
 /* =====================================================================
-%_psi_calc — PSI para una variable
+%_psi_calc - PSI para una variable
 Método: PROC RANK (continuas) o valores directos (categóricas)
 Suavizado Laplace: (n + 0.5) / (total + 0.5 * n_buckets)
 ===================================================================== */
@@ -154,7 +154,7 @@ Suavizado Laplace: (n + 0.5) / (total + 0.5 * n_buckets)
 %mend _psi_calc;
 
 /* =====================================================================
-%_psi_compute — Orquestador: variables × periodos → cubo + wide + resumen
+%_psi_compute - Orquestador: variables × periodos → cubo + wide + resumen
 Genera tablas en WORK:
 work._psi_cubo        detalle Variable × Periodo × PSI × Tipo
 work._psi_cubo_wide   pivot Variable × meses + PSI_Total

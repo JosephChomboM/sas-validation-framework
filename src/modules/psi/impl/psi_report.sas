@@ -20,7 +20,7 @@ Migrado de psi_legacy.sas (__psi_report + __plot_psi_tendencia).
 ========================================================================= */
 
 /* =====================================================================
-%_psi_plot_tendencia — Gráfico de tendencia temporal del PSI
+%_psi_plot_tendencia - Gráfico de tendencia temporal del PSI
 Un gráfico por variable con bandas semáforo
 ===================================================================== */
 %macro _psi_plot_tendencia(data=work._psi_cubo, byvar=, images_path=,
@@ -84,7 +84,7 @@ Un gráfico por variable con bandas semáforo
 %mend _psi_plot_tendencia;
 
 /* =====================================================================
-%_psi_report — Generador principal de reportes (HTML + Excel + PNG)
+%_psi_report - Generador principal de reportes (HTML + Excel + PNG)
 Lee tablas de WORK generadas por _psi_compute
 ===================================================================== */
 %macro _psi_report(report_path=, images_path=, file_prefix=, byvar=);

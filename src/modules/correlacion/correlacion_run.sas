@@ -1,112 +1,103 @@
 /* =========================================================================
-   correlacion_run.sas - Macro pública del módulo Correlación
+correlacion_run.sas - Macro pública del módulo Correlación
 
-   API:
-     %correlacion_run(
-       input_caslib  = PROC,
-       input_table   = _active_input,
-       output_caslib = OUT,
-       troncal_id    = <id>,
-       split         = train | oot,
-       scope         = base | segNNN,
-       run_id        = <run_id>
-     )
+API:
+%correlacion_run(
+input_caslib  = PROC,
+input_table   = _active_input,
+output_caslib = OUT,
+troncal_id    = <id>,
+split         = train | oot,
+scope         = base | segNNN,
+run_id        = <run_id>
+)
 
-   Flujo interno:
-     1) Determinar modo (AUTO / CUSTOM) y resolver variables numéricas
-        - AUTO   → cfg_segmentos / cfg_troncales (num_list / num_unv)
-        - CUSTOM → &corr_custom_vars (definidas en step_correlacion.sas)
-     2) Ejecutar contract (validaciones)
-     3) Calcular matrices Pearson + Spearman
-     4) Generar reportes HTML + Excel
-        - AUTO   → outputs/runs/<run_id>/reports/   (validación estándar)
-        - CUSTOM → outputs/runs/<run_id>/experiments/ (análisis exploratorio)
-     5) Persistir tablas de correlación → .sas7bdat en disco
-        - AUTO   → reports/   (estándar)
-        - CUSTOM → experiments/  (exploratorio)
-     6) Cleanup tablas temporales (work)
+Flujo interno:
+1) Determinar modo (AUTO / CUSTOM) y resolver variables numéricas
+- AUTO   → cfg_segmentos / cfg_troncales (num_list / num_unv)
+- CUSTOM → &corr_custom_vars (definidas en step_correlacion.sas)
+2) Ejecutar contract (validaciones)
+3) Calcular matrices Pearson + Spearman
+4) Generar reportes HTML + Excel
+- AUTO   → outputs/runs/<run_id>/reports/   (validación estándar)
+- CUSTOM → outputs/runs/<run_id>/experiments/ (análisis exploratorio)
+5) Persistir tablas de correlación → .sas7bdat en disco
+- AUTO   → reports/   (estándar)
+- CUSTOM → experiments/  (exploratorio)
+6) Cleanup tablas temporales (work)
 
-   Variables globales leídas (definidas en step_correlacion.sas):
-     &corr_mode         - AUTO | CUSTOM
-     &corr_custom_vars  - lista vars numéricas (solo si CUSTOM)
+Variables globales leídas (definidas en step_correlacion.sas):
+&corr_mode         - AUTO | CUSTOM
+&corr_custom_vars  - lista vars numéricas (solo si CUSTOM)
 
-   Dependencias (cargadas por step_correlacion.sas vía common_public.sas):
-     - Ninguna de cas_utils para outputs (usa libname SAS directo)
+Dependencias (cargadas por step_correlacion.sas vía common_public.sas):
+- Ninguna de cas_utils para outputs (usa libname SAS directo)
 
-   Solo recibe variables numéricas.
+Solo recibe variables numéricas.
 
-   Compatibilidad: segmento y universo.
-   ========================================================================= */
-
+Compatibilidad: segmento y universo.
+========================================================================= */
 /* ---- Incluir componentes del módulo ----------------------------------- */
 %include "&fw_root./src/modules/correlacion/correlacion_contract.sas";
 %include "&fw_root./src/modules/correlacion/impl/correlacion_compute.sas";
 %include "&fw_root./src/modules/correlacion/impl/correlacion_report.sas";
 
-%macro correlacion_run(
-    input_caslib  = PROC,
-    input_table   = _active_input,
-    output_caslib = OUT,
-    troncal_id    =,
-    split         =,
-    scope         =,
-    run_id        =
-);
+%macro correlacion_run( input_caslib=PROC, input_table=_active_input,
+  output_caslib=OUT, troncal_id=, split=, scope=, run_id=);
 
   /* ---- Return code: owned here, used by contract -------------------- */
   %global _corr_rc;
-  %let _corr_rc = 0;
+  %let _corr_rc=0;
 
   %local _corr_vars _report_path _tables_path _file_prefix _tbl_prefix _seg_num
-         _corr_is_custom;
+    _corr_is_custom;
 
-  %put NOTE: ======================================================;
+  %put NOTE:======================================================;
   %put NOTE: [correlacion_run] INICIO;
-  %put NOTE:   troncal=&troncal_id. split=&split. scope=&scope.;
-  %put NOTE:   input=&input_caslib..&input_table.  output=&output_caslib.;
-  %put NOTE:   mode=&corr_mode.;
-  %put NOTE: ======================================================;
+  %put NOTE: troncal=&troncal_id. split=&split. scope=&scope.;
+  %put NOTE: input=&input_caslib..&input_table. output=&output_caslib.;
+  %put NOTE: mode=&corr_mode.;
+  %put NOTE:======================================================;
 
   /* ==================================================================
-     1) Determinar modo y resolver variables numéricas
-     ================================================================== */
-  %let _corr_vars     = ;
-  %let _corr_is_custom = 0;
+  1) Determinar modo y resolver variables numéricas
+  ================================================================== */
+  %let _corr_vars= ;
+  %let _corr_is_custom=0;
 
   /* ------ Modo CUSTOM: variables personalizadas ---------------------- */
-  %if %upcase(&corr_mode.) = CUSTOM %then %do;
+  %if %upcase(&corr_mode.)=CUSTOM %then %do;
     %if %length(%superq(corr_custom_vars)) > 0 %then %do;
-      %let _corr_vars     = &corr_custom_vars.;
-      %let _corr_is_custom = 1;
+      %let _corr_vars=&corr_custom_vars.;
+      %let _corr_is_custom=1;
       %put NOTE: [correlacion_run] Modo CUSTOM - vars usuario: &_corr_vars.;
     %end;
     %else %do;
-      %put WARNING: [correlacion_run] corr_mode=CUSTOM pero corr_custom_vars vacía. Fallback a AUTO.;
+      %put WARNING: [correlacion_run] corr_mode=CUSTOM pero corr_custom_vars
+        vacía. Fallback a AUTO.;
     %end;
   %end;
 
   /* ------ Modo AUTO (o fallback): variables de configuración --------- */
-  %if &_corr_is_custom. = 0 %then %do;
+  %if &_corr_is_custom.=0 %then %do;
     %put NOTE: [correlacion_run] Modo AUTO - resolviendo vars desde config.;
 
-    %if %substr(&scope., 1, 3) = seg %then %do;
+    %if %substr(&scope., 1, 3)=seg %then %do;
       /* Extraer seg_id numérico del scope (segNNN → NNN) */
-      %let _seg_num = %sysfunc(inputn(%substr(&scope., 4), best.));
+      %let _seg_num=%sysfunc(inputn(%substr(&scope., 4), best.));
 
       proc sql noprint;
-        select strip(num_list) into :_corr_vars trimmed
-        from casuser.cfg_segmentos
-        where troncal_id = &troncal_id.
-          and seg_id     = &_seg_num.;
+        select strip(num_list) into :_corr_vars trimmed from
+          casuser.cfg_segmentos where troncal_id=&troncal_id. and seg_id=
+          &_seg_num.;
       quit;
     %end;
 
     /* Fallback a num_unv del troncal si no hay override de segmento */
-    %if %length(%superq(_corr_vars)) = 0 %then %do;
+    %if %length(%superq(_corr_vars))=0 %then %do;
       proc sql noprint;
-        select strip(num_unv) into :_corr_vars trimmed
-        from casuser.cfg_troncales
-        where troncal_id = &troncal_id.;
+        select strip(num_unv) into :_corr_vars trimmed from
+          casuser.cfg_troncales where troncal_id=&troncal_id.;
       quit;
     %end;
   %end;
@@ -114,47 +105,43 @@
   %put NOTE: [correlacion_run] Variables numéricas resueltas: &_corr_vars.;
 
   /* ==================================================================
-     Determinar rutas de salida según modo
-     AUTO   → reports/ (html/xlsx) + tables/ (.sas7bdat)
-     CUSTOM → experiments/ (todo junto)
+  Determinar rutas de salida según modo
+  AUTO   → reports/ (html/xlsx) + tables/ (.sas7bdat)
+  CUSTOM → experiments/ (todo junto)
 
-     Naming de tablas .sas7bdat - máximo 32 caracteres (límite SAS):
-       Formato compacto: <mod>_t<N>_<spl>_<scope>_<tipo>
-       Ej: corr_t1_trn_s001_prsn (21 chars)
-       Reportes pueden usar nombres largos (filesystem, no SAS dataset).
-     ================================================================== */
-
+  Naming de tablas .sas7bdat - máximo 32 caracteres (límite SAS):
+  Formato compacto: <mod>_t<N>_<spl>_<scope>_<tipo>
+  Ej: corr_t1_trn_s001_prsn (21 chars)
+  Reportes pueden usar nombres largos (filesystem, no SAS dataset).
+  ================================================================== */
   /* -- Abreviaturas para table naming --------------------------------- */
   %local _spl_abbr _scope_abbr;
-  %if %upcase(&split.) = TRAIN %then %let _spl_abbr = trn;
-  %else %let _spl_abbr = oot;
+  %if %upcase(&split.)=TRAIN %then %let _spl_abbr=trn;
+  %else %let _spl_abbr=oot;
 
-  %if %substr(&scope., 1, 3) = seg %then %let _scope_abbr = &scope.;
-  %else %let _scope_abbr = base;
+  %if %substr(&scope., 1, 3)=seg %then %let _scope_abbr=&scope.;
+  %else %let _scope_abbr=base;
 
-  %if &_corr_is_custom. = 1 %then %do;
-    %let _report_path = &fw_root./outputs/runs/&run_id./experiments;
-    %let _tables_path = &fw_root./outputs/runs/&run_id./experiments;
-    %let _file_prefix = custom_correlacion_troncal_&troncal_id._&split._&scope.;
-    %let _tbl_prefix  = cx_corr_t&troncal_id._&_spl_abbr._&_scope_abbr.;
+  %if &_corr_is_custom.=1 %then %do;
+    %let _report_path=&fw_root./outputs/runs/&run_id./experiments;
+    %let _tables_path=&fw_root./outputs/runs/&run_id./experiments;
+    %let _file_prefix=custom_correlacion_troncal_&troncal_id._&split._&scope.;
+    %let _tbl_prefix=cx_corr_t&troncal_id._&_spl_abbr._&_scope_abbr.;
     %put NOTE: [correlacion_run] Output → experiments/ (exploratorio);
   %end;
   %else %do;
-    %let _report_path = &fw_root./outputs/runs/&run_id./reports;
-    %let _tables_path = &fw_root./outputs/runs/&run_id./tables;
-    %let _file_prefix = correlacion_troncal_&troncal_id._&split._&scope.;
-    %let _tbl_prefix  = corr_t&troncal_id._&_spl_abbr._&_scope_abbr.;
-    %put NOTE: [correlacion_run] Output → reports/ + tables/ (estándar);
+    %let _report_path=&fw_root./outputs/runs/&run_id./reports/metod_4_3;
+    %let _tables_path=&fw_root./outputs/runs/&run_id./tables/metod_4_3;
+    %let _file_prefix=correlacion_troncal_&troncal_id._&split._&scope.;
+    %let _tbl_prefix=corr_t&troncal_id._&_spl_abbr._&_scope_abbr.;
+    %put NOTE: [correlacion_run] Output → reports/metod_4_3/ (estándar);
   %end;
 
   /* ==================================================================
-     2) Contract - validaciones pre-ejecución
-     ================================================================== */
-  %correlacion_contract(
-    input_caslib = &input_caslib.,
-    input_table  = &input_table.,
-    variables    = &_corr_vars.
-  );
+  2) Contract - validaciones pre-ejecución
+  ================================================================== */
+  %correlacion_contract( input_caslib=&input_caslib., input_table=&input_table.,
+    variables=&_corr_vars. );
 
   %if &_corr_rc. ne 0 %then %do;
     %put ERROR: [correlacion_run] Contract fallido - módulo abortado.;
@@ -162,26 +149,21 @@
   %end;
 
   /* ==================================================================
-     3) Compute - Pearson + Spearman → work tables
-     ================================================================== */
-  %_correlacion_compute(
-    input_lib  = &input_caslib.,
-    input_table= &input_table.,
-    variables  = &_corr_vars.
-  );
+  3) Compute - Pearson + Spearman → work tables
+  ================================================================== */
+  %_correlacion_compute( input_lib=&input_caslib., input_table=&input_table.,
+    variables=&_corr_vars. );
 
   /* ==================================================================
-     4) Report - HTML + Excel
-     ================================================================== */
-  %_correlacion_report(
-    report_path = &_report_path.,
-    file_prefix = &_file_prefix.
-  );
+  4) Report - HTML + Excel
+  ================================================================== */
+  %_correlacion_report( report_path=&_report_path., file_prefix=&_file_prefix.
+    );
 
   /* ==================================================================
-     5) Persistir tablas como .sas7bdat en directorio de tables
-        Usa _tables_path (separado de _report_path) y _tbl_prefix (≤32 ch)
-     ================================================================== */
+  5) Persistir tablas como .sas7bdat en directorio de tables
+  Usa _tables_path (separado de _report_path) y _tbl_prefix (≤32 ch)
+  ================================================================== */
   libname _outlib "&_tables_path.";
 
   data _outlib.&_tbl_prefix._prsn;
@@ -195,18 +177,18 @@
   libname _outlib clear;
 
   %put NOTE: [correlacion_run] Tablas .sas7bdat guardadas en &_tables_path.;
-  %put NOTE: [correlacion_run]   &_tbl_prefix._prsn  (pearson);
-  %put NOTE: [correlacion_run]   &_tbl_prefix._sprm  (spearman);
+  %put NOTE: [correlacion_run] &_tbl_prefix._prsn (pearson);
+  %put NOTE: [correlacion_run] &_tbl_prefix._sprm (spearman);
 
   /* ==================================================================
-     6) Cleanup - eliminar tablas temporales de work
-     ================================================================== */
+  6) Cleanup - eliminar tablas temporales de work
+  ================================================================== */
   proc datasets library=work nolist;
     delete _corr_pearson _corr_spearman;
-  run;
+    run;
 
-  %put NOTE: ======================================================;
-  %put NOTE: [correlacion_run] FIN - &_file_prefix. (mode=&corr_mode.);
-  %put NOTE: ======================================================;
+    %put NOTE:======================================================;
+    %put NOTE: [correlacion_run] FIN - &_file_prefix. (mode=&corr_mode.);
+    %put NOTE:======================================================;
 
 %mend correlacion_run;

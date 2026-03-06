@@ -153,12 +153,12 @@ Compatibilidad: segmento y universo.
         %put NOTE: [psi_run] Output → experiments/ (exploratorio);
     %end;
     %else %do;
-        %let _report_path=&fw_root./outputs/runs/&run_id./reports;
-        %let _tables_path=&fw_root./outputs/runs/&run_id./tables;
-        %let _images_path=&fw_root./outputs/runs/&run_id./images;
+        %let _report_path=&fw_root./outputs/runs/&run_id./reports/metod_4_2;
+        %let _tables_path=&fw_root./outputs/runs/&run_id./tables/metod_4_2;
+        %let _images_path=&fw_root./outputs/runs/&run_id./images/metod_4_2;
         %let _file_prefix=psi_troncal_&troncal_id._&_scope_abbr.;
         %let _tbl_prefix=psi_t&troncal_id._&_scope_abbr.;
-        %put NOTE: [psi_run] Output → reports/ + tables/ + images/ (estándar);
+        %put NOTE: [psi_run] Output → reports/metod_4_2/ (estándar);
     %end;
 
     /* ==================================================================
