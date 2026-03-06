@@ -1,47 +1,37 @@
 /* =========================================================================
    steps/methods/metod_4/step_psi.sas
-   Step de módulo: PSI - Population Stability Index (Método 4.2)
-
-   Flujo:
-     1) Check flag run_psi (skip si deshabilitado)
-     2) Configuración propia del módulo (psi_mode, n_buckets, variables)
-     3) Crear CASLIBs PROC + OUT
-     4) Iteración según ctx_scope:
-        - SEGMENTO → itera segmentos: promueve train + oot, ejecuta PSI, limpia
-        - UNIVERSO → promueve train + oot base, ejecuta PSI, limpia
-     5) Cleanup CASLIBs
-
-   NOTA IMPORTANTE:
-     PSI compara TRAIN vs OOT → necesita ambos splits simultáneamente.
-     Por eso NO usa run_module.sas (que promueve un solo input).
-     step_psi promueve ambas tablas directamente vía _promote_castable.
-     El split del contexto se ignora (PSI siempre usa train+oot).
+   Step de modulo: PSI - Population Stability Index (Metodo 4.2)
 
    Dependencias:
      - &ctx_scope (SEGMENTO | UNIVERSO) - seteado por context_and_modules.sas
      - &run_psi (0|1) - seteado por context_and_modules.sas
-     - &ctx_troncal_id - contexto común
+     - &ctx_troncal_id - contexto comun
      - SEGMENTO: &ctx_n_segments, &ctx_seg_id (ALL|N)
      - casuser.cfg_troncales / cfg_segmentos (promovidas en Step 02)
      - &fw_root., &run_id (Steps 01 y 02)
+
+   PSI compara TRAIN vs OOT -> necesita ambos splits simultaneamente.
+   Usa run_module con dual_input=1 (promueve train + oot automaticamente).
+   El split del contexto se ignora (PSI siempre usa train+oot).
 
    Cada step es independiente: carga sus propias dependencias.
    ========================================================================= */
 
 /* ---- Dependencias ----------------------------------------------------- */
 %include "&fw_root./src/common/common_public.sas";
+%include "&fw_root./src/dispatch/run_module.sas";
 
-/* ---- CONFIGURACIÓN DEL MÓDULO (editar aquí) --------------------------- */
+/* ---- CONFIGURACION DEL MODULO (editar aqui) --------------------------- */
 
 /* psi_mode:
-     AUTO   → usa variables de cfg_segmentos/cfg_troncales
+     AUTO   -> usa variables de cfg_segmentos/cfg_troncales
               (num_list, cat_list, mes_var).
-              Outputs van a reports/ + tables/ + images/ (validación estándar).
-     CUSTOM → usa psi_custom_vars_num/cat y psi_custom_byvar.
-              Outputs van a experiments/ (análisis exploratorio).           */
+              Outputs van a reports/ + tables/ + images/ (validacion estandar).
+     CUSTOM -> usa psi_custom_vars_num/cat y psi_custom_byvar.
+              Outputs van a experiments/ (analisis exploratorio).           */
 %let psi_mode = AUTO;
 
-/* Número de bins para discretización de variables continuas              */
+/* Numero de bins para discretizacion de variables continuas              */
 %let psi_n_buckets = 10;
 
 /* Calcular PSI mensual (1) o solo total (0)                              */
@@ -52,12 +42,12 @@
 %let psi_custom_vars_cat = ;
 %let psi_custom_byvar    = ;
 
-/* ---- EJECUCIÓN -------------------------------------------------------- */
+/* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_psi;
 
-    /* ---- 0) Check flag de habilitación -------------------------------- */
+    /* ---- 0) Check flag de habilitacion -------------------------------- */
     %if &run_psi. ne 1 %then %do;
-        %put NOTE: [step_psi] Módulo deshabilitado (run_psi=&run_psi.). Saltando.;
+        %put NOTE: [step_psi] Modulo deshabilitado (run_psi=&run_psi.). Saltando.;
         %return;
     %end;
 
@@ -85,78 +75,26 @@
     );
 
     /* ---- 2) Iterar segun ctx_scope ----------------------------------- */
-    %local _scope;
-    /* _train_path y _oot_path NO van en %local porque
-       fw_path_processed los crea via %global &outvar. */
-
     %if %upcase(&ctx_scope.) = SEGMENTO %then %do;
 
-        %put NOTE: [step_psi] SEGMENTO: troncal=&ctx_troncal_id. n_segments=&ctx_n_segments. seg_id=&ctx_seg_id.;
+        %put NOTE: [step_psi] SEGMENTO: troncal=&ctx_troncal_id.
+            n_segments=&ctx_n_segments. seg_id=&ctx_seg_id.;
 
         %if &ctx_n_segments. = 0 %then %do;
-            %put WARNING: [step_psi] Troncal &ctx_troncal_id. tiene 0 segmentos. Nada que ejecutar.;
+            %put WARNING: [step_psi] Troncal &ctx_troncal_id. tiene
+                0 segmentos. Nada que ejecutar.;
         %end;
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
-
-            /* ---- Segmento específico ---- */
-            %let _scope = seg%sysfunc(putn(&ctx_seg_id., z3.));
-
-            %fw_path_processed(outvar=_train_path, troncal_id=&ctx_troncal_id., split=train, seg_id=&ctx_seg_id.);
-            %fw_path_processed(outvar=_oot_path,   troncal_id=&ctx_troncal_id., split=oot,   seg_id=&ctx_seg_id.);
-
-            %_promote_castable(m_cas_sess_name=conn, m_input_caslib=PROC,
-                m_subdir_data=&_train_path., m_output_caslib=PROC, m_output_data=_psi_train);
-            %_promote_castable(m_cas_sess_name=conn, m_input_caslib=PROC,
-                m_subdir_data=&_oot_path.,   m_output_caslib=PROC, m_output_data=_psi_oot);
-
-            %psi_run(
-                input_caslib = PROC,
-                train_table  = _psi_train,
-                oot_table    = _psi_oot,
-                output_caslib = OUT,
-                troncal_id   = &ctx_troncal_id.,
-                scope        = &_scope.,
-                run_id       = &run_id.
-            );
-
-            proc cas;
-                session conn;
-                table.dropTable / caslib="PROC" name="_psi_train" quiet=true;
-                table.dropTable / caslib="PROC" name="_psi_oot"   quiet=true;
-            quit;
-
+            /* Segmento especifico */
+            %run_module(module=psi, troncal_id=&ctx_troncal_id.,
+                seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
         %end;
         %else %do;
-
-            /* ---- Todos los segmentos ---- */
+            /* Todos los segmentos */
             %do _sg = 1 %to &ctx_n_segments.;
-                %let _scope = seg%sysfunc(putn(&_sg., z3.));
-
-                %fw_path_processed(outvar=_train_path, troncal_id=&ctx_troncal_id., split=train, seg_id=&_sg.);
-                %fw_path_processed(outvar=_oot_path,   troncal_id=&ctx_troncal_id., split=oot,   seg_id=&_sg.);
-
-                %_promote_castable(m_cas_sess_name=conn, m_input_caslib=PROC,
-                    m_subdir_data=&_train_path., m_output_caslib=PROC, m_output_data=_psi_train);
-                %_promote_castable(m_cas_sess_name=conn, m_input_caslib=PROC,
-                    m_subdir_data=&_oot_path.,   m_output_caslib=PROC, m_output_data=_psi_oot);
-
-                %psi_run(
-                    input_caslib = PROC,
-                    train_table  = _psi_train,
-                    oot_table    = _psi_oot,
-                    output_caslib = OUT,
-                    troncal_id   = &ctx_troncal_id.,
-                    scope        = &_scope.,
-                    run_id       = &run_id.
-                );
-
-                proc cas;
-                    session conn;
-                    table.dropTable / caslib="PROC" name="_psi_train" quiet=true;
-                    table.dropTable / caslib="PROC" name="_psi_oot"   quiet=true;
-                quit;
+                %run_module(module=psi, troncal_id=&ctx_troncal_id.,
+                    seg_id=&_sg., run_id=&run_id., dual_input=1);
             %end;
-
         %end;
 
     %end; /* fin SEGMENTO */
@@ -164,34 +102,13 @@
 
         %put NOTE: [step_psi] UNIVERSO: troncal=&ctx_troncal_id.;
 
-        /* Promote train + oot del universo (base) */
-        %fw_path_processed(outvar=_train_path, troncal_id=&ctx_troncal_id., split=train, seg_id=);
-        %fw_path_processed(outvar=_oot_path,   troncal_id=&ctx_troncal_id., split=oot,   seg_id=);
-
-        %_promote_castable(m_cas_sess_name=conn, m_input_caslib=PROC,
-            m_subdir_data=&_train_path., m_output_caslib=PROC, m_output_data=_psi_train);
-        %_promote_castable(m_cas_sess_name=conn, m_input_caslib=PROC,
-            m_subdir_data=&_oot_path.,   m_output_caslib=PROC, m_output_data=_psi_oot);
-
-        %psi_run(
-            input_caslib  = PROC,
-            train_table   = _psi_train,
-            oot_table     = _psi_oot,
-            output_caslib = OUT,
-            troncal_id    = &ctx_troncal_id.,
-            scope         = base,
-            run_id        = &run_id.
-        );
-
-        proc cas;
-            session conn;
-            table.dropTable / caslib="PROC" name="_psi_train" quiet=true;
-            table.dropTable / caslib="PROC" name="_psi_oot"   quiet=true;
-        quit;
+        %run_module(module=psi, troncal_id=&ctx_troncal_id.,
+            seg_id=, run_id=&run_id., dual_input=1);
 
     %end; /* fin UNIVERSO */
     %else %do;
-        %put ERROR: [step_psi] ctx_scope=&ctx_scope. no reconocido. Debe ser SEGMENTO o UNIVERSO.;
+        %put ERROR: [step_psi] ctx_scope=&ctx_scope. no reconocido.
+            Debe ser SEGMENTO o UNIVERSO.;
     %end;
 
     /* ---- 3) Cleanup CASLIBs ------------------------------------------ */

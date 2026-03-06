@@ -263,7 +263,11 @@ Aplicación por fase:
 | Data Prep - Partición (Step 05) | RAW, PROC | `fw_prepare_processed` | `fw_prepare_processed` (al final) |
 | Ejecución - módulo (step_*.sas) | PROC, OUT | inicio del step de módulo | final del step de módulo |
 
-**Regla de promote en ejecución:** `run_module.sas` promueve el input específico (vía `%_promote_castable`) antes de ejecutar el módulo, y dropea la tabla promovida (`_active_input`) después. Los módulos reciben `input_table=_active_input` en vez de una ruta.
+**Regla de promote en ejecucion:** `run_module.sas` soporta dos modos:
+- `dual_input=0` (default): promueve un solo input como `_active_input`. El modulo recibe `input_table=_active_input` + `split=<train|oot>`. Para correlacion, gini, etc.
+- `dual_input=1`: promueve train + oot como `_train_input` y `_oot_input`. El modulo recibe `train_table=_train_input` + `oot_table=_oot_input`. Para PSI y futuros modulos que comparen ambos splits. El parametro `split=` se ignora.
+
+En ambos modos, `run_module` dropea las tablas promovidas al finalizar.
 
 **Validación post-promote:** `run_module.sas` verifica existencia del input promovido vía `proc sql` contra `dictionary.tables` (no usa `table.tableExists`).
 

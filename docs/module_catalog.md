@@ -41,7 +41,11 @@ Convención de naming operativo:
 - `steps/context_and_modules.sas` → seleccionar scope (UNIVERSO|SEGMENTO), troncal, split, segmento + módulos habilitados
 - `steps/methods/metod_N/step_<modulo>.sas` → cada step lee `ctx_scope` para iterar base o segmentos
 
-El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) a cada módulo vía `%run_module`.
+El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) a cada modulo via `%run_module`.
+
+**Modos de `run_module`:**
+- `dual_input=0` (default): promueve un solo input como `_active_input`. Para modulos single-input (correlacion, gini, etc.).
+- `dual_input=1`: promueve train + oot como `_train_input` y `_oot_input`. Para modulos que comparan ambos splits (PSI, etc.). El parametro `split=` se ignora.
 
 **Ciclo de vida de CASLIBs en ejecución:**
 - Cada step de módulo (`step_<modulo>.sas`) crea CASLIBs `PROC` y `OUT` al inicio.
@@ -152,12 +156,12 @@ Cada módulo-step es independiente: checa `&run_<modulo>`, lee `&ctx_scope`, cre
 - `%psi_run(...)`
 - Parámetros de entrada:
   - `input_caslib=PROC` - CASLIB de entrada
-  - `train_table=_psi_train` - tabla TRAIN promovida por `step_psi`
-  - `oot_table=_psi_oot` - tabla OOT promovida por `step_psi`
+  - `train_table=_train_input` - tabla TRAIN promovida por `run_module`
+  - `oot_table=_oot_input` - tabla OOT promovida por `run_module`
   - `output_caslib=OUT` - CASLIB de salida
   - `troncal_id`, `scope`, `run_id` - contexto
 
-**Nota arquitectónica:** PSI compara TRAIN vs OOT → necesita DOS tablas promovidas simultáneamente. Por eso **no usa `run_module.sas`** (que promueve un solo input). `step_psi.sas` maneja la promoción de ambas tablas directamente vía `_promote_castable`. El split del contexto se ignora (PSI siempre usa train+oot).
+**Nota arquitectónica:** PSI compara TRAIN vs OOT - necesita DOS tablas promovidas simultaneamente. Usa `run_module.sas` con `dual_input=1`, que promueve ambas tablas (_train_input, _oot_input) automaticamente. El split del contexto se ignora (PSI siempre usa train+oot).
 
 **Estructura interna**
 ```
@@ -248,7 +252,7 @@ Imágenes PNG: tendencia temporal, heatmap, resumen barras.
 **Cleanup**
 - Tablas temporales en `work` (`_psi_cubo`, `_psi_cubo_wide`, `_psi_resumen`, `_psi_dev`, `_psi_oot`) se eliminan al finalizar.
 - No se usan tablas temporales CAS para outputs (se persisten directamente como `.sas7bdat` vía `libname`).
-- Tablas promovidas (`_psi_train`, `_psi_oot`) se dropean por `step_psi.sas` después de cada iteración.
+- Tablas promovidas (`_train_input`, `_oot_input`) se dropean por `run_module.sas` despues de cada invocacion.
 
 ---
 
