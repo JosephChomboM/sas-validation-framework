@@ -1,5 +1,5 @@
 /* =========================================================================
-   steps/01_setup_project.sas — Step 1: Setup del proyecto (FRONTEND)
+   steps/01_setup_project.sas - Step 1: Setup del proyecto (FRONTEND)
 
    Este step define la ruta raíz del proyecto.
    La creación física de carpetas se realiza en Step 03.

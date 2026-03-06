@@ -1,6 +1,6 @@
 /* =========================================================================
    steps/methods/metod_4/step_psi.sas
-   Step de módulo: PSI — Population Stability Index (Método 4.2)
+   Step de módulo: PSI - Population Stability Index (Método 4.2)
 
    Flujo:
      1) Check flag run_psi (skip si deshabilitado)
@@ -18,9 +18,9 @@
      El split del contexto se ignora (PSI siempre usa train+oot).
 
    Dependencias:
-     - &ctx_scope (SEGMENTO | UNIVERSO) — seteado por context_and_modules.sas
-     - &run_psi (0|1) — seteado por context_and_modules.sas
-     - &ctx_troncal_id — contexto común
+     - &ctx_scope (SEGMENTO | UNIVERSO) - seteado por context_and_modules.sas
+     - &run_psi (0|1) - seteado por context_and_modules.sas
+     - &ctx_troncal_id - contexto común
      - SEGMENTO: &ctx_n_segments, &ctx_seg_id (ALL|N)
      - casuser.cfg_troncales / cfg_segmentos (promovidas en Step 02)
      - &fw_root., &run_id (Steps 01 y 02)
@@ -61,7 +61,7 @@
         %return;
     %end;
 
-    %put NOTE: [step_psi] Iniciando — scope=&ctx_scope. psi_mode=&psi_mode.;
+    %put NOTE: [step_psi] Iniciando - scope=&ctx_scope. psi_mode=&psi_mode.;
     %put NOTE: [step_psi] PSI siempre compara TRAIN vs OOT (ignora split del contexto).;
 
     /* ---- 1) Crear CASLIBs PROC + OUT --------------------------------- */
@@ -84,8 +84,10 @@
         subdirs_flg  = 1
     );
 
-    /* ---- 2) Iterar según ctx_scope ----------------------------------- */
-    %local _scope _train_path _oot_path;
+    /* ---- 2) Iterar segun ctx_scope ----------------------------------- */
+    %local _scope;
+    /* _train_path y _oot_path NO van en %local porque
+       fw_path_processed los crea via %global &outvar. */
 
     %if %upcase(&ctx_scope.) = SEGMENTO %then %do;
 

@@ -90,7 +90,7 @@ Reglas:
 - `outputs/runs/<run_id>/images`
 - `outputs/runs/<run_id>/tables`
 - `outputs/runs/<run_id>/manifests`
-- `outputs/runs/<run_id>/experiments` — outputs de análisis exploratorio (modo CUSTOM de módulos)
+- `outputs/runs/<run_id>/experiments` - outputs de análisis exploratorio (modo CUSTOM de módulos)
 
 ---
 
@@ -113,6 +113,8 @@ Se recomienda declarar, por troncal:
 - Rango train/oot:
   - train_min_mes, train_max_mes
   - oot_min_mes, oot_max_mes
+- Fecha de cierre para controles con target:
+  - def_cld - fecha maxima (YYYYMM) para controles que usan target, PD o XB (ratio de default). Para controles que solo analizan variables (ej. correlacion, PSI), usar `oot_max_mes` en su lugar.
 - Listas de variables:
   - var_num_list, var_cat_list
   - drv_num_list, drv_cat_list
@@ -160,10 +162,10 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 03 | `steps/03_create_folders.sas` | Carpetas de data + troncal dirs (solo data prep) | (N/A) |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS | `&adls_import_enabled`, `&adls_*`, `&raw_table` |
 | 05 | `steps/05_partition_data.sas` | Particiones universo/segmento | (N/A) |
-| — | `steps/context_and_modules.sas` | Contexto (scope + troncal + split + seg) + módulos habilitados | `&ctx_scope`, `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id`, `&ctx_n_segments`, `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
-| — | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación | `&corr_mode`, `&corr_custom_vars` |
-| — | `steps/methods/metod_4/step_psi.sas` | Config + ejecución PSI | `&psi_mode`, `&psi_n_buckets`, `&psi_mensual` |
-| — | `steps/methods/metod_4/step_gini.sas` | Config + ejecución gini (futuro) | — |
+| - | `steps/context_and_modules.sas` | Contexto (scope + troncal + split + seg) + módulos habilitados | `&ctx_scope`, `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id`, `&ctx_n_segments`, `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
+| - | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación | `&corr_mode`, `&corr_custom_vars` |
+| - | `steps/methods/metod_4/step_psi.sas` | Config + ejecución PSI | `&psi_mode`, `&psi_n_buckets`, `&psi_mensual` |
+| - | `steps/methods/metod_4/step_gini.sas` | Config + ejecución gini (futuro) | - |
 
 **Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|manifests|experiments`). Estas carpetas se crean **siempre** (cada corrida).
 
@@ -194,9 +196,9 @@ Ejemplos:
 
 | Método | Sub-método | Carpeta | Módulos |
 |--------|------------|---------|----------|
-| Metodo 1 | — | `steps/methods/metod_1/` | universe (futuro) |
-| Metodo 2 | — | `steps/methods/metod_2/` | target (futuro) |
-| Metodo 3 | — | `steps/methods/metod_3/` | segmentacion (futuro) |
+| Metodo 1 | - | `steps/methods/metod_1/` | universe (futuro) |
+| Metodo 2 | - | `steps/methods/metod_2/` | target (futuro) |
+| Metodo 3 | - | `steps/methods/metod_3/` | segmentacion (futuro) |
 | Metodo 4 | 4.2 | `steps/methods/metod_4/` | estabilidad, fillrate, missings, psi |
 | Metodo 4 | 4.3 | `steps/methods/metod_4/` | bivariado, correlacion, gini |
 
@@ -210,14 +212,14 @@ Los sub-métodos (4.2, 4.3) definen la agrupación lógica para la selección en
 
 El pipeline se divide en dos fases con diferente frecuencia de ejecución:
 
-**Fase A — Data Prep (una vez por proyecto, `data_prep_enabled=1`)**
+**Fase A - Data Prep (una vez por proyecto, `data_prep_enabled=1`)**
 1. Setup de rutas (Step 01).
 2. Carga de `config.sas` + creación de dirs del run (Step 02).
 3. Creación de carpetas de data + troncal dirs (Step 03).
 4. Importación ADLS (Step 04, opcional).
 5. Partición y persistencia processed (Step 05).
 
-**Fase B — Ejecución (cada corrida, siempre)**
+**Fase B - Ejecución (cada corrida, siempre)**
 1. Setup de rutas (Step 01).
 2. Carga de `config.sas` + promote config + creación de dirs del run (Step 02).
 3. **Contexto + módulos** (`steps/context_and_modules.sas`):
@@ -242,14 +244,14 @@ El flag `data_prep_enabled` (en `runner/main.sas`) controla si se ejecutan los S
 Todo bloque que usa CASLIBs sigue estrictamente este patrón:
 
 ```
-1. %_create_caslib(...)       — crear CASLIB PATH-based
-2. %_promote_castable(...)    — cargar .sashdat y promover tabla en CAS (idempotente: hace drop previo)
-3. <trabajo>                  — ejecutar módulos / data prep
-4. proc cas; table.dropTable  — eliminar tabla promovida (scope=session)
-5. %_drop_caslib(... del_prom_tables=1) — eliminar CASLIB + tablas de CAS
+1. %_create_caslib(...)       - crear CASLIB PATH-based
+2. %_promote_castable(...)    - cargar .sashdat y promover tabla en CAS (idempotente: hace drop previo)
+3. <trabajo>                  - ejecutar módulos / data prep
+4. proc cas; table.dropTable  - eliminar tabla promovida (scope=session)
+5. %_drop_caslib(... del_prom_tables=1) - eliminar CASLIB + tablas de CAS
 ```
 
-**Nota:** `_promote_castable` es idempotente — ejecuta `table.dropTable` antes de load+promote para evitar colisiones en llamadas iterativas (múltiples splits/segmentos).
+**Nota:** `_promote_castable` es idempotente - ejecuta `table.dropTable` antes de load+promote para evitar colisiones en llamadas iterativas (múltiples splits/segmentos).
 
 **Ningún CASLIB debe sobrevivir más allá de la fase que lo creó.**
 
@@ -257,9 +259,9 @@ Aplicación por fase:
 
 | Fase | CASLIBs | Crea | Dropea |
 |------|---------|------|--------|
-| Data Prep — ADLS import (Step 04) | LAKEHOUSE, RAW | `fw_import_adls_to_cas` | `fw_import_adls_to_cas` (al final) |
-| Data Prep — Partición (Step 05) | RAW, PROC | `fw_prepare_processed` | `fw_prepare_processed` (al final) |
-| Ejecución — módulo (step_*.sas) | PROC, OUT | inicio del step de módulo | final del step de módulo |
+| Data Prep - ADLS import (Step 04) | LAKEHOUSE, RAW | `fw_import_adls_to_cas` | `fw_import_adls_to_cas` (al final) |
+| Data Prep - Partición (Step 05) | RAW, PROC | `fw_prepare_processed` | `fw_prepare_processed` (al final) |
+| Ejecución - módulo (step_*.sas) | PROC, OUT | inicio del step de módulo | final del step de módulo |
 
 **Regla de promote en ejecución:** `run_module.sas` promueve el input específico (vía `%_promote_castable`) antes de ejecutar el módulo, y dropea la tabla promovida (`_active_input`) después. Los módulos reciben `input_table=_active_input` en vez de una ruta.
 
@@ -287,11 +289,11 @@ Implementar `src/common/fw_paths.sas` con una macro pública que construya rutas
 
 ### 7.2 CAS utility macros
 Implementar `src/common/cas_utils.sas` con las macros baseline definidas en `docs/caslib_lifecycle.md`:
-- `%_create_caslib(...)` — crea CASLIB PATH-based
-- `%_drop_caslib(...)` — dropea CASLIB y opcionalmente sus tablas
-- `%_load_cas_data(...)` — carga .sashdat desde CASLIB
-- `%_save_into_caslib(...)` — guarda tabla CAS como .sashdat
-- `%_promote_castable(...)` — promueve tabla (temporal; el caller debe limpiar)
+- `%_create_caslib(...)` - crea CASLIB PATH-based
+- `%_drop_caslib(...)` - dropea CASLIB y opcionalmente sus tablas
+- `%_load_cas_data(...)` - carga .sashdat desde CASLIB
+- `%_save_into_caslib(...)` - guarda tabla CAS como .sashdat
+- `%_promote_castable(...)` - promueve tabla (temporal; el caller debe limpiar)
 
 Estas macros se incluyen vía `src/common/common_public.sas`.
 
@@ -380,7 +382,7 @@ Los módulos usan dos rutas de salida independientes:
 - **Step 03 crea automáticamente** las subcarpetas `data/processed/troncal_X/train/` y `data/processed/troncal_X/oot/` iterando `casuser.cfg_troncales`, garantizando que la estructura de directorios exista antes de la partición (Step 05).
 - **Steps 03–05 (data prep) se ejecutan una sola vez** por proyecto (o cuando se quiera regenerar data). El flag `data_prep_enabled` en `runner/main.sas` controla este comportamiento.
 - **Ciclo de vida estricto de CASLIBs**: todo CASLIB creado se dropea al final del mismo step (`create → promote → work → drop`). Ningún CASLIB sobrevive entre steps. Las tablas promovidas se eliminan al dropear el CASLIB.
-- **Independencia de steps**: cada step es autónomo. Si usa macros del framework, incluye `common_public.sas` al inicio de su archivo. Si usa CASLIBs operativos, los crea y dropea dentro de sí mismo. `casuser` (config) es la única excepción — persiste en la sesión CAS.
+- **Independencia de steps**: cada step es autónomo. Si usa macros del framework, incluye `common_public.sas` al inicio de su archivo. Si usa CASLIBs operativos, los crea y dropea dentro de sí mismo. `casuser` (config) es la única excepción - persiste en la sesión CAS.
 - **Restricción SAS open code**: `%if`/`%do` no se permiten fuera de una macro. Todo archivo `.sas` que use lógica condicional la encapsula en `%macro ... %mend;`. Esto aplica a `runner/main.sas` (`%macro _main_pipeline`), a steps individuales (`_step02_load`, `_step04_import`, `_step05_partition`, `_ctx_seg_validate`, `_ctx_unv_validate`) y a cualquier futuro `.sas` que necesite `%if`/`%do`.
 - **`run_module.sas` promueve el input** desde CASLIB `PROC` como tabla `_active_input`, ejecuta el módulo, y dropea la tabla promovida al finalizar. Los módulos reciben `input_table=_active_input` en vez de un path.
 - **Modo AUTO / CUSTOM por módulo**: los módulos que soportan personalización de variables exponen `<module>_mode` (AUTO | CUSTOM) y `<module>_custom_vars` en su step de módulo (`steps/methods/metod_N/step_<modulo>.sas`). En modo AUTO, el módulo resuelve variables desde config; en modo CUSTOM, usa las variables definidas por el usuario.

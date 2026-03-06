@@ -1,5 +1,5 @@
 /* =========================================================================
-steps/02_load_config.sas — Step 2: Carga/validación de config.sas
+steps/02_load_config.sas - Step 2: Carga/validación de config.sas
 Backend del step:
 - Inicializa sesión CAS
 - Genera run_id

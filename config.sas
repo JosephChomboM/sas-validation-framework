@@ -3,7 +3,7 @@
    (casuser) para iteración del framework.
    NO contiene lógica de orquestación; el framework la ejecuta.
 
-   Esquema estricto — campos exactos requeridos:
+   Esquema estricto - campos exactos requeridos:
      cfg_troncales : 1 fila por troncal
      cfg_segmentos : 1 fila por (troncal_id, seg_id), overrides opcionales
 

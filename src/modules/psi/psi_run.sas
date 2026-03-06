@@ -1,5 +1,5 @@
 /* =========================================================================
-   psi_run.sas — Macro pública del módulo PSI (Population Stability Index)
+   psi_run.sas - Macro pública del módulo PSI (Population Stability Index)
 
    API:
      %psi_run(
@@ -30,12 +30,12 @@
      6) Cleanup tablas temporales (work)
 
    Variables globales leídas (definidas en step_psi.sas):
-     &psi_mode            — AUTO | CUSTOM
-     &psi_n_buckets       — número de bins (default 10)
-     &psi_mensual         — 1 = breakdown mensual, 0 = solo total
-     &psi_custom_vars_num — lista vars numéricas (solo si CUSTOM)
-     &psi_custom_vars_cat — lista vars categóricas (solo si CUSTOM)
-     &psi_custom_byvar    — variable temporal (solo si CUSTOM)
+     &psi_mode            - AUTO | CUSTOM
+     &psi_n_buckets       - número de bins (default 10)
+     &psi_mensual         - 1 = breakdown mensual, 0 = solo total
+     &psi_custom_vars_num - lista vars numéricas (solo si CUSTOM)
+     &psi_custom_vars_cat - lista vars categóricas (solo si CUSTOM)
+     &psi_custom_byvar    - variable temporal (solo si CUSTOM)
 
    Dependencias (cargadas por step_psi.sas vía common_public.sas):
      - Ninguna de cas_utils para outputs (usa libname SAS directo)
@@ -91,7 +91,7 @@
       %let _vars_cat     = &psi_custom_vars_cat.;
       %let _byvar        = &psi_custom_byvar.;
       %let _psi_is_custom = 1;
-      %put NOTE: [psi_run] Modo CUSTOM — vars_num=&_vars_num. vars_cat=&_vars_cat. byvar=&_byvar.;
+      %put NOTE: [psi_run] Modo CUSTOM - vars_num=&_vars_num. vars_cat=&_vars_cat. byvar=&_byvar.;
     %end;
     %else %do;
       %put WARNING: [psi_run] psi_mode=CUSTOM pero variables vacías. Fallback a AUTO.;
@@ -100,7 +100,7 @@
 
   /* ------ Modo AUTO (o fallback): variables de configuración --------- */
   %if &_psi_is_custom. = 0 %then %do;
-    %put NOTE: [psi_run] Modo AUTO — resolviendo vars desde config.;
+    %put NOTE: [psi_run] Modo AUTO - resolviendo vars desde config.;
 
     /* Intentar override de segmento si scope es segNNN */
     %if %substr(&scope., 1, 3) = seg %then %do;
@@ -148,7 +148,7 @@
   /* ==================================================================
      Determinar rutas de salida según modo
 
-     Naming de tablas .sas7bdat — máximo 32 caracteres (límite SAS):
+     Naming de tablas .sas7bdat - máximo 32 caracteres (límite SAS):
        Formato compacto: psi_t<N>_<scope>_<tipo>
        Ej: psi_t1_base_cubo (15 chars), psi_t1_seg001_rsmn (19 chars)
        Reportes usan nombres descriptivos completos (no hay límite).
@@ -175,7 +175,7 @@
   %end;
 
   /* ==================================================================
-     2) Contract — validaciones pre-ejecución
+     2) Contract - validaciones pre-ejecución
      ================================================================== */
   %psi_contract(
     input_caslib = &input_caslib.,
@@ -187,12 +187,12 @@
   );
 
   %if &_psi_rc. ne 0 %then %do;
-    %put ERROR: [psi_run] Contract fallido — módulo abortado.;
+    %put ERROR: [psi_run] Contract fallido - módulo abortado.;
     %return;
   %end;
 
   /* ==================================================================
-     3) Compute — PSI cubo + wide + resumen → work tables
+     3) Compute - PSI cubo + wide + resumen → work tables
      ================================================================== */
   %_psi_compute(
     train_data   = &input_caslib..&train_table.,
@@ -205,7 +205,7 @@
   );
 
   /* ==================================================================
-     4) Report — Excel + HTML + gráficos PNG
+     4) Report - Excel + HTML + gráficos PNG
      ================================================================== */
   %_psi_report(
     report_path = &_report_path.,
@@ -240,14 +240,14 @@
   %put NOTE: [psi_run]   &_tbl_prefix._rsmn  (resumen);
 
   /* ==================================================================
-     6) Cleanup — eliminar tablas temporales de work
+     6) Cleanup - eliminar tablas temporales de work
      ================================================================== */
   proc datasets library=work nolist;
     delete _psi_cubo _psi_cubo_wide _psi_resumen;
   run;
 
   %put NOTE: ======================================================;
-  %put NOTE: [psi_run] FIN — &_file_prefix. (mode=&psi_mode.);
+  %put NOTE: [psi_run] FIN - &_file_prefix. (mode=&psi_mode.);
   %put NOTE: ======================================================;
 
 %mend psi_run;

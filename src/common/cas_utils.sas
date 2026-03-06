@@ -1,20 +1,20 @@
 /* =========================================================================
-   cas_utils.sas — Baseline CAS utility macros
+   cas_utils.sas - Baseline CAS utility macros
    Ref: docs/caslib_lifecycle.md
 
    Provides:
-     %_create_caslib  — Create a PATH-based CASLIB (GLOBAL by default)
-     %_drop_caslib    — Drop CASLIB and optionally its tables
-     %_load_cas_data  — Load .sashdat from a CASLIB into CAS
-     %_save_into_caslib — Save a CAS table as .sashdat into a CASLIB
-     %_promote_castable — Load + promote a table (temporary; must cleanup)
+     %_create_caslib  - Create a PATH-based CASLIB (GLOBAL by default)
+     %_drop_caslib    - Drop CASLIB and optionally its tables
+     %_load_cas_data  - Load .sashdat from a CASLIB into CAS
+     %_save_into_caslib - Save a CAS table as .sashdat into a CASLIB
+     %_promote_castable - Load + promote a table (temporary; must cleanup)
 
    Convention: casuser is reserved for config tables only.
    All data/output persistence uses PATH-based CASLIBs.
    ========================================================================= */
 
 /* ------------------------------------------------------------------
-   %_create_caslib — Create a PATH-based CASLIB
+   %_create_caslib - Create a PATH-based CASLIB
    Parameters:
      cas_path        = filesystem path for the CASLIB
      caslib_name     = logical CASLIB name
@@ -58,7 +58,7 @@
 %mend _create_caslib;
 
 /* ------------------------------------------------------------------
-   %_drop_caslib — Drop a CASLIB; optionally drop all tables first
+   %_drop_caslib - Drop a CASLIB; optionally drop all tables first
    ------------------------------------------------------------------ */
 %macro _drop_caslib(
     caslib_name =,
@@ -88,7 +88,7 @@
 %mend _drop_caslib;
 
 /* ------------------------------------------------------------------
-   %_load_cas_data — Load a .sashdat file from a CASLIB into CAS
+   %_load_cas_data - Load a .sashdat file from a CASLIB into CAS
    ------------------------------------------------------------------ */
 %macro _load_cas_data(
     caslib_name=,
@@ -108,7 +108,7 @@
 %mend _load_cas_data;
 
 /* ------------------------------------------------------------------
-   %_save_into_caslib — Save a CAS table as .sashdat into a CASLIB
+   %_save_into_caslib - Save a CAS table as .sashdat into a CASLIB
    ------------------------------------------------------------------ */
 %macro _save_into_caslib(
     m_cas_sess_name=,
@@ -129,7 +129,7 @@
 %mend _save_into_caslib;
 
 /* ------------------------------------------------------------------
-   %_promote_castable — Load .sashdat and promote into a global CASLIB
+   %_promote_castable - Load .sashdat and promote into a global CASLIB
    IMPORTANT: caller MUST drop promoted table at end of step (Rule 2).
 
    Idempotent: drops any existing table (session + global scope) in the

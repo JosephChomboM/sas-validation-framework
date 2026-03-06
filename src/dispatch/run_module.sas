@@ -1,5 +1,5 @@
 /* =========================================================================
-   run_module.sas — Dispatch: ejecuta un módulo en un contexto dado
+   run_module.sas - Dispatch: ejecuta un módulo en un contexto dado
 
    Ciclo de vida por invocación (create → promote → work → drop):
      1) Resolver ruta relativa del input en CASLIB PROC

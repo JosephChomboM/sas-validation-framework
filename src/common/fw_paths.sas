@@ -1,5 +1,5 @@
 /* =========================================================================
-  fw_paths.sas — Resolver único de rutas processed
+  fw_paths.sas - Resolver único de rutas processed
    Evita hardcode de paths en módulos y runner.
 
    Macro pública:
@@ -34,11 +34,11 @@
   %global &outvar.;
 
   %if %superq(seg_id) = %then %do;
-    /* Universo (base) — sin extensión; el consumidor agrega .sashdat */
+    /* Universo (base) - sin extensión; el consumidor agrega .sashdat */
     %let &outvar. = troncal_&troncal_id./%lowcase(&split.)/base;
   %end;
   %else %do;
-    /* Segmento con padding z3. — sin extensión */
+    /* Segmento con padding z3. - sin extensión */
     %let _seg_pad = %sysfunc(putn(&seg_id., z3.));
     %let &outvar. = troncal_&troncal_id./%lowcase(&split.)/seg&_seg_pad.;
     %symdel _seg_pad / nowarn;

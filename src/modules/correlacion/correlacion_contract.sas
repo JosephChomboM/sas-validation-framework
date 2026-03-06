@@ -1,5 +1,5 @@
 /* =========================================================================
-   correlacion_contract.sas — Validaciones pre-ejecución del módulo
+   correlacion_contract.sas - Validaciones pre-ejecución del módulo
 
    Verifica:
      1) Tabla input accesible y con observaciones (nobs > 0)
@@ -37,6 +37,6 @@
     %return;
   %end;
 
-  %put NOTE: [correlacion_contract] OK — &_corr_nobs. obs, variables=&variables.;
+  %put NOTE: [correlacion_contract] OK - &_corr_nobs. obs, variables=&variables.;
 
 %mend correlacion_contract;

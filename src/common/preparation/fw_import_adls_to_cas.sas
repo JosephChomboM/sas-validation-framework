@@ -1,5 +1,5 @@
 /* =========================================================================
-   fw_import_adls_to_cas.sas — Importa data .parquet desde ADLS a RAW
+   fw_import_adls_to_cas.sas - Importa data .parquet desde ADLS a RAW
    Lee un archivo parquet desde Azure Data Lake Storage (ADLS) y lo
    persiste como .sashdat en la carpeta data/raw/ del proyecto.
 
@@ -38,7 +38,7 @@
   %put NOTE: ======================================================;
 
   /* -----------------------------------------------------------------
-     1) Crear CASLIB RAW (PATH → data/raw/) — idempotente
+     1) Crear CASLIB RAW (PATH → data/raw/) - idempotente
      ----------------------------------------------------------------- */
   %_create_caslib(
     cas_path         = &raw_path.,
@@ -102,7 +102,7 @@
   %_drop_caslib(caslib_name=lakehouse, cas_sess_name=conn, del_prom_tables=1);
   %_drop_caslib(caslib_name=RAW,       cas_sess_name=conn, del_prom_tables=1);
 
-  %put NOTE: [fw_import_adls_to_cas] FIN — CASLIBs LAKEHOUSE y RAW limpiados.;
+  %put NOTE: [fw_import_adls_to_cas] FIN - CASLIBs LAKEHOUSE y RAW limpiados.;
   %put NOTE: [fw_import_adls_to_cas] Archivo &output_table..sashdat persiste en disco (data/raw/).;
 
 %mend fw_import_adls_to_cas;

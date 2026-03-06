@@ -1,5 +1,5 @@
 /* =========================================================================
-   common_public.sas — Agregador de utilidades comunes del framework
+   common_public.sas - Agregador de utilidades comunes del framework
    Se incluye una sola vez desde runner/main.sas.
 
    Orden de %include determinado por dependencias:

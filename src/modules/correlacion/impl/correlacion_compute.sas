@@ -1,9 +1,9 @@
 /* =========================================================================
-   correlacion_compute.sas — Cómputo de matrices de correlación
+   correlacion_compute.sas - Cómputo de matrices de correlación
 
    Genera dos tablas en WORK:
-     work._corr_pearson   — correlación de Pearson
-     work._corr_spearman  — correlación de Spearman
+     work._corr_pearson   - correlación de Pearson
+     work._corr_spearman  - correlación de Spearman
 
    Ambas filtradas a _type_='CORR' (solo filas de correlación,
    sin N, MEAN, STD).

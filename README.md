@@ -86,9 +86,9 @@ project_root/
       psi/...
 
   runner/
-    main.sas                        # entrypoint — incluye steps y orquesta pipeline
+    main.sas                        # entrypoint - incluye steps y orquesta pipeline
 
-  steps/                             # FRONTEND — configuración previa a ejecutar controles
+  steps/                             # FRONTEND - configuración previa a ejecutar controles
     01_setup_project.sas             # rutas del proyecto
     02_load_config.sas               # carga/validación de config.sas + promote config
     03_create_folders.sas            # creación de carpetas base + troncal_X/train/oot
@@ -128,6 +128,7 @@ Notas:
 - Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/...` incluyendo `experiments/`) en cada corrida, independientemente de `data_prep_enabled`.
 - Step 03 crea `data/raw/`, `data/processed/`, y subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal. Solo se ejecuta durante data prep.
 - Parámetros específicos de módulos de análisis (`threshold`, `corr_mode`, etc.) **no** viven en `config.sas`; se configuran en el step del módulo correspondiente.
+- `def_cld` en `config.sas` define la fecha maxima (YYYYMM) para controles que usan target/PD/XB (ej. Gini). Controles que solo analizan variables (ej. correlacion, PSI) usan `oot_max_mes`.
 
 ### 3.0a Ciclo de vida de CASLIBs
 
@@ -173,7 +174,7 @@ Todo output va en:
 - `outputs/runs/<run_id>/images`
 - `outputs/runs/<run_id>/tables`
 - `outputs/runs/<run_id>/manifests`
-- `outputs/runs/<run_id>/experiments` — outputs exploratorios (modo CUSTOM de módulos)
+- `outputs/runs/<run_id>/experiments` - outputs exploratorios (modo CUSTOM de módulos)
 
 Reglas:
 - Ningún módulo escribe en `data/processed` (solo en `outputs/...`).
@@ -190,7 +191,7 @@ Cada módulo implementa:
 
 ### 3.4 Validaciones obligatorias
 Antes de ejecutar un módulo:
-- existencia del input (tabla/archivo) — vía `proc sql` contra `dictionary.tables` o count directo (**no usar `table.tableExists`**)
+- existencia del input (tabla/archivo) - vía `proc sql` contra `dictionary.tables` o count directo (**no usar `table.tableExists`**)
 - columnas requeridas para el módulo
 - tipos/formatos mínimos (cuando aplique)
 
@@ -221,11 +222,11 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 | 03 | `steps/03_create_folders.sas` | Carpetas de data + `troncal_X/train/oot/` (solo data prep) |
 | 04 | `steps/04_import_raw_data.sas` | Importación ADLS (una vez por proyecto) |
 | 05 | `steps/05_partition_data.sas` | Particiones por troncal/split/scope |
-| — | `steps/context_and_modules.sas` | Contexto (scope + troncal + split + seg) + módulos |
-| — | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación |
-| — | `steps/methods/metod_4/step_psi.sas` | Config + ejecución PSI |
-| — | `steps/methods/metod_4/step_gini.sas` | (futuro) |
-| — | `steps/methods/metod_4/step_*.sas` | estabilidad, fillrate, missings, psi, bivariado (futuro) |
+| - | `steps/context_and_modules.sas` | Contexto (scope + troncal + split + seg) + módulos |
+| - | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación |
+| - | `steps/methods/metod_4/step_psi.sas` | Config + ejecución PSI |
+| - | `steps/methods/metod_4/step_gini.sas` | (futuro) |
+| - | `steps/methods/metod_4/step_*.sas` | estabilidad, fillrate, missings, psi, bivariado (futuro) |
 
 ### 5.2 Cómo usar
 1. Configurar rutas/config (Steps 01–02). Siempre se ejecutan.

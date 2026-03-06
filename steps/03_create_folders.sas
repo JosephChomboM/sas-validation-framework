@@ -1,5 +1,5 @@
 /* =========================================================================
-   steps/03_create_folders.sas — Step 3: Crear estructura de carpetas de data
+   steps/03_create_folders.sas - Step 3: Crear estructura de carpetas de data
 
    Solo se ejecuta durante data prep (data_prep_enabled=1).
    Crea:

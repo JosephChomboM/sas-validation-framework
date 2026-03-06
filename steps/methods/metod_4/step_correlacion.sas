@@ -1,21 +1,11 @@
-/* =========================================================================
+﻿/* =========================================================================
    steps/methods/metod_4/step_correlacion.sas
    Step de módulo: Correlación (Método 4.3)
 
-   Flujo:
-     1) Check flag run_correlacion (skip si deshabilitado)
-     2) Configuración propia del módulo (corr_mode, corr_custom_vars)
-     3) Crear CASLIBs PROC + OUT
-     4) Resolver splits (común para ambos scopes)
-     5) Iteración según ctx_scope:
-        - SEGMENTO → itera segmentos del troncal
-        - UNIVERSO → corre base del troncal
-     6) Cleanup CASLIBs
-
    Dependencias:
-     - &ctx_scope (SEGMENTO | UNIVERSO) — seteado por context_and_modules.sas
-     - &run_correlacion (0|1) — seteado por context_and_modules.sas
-     - &ctx_troncal_id, &ctx_split — contexto común
+     - &ctx_scope (SEGMENTO | UNIVERSO) - seteado por context_and_modules.sas
+     - &run_correlacion (0|1) - seteado por context_and_modules.sas
+     - &ctx_troncal_id, &ctx_split - contexto común
      - SEGMENTO: &ctx_n_segments, &ctx_seg_id (ALL|N)
      - casuser.cfg_troncales / cfg_segmentos (promovidas en Step 02)
      - &fw_root., &run_id (Steps 01 y 02)
@@ -33,7 +23,7 @@ Outputs van a reports/ y tables/ (validación estándar).
 CUSTOM → usa corr_custom_vars (lista manual de variables numéricas)
 Outputs van a experiments/ (análisis exploratorio).           */
 %let corr_mode=AUTO;
-%let corr_custom_vars=;
+%let corr_custom_vars=&_id_custom_vars_num.;
 
 /* ---- EJECUCIÓN -------------------------------------------------------- */
 %macro _step_correlacion;
@@ -45,7 +35,7 @@ Outputs van a experiments/ (análisis exploratorio).           */
         %return;
     %end;
 
-    %put NOTE: [step_correlacion] Iniciando — scope=&ctx_scope.
+    %put NOTE: [step_correlacion] Iniciando - scope=&ctx_scope.
         corr_mode=&corr_mode.;
 
     /* ---- 1) Crear CASLIBs PROC + OUT ----------------------------------- */

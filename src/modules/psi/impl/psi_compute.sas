@@ -1,21 +1,21 @@
 /* =========================================================================
-   psi_compute.sas — Cálculo del PSI (Population Stability Index)
+   psi_compute.sas - Cálculo del PSI (Population Stability Index)
 
    Macros:
-     %_psi_calc    — PSI para UNA variable entre dev y oot (core)
-     %_psi_compute — Orquestador: itera variables × periodos, genera cubo + resumen
+     %_psi_calc    - PSI para UNA variable entre dev y oot (core)
+     %_psi_compute - Orquestador: itera variables × periodos, genera cubo + resumen
 
    Output (tablas en work):
-     _psi_cubo       — detalle: Variable × Periodo × PSI × Tipo
-     _psi_cubo_wide  — pivot:   Variable × mes_1 ... mes_N × PSI_Total
-     _psi_resumen    — resumen: Variable × PSI_Total × estadísticas × alertas
+     _psi_cubo       - detalle: Variable × Periodo × PSI × Tipo
+     _psi_cubo_wide  - pivot:   Variable × mes_1 ... mes_N × PSI_Total
+     _psi_resumen    - resumen: Variable × PSI_Total × estadísticas × alertas
 
    Migrado desde psi_legacy.sas v2.3 (Joseph Chombo, 02/12/2025).
    Adaptado a framework: prefijos _psi_, work library, parámetros explícitos.
    ========================================================================= */
 
 /* ------------------------------------------------------------------
-   %_psi_calc — PSI para una variable individual
+   %_psi_calc - PSI para una variable individual
 
    Método: PROC RANK (continuas) o valores directos (categóricas)
    + frecuencias vía PROC SQL + suavizado Laplace.
@@ -88,7 +88,7 @@
             run;
         %end;
         %else %do;
-            /* Sin cortes válidos — un solo bucket */
+            /* Sin cortes válidos - un solo bucket */
             data _db_&rnd.; set &dev.(keep=&var.); bucket = 1; run;
             data _ob_&rnd.; set &oot.(keep=&var.); bucket = 1; run;
         %end;
@@ -140,7 +140,7 @@
 
 
 /* ------------------------------------------------------------------
-   %_psi_compute — Orquestador PSI
+   %_psi_compute - Orquestador PSI
 
    1) Copia datos a work (_psi_dev, _psi_oot)
    2) Construye lista combinada de variables (num + cat con marcador #)
@@ -165,7 +165,7 @@
     %local n v v_aux m c z v_cat es_categorica num_valores
            meses_oot n_meses hay_mensual _combined_vars;
 
-    %put NOTE: [psi_compute] Inicio — buckets=&n_buckets. mensual=&mensual.;
+    %put NOTE: [psi_compute] Inicio - buckets=&n_buckets. mensual=&mensual.;
 
     /* ==================================================================
        1) Copiar datos a work para procesamiento local
@@ -206,7 +206,7 @@
         %put NOTE: [psi_compute] Periodos en OOT: &meses_oot. (total=&n_meses.);
     %end;
     %else %do;
-        %put NOTE: [psi_compute] Sin variable temporal — solo PSI Total.;
+        %put NOTE: [psi_compute] Sin variable temporal - solo PSI Total.;
         %let mensual = 0;
     %end;
 
@@ -333,7 +333,7 @@
         quit;
     %end;
     %else %do;
-        /* Sin datos mensuales — wide solo con Total */
+        /* Sin datos mensuales - wide solo con Total */
         proc sql;
             create table _psi_cubo_wide as
             select Variable, PSI as PSI_Total format=10.6
@@ -420,6 +420,6 @@
         delete _psi_dev _psi_oot _psi_oot_mes;
     quit;
 
-    %put NOTE: [psi_compute] Completado — cubo=_psi_cubo wide=_psi_cubo_wide resumen=_psi_resumen;
+    %put NOTE: [psi_compute] Completado - cubo=_psi_cubo wide=_psi_cubo_wide resumen=_psi_resumen;
 
 %mend _psi_compute;

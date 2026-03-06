@@ -1,5 +1,5 @@
 /* =========================================================================
-   correlacion_run.sas — Macro pública del módulo Correlación
+   correlacion_run.sas - Macro pública del módulo Correlación
 
    API:
      %correlacion_run(
@@ -27,8 +27,8 @@
      6) Cleanup tablas temporales (work)
 
    Variables globales leídas (definidas en step_correlacion.sas):
-     &corr_mode         — AUTO | CUSTOM
-     &corr_custom_vars  — lista vars numéricas (solo si CUSTOM)
+     &corr_mode         - AUTO | CUSTOM
+     &corr_custom_vars  - lista vars numéricas (solo si CUSTOM)
 
    Dependencias (cargadas por step_correlacion.sas vía common_public.sas):
      - Ninguna de cas_utils para outputs (usa libname SAS directo)
@@ -78,7 +78,7 @@
     %if %length(%superq(corr_custom_vars)) > 0 %then %do;
       %let _corr_vars     = &corr_custom_vars.;
       %let _corr_is_custom = 1;
-      %put NOTE: [correlacion_run] Modo CUSTOM — vars usuario: &_corr_vars.;
+      %put NOTE: [correlacion_run] Modo CUSTOM - vars usuario: &_corr_vars.;
     %end;
     %else %do;
       %put WARNING: [correlacion_run] corr_mode=CUSTOM pero corr_custom_vars vacía. Fallback a AUTO.;
@@ -87,7 +87,7 @@
 
   /* ------ Modo AUTO (o fallback): variables de configuración --------- */
   %if &_corr_is_custom. = 0 %then %do;
-    %put NOTE: [correlacion_run] Modo AUTO — resolviendo vars desde config.;
+    %put NOTE: [correlacion_run] Modo AUTO - resolviendo vars desde config.;
 
     %if %substr(&scope., 1, 3) = seg %then %do;
       /* Extraer seg_id numérico del scope (segNNN → NNN) */
@@ -118,7 +118,7 @@
      AUTO   → reports/ (html/xlsx) + tables/ (.sas7bdat)
      CUSTOM → experiments/ (todo junto)
 
-     Naming de tablas .sas7bdat — máximo 32 caracteres (límite SAS):
+     Naming de tablas .sas7bdat - máximo 32 caracteres (límite SAS):
        Formato compacto: <mod>_t<N>_<spl>_<scope>_<tipo>
        Ej: corr_t1_trn_s001_prsn (21 chars)
        Reportes pueden usar nombres largos (filesystem, no SAS dataset).
@@ -148,7 +148,7 @@
   %end;
 
   /* ==================================================================
-     2) Contract — validaciones pre-ejecución
+     2) Contract - validaciones pre-ejecución
      ================================================================== */
   %correlacion_contract(
     input_caslib = &input_caslib.,
@@ -157,12 +157,12 @@
   );
 
   %if &_corr_rc. ne 0 %then %do;
-    %put ERROR: [correlacion_run] Contract fallido — módulo abortado.;
+    %put ERROR: [correlacion_run] Contract fallido - módulo abortado.;
     %return;
   %end;
 
   /* ==================================================================
-     3) Compute — Pearson + Spearman → work tables
+     3) Compute - Pearson + Spearman → work tables
      ================================================================== */
   %_correlacion_compute(
     input_lib  = &input_caslib.,
@@ -171,7 +171,7 @@
   );
 
   /* ==================================================================
-     4) Report — HTML + Excel
+     4) Report - HTML + Excel
      ================================================================== */
   %_correlacion_report(
     report_path = &_report_path.,
@@ -199,14 +199,14 @@
   %put NOTE: [correlacion_run]   &_tbl_prefix._sprm  (spearman);
 
   /* ==================================================================
-     6) Cleanup — eliminar tablas temporales de work
+     6) Cleanup - eliminar tablas temporales de work
      ================================================================== */
   proc datasets library=work nolist;
     delete _corr_pearson _corr_spearman;
   run;
 
   %put NOTE: ======================================================;
-  %put NOTE: [correlacion_run] FIN — &_file_prefix. (mode=&corr_mode.);
+  %put NOTE: [correlacion_run] FIN - &_file_prefix. (mode=&corr_mode.);
   %put NOTE: ======================================================;
 
 %mend correlacion_run;

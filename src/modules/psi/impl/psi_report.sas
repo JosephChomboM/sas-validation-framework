@@ -1,11 +1,11 @@
 /* =========================================================================
-   psi_report.sas — Generación de reportes PSI
+   psi_report.sas - Generación de reportes PSI
 
    Macros:
-     %_psi_report          — Excel multi-hoja + HTML con semáforo
-     %_psi_plot_tendencia  — Gráfico temporal por variable
-     %_psi_plot_heatmap    — Heatmap de estabilidad
-     %_psi_plot_resumen    — Gráfico resumen (rangos + total)
+     %_psi_report          - Excel multi-hoja + HTML con semáforo
+     %_psi_plot_tendencia  - Gráfico temporal por variable
+     %_psi_plot_heatmap    - Heatmap de estabilidad
+     %_psi_plot_resumen    - Gráfico resumen (rangos + total)
 
    Lee de work: _psi_cubo, _psi_cubo_wide, _psi_resumen
 
@@ -19,7 +19,7 @@
 
 
 /* ------------------------------------------------------------------
-   %_psi_plot_tendencia — Serie temporal PSI por variable
+   %_psi_plot_tendencia - Serie temporal PSI por variable
    ------------------------------------------------------------------ */
 %macro _psi_plot_tendencia(image_path=, file_prefix=);
 
@@ -80,7 +80,7 @@
 
 
 /* ------------------------------------------------------------------
-   %_psi_plot_heatmap — Heatmap Variable × Periodo
+   %_psi_plot_heatmap - Heatmap Variable × Periodo
    ------------------------------------------------------------------ */
 %macro _psi_plot_heatmap(image_path=, file_prefix=);
 
@@ -134,7 +134,7 @@
 
 
 /* ------------------------------------------------------------------
-   %_psi_plot_resumen — Barras resumen (rango min-max + PSI Total)
+   %_psi_plot_resumen - Barras resumen (rango min-max + PSI Total)
    ------------------------------------------------------------------ */
 %macro _psi_plot_resumen(image_path=, file_prefix=);
 
@@ -166,13 +166,13 @@
 
 
 /* ------------------------------------------------------------------
-   %_psi_report — Reporte principal: Excel multi-hoja + HTML
+   %_psi_report - Reporte principal: Excel multi-hoja + HTML
 
    Parámetros:
-     report_path  — ruta de salida para .xlsx y .html
-     image_path   — ruta de salida para imágenes .png
-     file_prefix  — prefijo para archivos (ej. psi_troncal_1_base)
-     byvar        — nombre de variable temporal (para label; vacío si N/A)
+     report_path  - ruta de salida para .xlsx y .html
+     image_path   - ruta de salida para imágenes .png
+     file_prefix  - prefijo para archivos (ej. psi_troncal_1_base)
+     byvar        - nombre de variable temporal (para label; vacío si N/A)
    ------------------------------------------------------------------ */
 %macro _psi_report(
     report_path =,

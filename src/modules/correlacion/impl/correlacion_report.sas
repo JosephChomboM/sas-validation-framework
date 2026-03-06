@@ -1,13 +1,13 @@
 /* =========================================================================
-   correlacion_report.sas — Generación de reportes HTML + Excel
+   correlacion_report.sas - Generación de reportes HTML + Excel
 
    Lee las tablas de WORK generadas por correlacion_compute:
      work._corr_pearson
      work._corr_spearman
 
    Genera:
-     <report_path>/<file_prefix>.html  — ambas matrices con semáforo
-     <report_path>/<file_prefix>.xlsx  — hoja Pearson + hoja Spearman
+     <report_path>/<file_prefix>.html  - ambas matrices con semáforo
+     <report_path>/<file_prefix>.xlsx  - hoja Pearson + hoja Spearman
 
    Codificación de colores (semáforo por valor absoluto):
      |r| < 0.5   → lightgreen  (correlación débil)
@@ -35,12 +35,12 @@
 
   proc print data=work._corr_pearson(drop=_type_ rename=(_name_=Variable))
              style(column)={backgroundcolor=CorrSignif.} noobs;
-    title "Correlation Matrix (Pearson) — &file_prefix.";
+    title "Correlation Matrix (Pearson) - &file_prefix.";
   run;
 
   proc print data=work._corr_spearman(drop=_type_ rename=(_name_=Variable))
              style(column)={backgroundcolor=CorrSignif.} noobs;
-    title "Correlation Matrix (Spearman) — &file_prefix.";
+    title "Correlation Matrix (Spearman) - &file_prefix.";
   run;
 
   ods html5 close;

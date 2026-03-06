@@ -1,5 +1,5 @@
 /* =========================================================================
-   steps/05_partition_data.sas — Step 5: Configuración de particiones
+   steps/05_partition_data.sas - Step 5: Configuración de particiones
 
    Backend del step:
      - Ejecuta partición processed (universo + segmentos)

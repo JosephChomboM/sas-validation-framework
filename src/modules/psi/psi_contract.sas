@@ -1,5 +1,5 @@
 /* =========================================================================
-   psi_contract.sas — Validaciones pre-ejecución del módulo PSI
+   psi_contract.sas - Validaciones pre-ejecución del módulo PSI
 
    Verifica:
      1) Tabla TRAIN accesible y con nobs > 0
@@ -98,6 +98,6 @@
     %end;
   %end;
 
-  %put NOTE: [psi_contract] Validación OK — TRAIN=&_n_train. obs | OOT=&_n_oot. obs;
+  %put NOTE: [psi_contract] Validación OK - TRAIN=&_n_train. obs | OOT=&_n_oot. obs;
 
 %mend psi_contract;

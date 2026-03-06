@@ -1,5 +1,5 @@
-/* =========================================================================
-fw_prepare_processed.sas — Preparación idempotente de data processed
+﻿/* =========================================================================
+fw_prepare_processed.sas - Preparación idempotente de data processed
 Lee dataset maestro (raw), particiona train/oot por ventana de meses,
 genera base.sashdat y segNNN.sashdat por troncal/split.
 
@@ -16,7 +16,7 @@ Requiere: %fw_path_processed y %_create_caslib, %_save_into_caslib,
 Parámetro opcional:
 raw_table= nombre del archivo .sashdat sin extensión (default: mydataset)
 
-design.md §7.3 — Preparación idempotente:
+design.md §7.3 - Preparación idempotente:
 - Crea CASLIBs RAW y PROC.
 - Lee raw desde CASLIB RAW, NO desde casuser.
 - Sobrescribe outputs en CASLIB PROC.
@@ -27,7 +27,7 @@ design.md §7.3 — Preparación idempotente:
 %macro fw_prepare_processed(raw_table=mydataset);
 
 	%put NOTE:======================================================;
-	%put NOTE: [fw_prepare_processed] INICIO — raw_table=&raw_table.;
+	%put NOTE: [fw_prepare_processed] INICIO - raw_table=&raw_table.;
 	%put NOTE:======================================================;
 
 	/* -----------------------------------------------------------------

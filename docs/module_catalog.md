@@ -1,4 +1,4 @@
-# Catálogo de Módulos
+﻿# Catálogo de Módulos
 
 Este documento describe módulos disponibles, sus entradas y salidas esperadas.
 
@@ -81,6 +81,11 @@ Todo módulo debe aceptar o derivar estos campos de contexto:
 - `seg_id` (obligatorio solo si `scope=segmento`)
 - `run_id`
 
+**Fecha de corte (`def_cld` vs `oot_max_mes`):**
+- Controles que usan target, PD o XB (ej. Gini) deben filtrar datos hasta `def_cld` (fecha maxima de cierre de default, YYYYMM).
+- Controles que solo analizan variables sin target (ej. correlacion, PSI) usan `oot_max_mes` como fecha maxima.
+- Ambos campos se declaran en `config.sas` por troncal.
+
 Si el contexto no está completo, el módulo debe fallar temprano con mensaje claro.
 
 ### 1.2 Matriz Método → módulos (contrato funcional)
@@ -89,9 +94,9 @@ Cada Método agrupa módulos lógicamente. Los steps de módulos están en `step
 
 | Método | Sub-método | Carpeta | Módulos (steps) |
 |--------|------------|---------|------------------|
-| Metodo 1 | — | `steps/methods/metod_1/` | universe (futuro) |
-| Metodo 2 | — | `steps/methods/metod_2/` | target (futuro) |
-| Metodo 3 | — | `steps/methods/metod_3/` | segmentacion (futuro) |
+| Metodo 1 | - | `steps/methods/metod_1/` | universe (futuro) |
+| Metodo 2 | - | `steps/methods/metod_2/` | target (futuro) |
+| Metodo 3 | - | `steps/methods/metod_3/` | segmentacion (futuro) |
 | Metodo 4 | 4.2 | `steps/methods/metod_4/` | estabilidad, fillrate, missings, psi |
 | Metodo 4 | 4.3 | `steps/methods/metod_4/` | bivariado, **correlación**, gini |
 
@@ -103,16 +108,18 @@ Cada módulo-step es independiente: checa `&run_<modulo>`, lee `&ctx_scope`, cre
 
 ## 2) Módulo: Gini
 
+**Fecha de corte:** Gini usa target/PD/XB, por lo que la fecha maxima de análisis es `def_cld`.
+
 **Ruta**
 - `src/modules/gini/`
 
 **API pública**
 - `%gini_run(...)`
 - Parámetros de entrada incluyen:
-  - `input_caslib=PROC` — CASLIB de entrada
-  - `input_table=_active_input` — tabla promovida por `run_module`
-  - `output_caslib=OUT` — CASLIB de salida
-  - `troncal_id`, `split`, `scope`, `run_id` — contexto
+  - `input_caslib=PROC` - CASLIB de entrada
+  - `input_table=_active_input` - tabla promovida por `run_module`
+  - `output_caslib=OUT` - CASLIB de salida
+  - `troncal_id`, `split`, `scope`, `run_id` - contexto
 
 **Inputs típicos**
 - Dataset input (universe o segmento) con:
@@ -136,32 +143,34 @@ Cada módulo-step es independiente: checa `&run_<modulo>`, lee `&ctx_scope`, cre
 
 ## 3) Módulo: PSI (Population Stability Index)
 
+**Fecha de corte:** PSI compara distribuciones de variables (no usa target/PD/XB), por lo que la fecha maxima de análisis es `oot_max_mes`.
+
 **Ruta**
 - `src/modules/psi/`
 
 **API pública**
 - `%psi_run(...)`
 - Parámetros de entrada:
-  - `input_caslib=PROC` — CASLIB de entrada
-  - `train_table=_psi_train` — tabla TRAIN promovida por `step_psi`
-  - `oot_table=_psi_oot` — tabla OOT promovida por `step_psi`
-  - `output_caslib=OUT` — CASLIB de salida
-  - `troncal_id`, `scope`, `run_id` — contexto
+  - `input_caslib=PROC` - CASLIB de entrada
+  - `train_table=_psi_train` - tabla TRAIN promovida por `step_psi`
+  - `oot_table=_psi_oot` - tabla OOT promovida por `step_psi`
+  - `output_caslib=OUT` - CASLIB de salida
+  - `troncal_id`, `scope`, `run_id` - contexto
 
 **Nota arquitectónica:** PSI compara TRAIN vs OOT → necesita DOS tablas promovidas simultáneamente. Por eso **no usa `run_module.sas`** (que promueve un solo input). `step_psi.sas` maneja la promoción de ambas tablas directamente vía `_promote_castable`. El split del contexto se ignora (PSI siempre usa train+oot).
 
 **Estructura interna**
 ```
 src/modules/psi/
-  psi_run.sas              %psi_run — entry point público
-  psi_contract.sas         %psi_contract — validaciones
+  psi_run.sas              %psi_run - entry point público
+  psi_contract.sas         %psi_contract - validaciones
   impl/
-    psi_compute.sas        %_psi_calc — PSI para una variable (core)
-                           %_psi_compute — orquestador: variables × periodos
-    psi_report.sas         %_psi_report — Excel + HTML + gráficos PNG
-                           %_psi_plot_tendencia — serie temporal por variable
-                           %_psi_plot_heatmap — heatmap Variable × Periodo
-                           %_psi_plot_resumen — rangos min-max + total
+    psi_compute.sas        %_psi_calc - PSI para una variable (core)
+                           %_psi_compute - orquestador: variables × periodos
+    psi_report.sas         %_psi_report - Excel + HTML + gráficos PNG
+                           %_psi_plot_tendencia - serie temporal por variable
+                           %_psi_plot_heatmap - heatmap Variable × Periodo
+                           %_psi_plot_resumen - rangos min-max + total
 ```
 
 **Inputs típicos**
@@ -178,8 +187,8 @@ src/modules/psi/
 | Personalizado | `CUSTOM` | `psi_custom_vars_num/cat` + `psi_custom_byvar` | `experiments/` | `custom_psi_` |
 
 Parámetros adicionales del step:
-- `psi_n_buckets` — número de bins para PROC RANK (default 10)
-- `psi_mensual` — 1 = breakdown mensual, 0 = solo PSI total
+- `psi_n_buckets` - número de bins para PROC RANK (default 10)
+- `psi_mensual` - 1 = breakdown mensual, 0 = solo PSI total
 - `psi_custom_vars_num`, `psi_custom_vars_cat`, `psi_custom_byvar` (solo CUSTOM)
 
 **Validaciones (contract)**
@@ -198,11 +207,11 @@ Parámetros adicionales del step:
 - Tablas temporales usan sufijo aleatorio (`&rnd.`) para evitar colisiones.
 
 **Tablas intermedias (work)**
-- `_psi_cubo` — detalle: Variable × Periodo × PSI × Tipo.
-- `_psi_cubo_wide` — pivot: Variable × mes_1 … mes_N × PSI_Total.
-- `_psi_resumen` — resumen con estadísticas, semáforo y alertas de tendencia.
+- `_psi_cubo` - detalle: Variable × Periodo × PSI × Tipo.
+- `_psi_cubo_wide` - pivot: Variable × mes_1 … mes_N × PSI_Total.
+- `_psi_resumen` - resumen con estadísticas, semáforo y alertas de tendencia.
 
-**Reportes — semáforo por PSI**
+**Reportes - semáforo por PSI**
 - `PSI < 0.10` → lightgreen (estable)
 - `0.10 ≤ PSI < 0.25` → yellow (alerta)
 - `PSI ≥ 0.25` → red (crítico)
@@ -216,14 +225,14 @@ Imágenes PNG: tendencia temporal, heatmap, resumen barras.
 **Outputs esperados**
 
 *Modo AUTO (validación estándar):*
-- `outputs/runs/<run_id>/reports/psi_troncal_X_<scope>.html` — cubo + resumen coloreado
-- `outputs/runs/<run_id>/reports/psi_troncal_X_<scope>.xlsx` — 4 hojas con semáforo
-- `outputs/runs/<run_id>/tables/psi_tX_<scope>_cubo.sas7bdat` — detalle Variable × Periodo
-- `outputs/runs/<run_id>/tables/psi_tX_<scope>_wide.sas7bdat` — pivot Variable × meses
-- `outputs/runs/<run_id>/tables/psi_tX_<scope>_rsmn.sas7bdat` — resumen con alertas
-- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_tend_*.png` — tendencia temporal
-- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_heatmap.png` — heatmap
-- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_resumen.png` — barras resumen
+- `outputs/runs/<run_id>/reports/psi_troncal_X_<scope>.html` - cubo + resumen coloreado
+- `outputs/runs/<run_id>/reports/psi_troncal_X_<scope>.xlsx` - 4 hojas con semáforo
+- `outputs/runs/<run_id>/tables/psi_tX_<scope>_cubo.sas7bdat` - detalle Variable × Periodo
+- `outputs/runs/<run_id>/tables/psi_tX_<scope>_wide.sas7bdat` - pivot Variable × meses
+- `outputs/runs/<run_id>/tables/psi_tX_<scope>_rsmn.sas7bdat` - resumen con alertas
+- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_tend_*.png` - tendencia temporal
+- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_heatmap.png` - heatmap
+- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_resumen.png` - barras resumen
 
 *Modo CUSTOM (análisis exploratorio):*
 - `outputs/runs/<run_id>/experiments/custom_psi_troncal_X_<scope>.*` (mismos tipos)
@@ -245,25 +254,27 @@ Imágenes PNG: tendencia temporal, heatmap, resumen barras.
 
 ## 4) Módulo: Correlación
 
+**Fecha de corte:** Correlación solo analiza variables numéricas (no usa target/PD/XB), por lo que la fecha maxima de análisis es `oot_max_mes`.
+
 **Ruta**
 - `src/modules/correlacion/`
 
 **API pública**
 - `%correlacion_run(...)`
 - Parámetros de entrada:
-  - `input_caslib=PROC` — CASLIB de entrada
-  - `input_table=_active_input` — tabla promovida por `run_module`
-  - `output_caslib=OUT` — CASLIB de salida
-  - `troncal_id`, `split`, `scope`, `run_id` — contexto
+  - `input_caslib=PROC` - CASLIB de entrada
+  - `input_table=_active_input` - tabla promovida por `run_module`
+  - `output_caslib=OUT` - CASLIB de salida
+  - `troncal_id`, `split`, `scope`, `run_id` - contexto
 
 **Estructura interna**
 ```
 src/modules/correlacion/
-  correlacion_run.sas          %correlacion_run — entry point público
-  correlacion_contract.sas     %correlacion_contract — validaciones
+  correlacion_run.sas          %correlacion_run - entry point público
+  correlacion_contract.sas     %correlacion_contract - validaciones
   impl/
-    correlacion_compute.sas    %_correlacion_compute — Pearson + Spearman
-    correlacion_report.sas     %_correlacion_report — HTML + Excel con semáforo
+    correlacion_compute.sas    %_correlacion_compute - Pearson + Spearman
+    correlacion_report.sas     %_correlacion_report - HTML + Excel con semáforo
 ```
 
 **Inputs típicos**
@@ -292,7 +303,7 @@ src/modules/correlacion/
 - Correlación de **Spearman** (`proc corr spearman outs=`).
 - Ambas matrices filtradas a `_type_='CORR'`.
 
-**Reportes — semáforo por |r|**
+**Reportes - semáforo por |r|**
 - `|r| < 0.5` → lightgreen (débil)
 - `0.5 ≤ |r| < 0.6` → yellow (moderada)
 - `|r| ≥ 0.6` → red (fuerte)
@@ -302,10 +313,10 @@ Formato SAS `CorrSignif` aplicado vía `style(column)={backgroundcolor=CorrSigni
 **Outputs esperados**
 
 *Modo AUTO (validación estándar):*
-- `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.html` — matrices coloreadas
-- `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.xlsx` — hojas Pearson + Spearman
-- `outputs/runs/<run_id>/tables/corr_tX_<spl>_<scope>_prsn.sas7bdat` — datos Pearson
-- `outputs/runs/<run_id>/tables/corr_tX_<spl>_<scope>_sprm.sas7bdat` — datos Spearman
+- `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.html` - matrices coloreadas
+- `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.xlsx` - hojas Pearson + Spearman
+- `outputs/runs/<run_id>/tables/corr_tX_<spl>_<scope>_prsn.sas7bdat` - datos Pearson
+- `outputs/runs/<run_id>/tables/corr_tX_<spl>_<scope>_sprm.sas7bdat` - datos Spearman
 
 *Modo CUSTOM (análisis exploratorio):*
 - `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>.html`

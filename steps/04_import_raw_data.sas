@@ -1,5 +1,5 @@
 /* =========================================================================
-   steps/04_import_raw_data.sas — Step 4: Config import ADLS (one-time)
+   steps/04_import_raw_data.sas - Step 4: Config import ADLS (one-time)
 
    Backend del step:
      - Ejecuta importación ADLS (si está habilitada)
@@ -31,7 +31,7 @@
       );
    %end;
    %else %do;
-      %put NOTE: [step-04] adls_import_enabled=0 — skip import ADLS.;
+      %put NOTE: [step-04] adls_import_enabled=0 - skip import ADLS.;
    %end;
 %mend _step04_import;
 %_step04_import;
