@@ -91,12 +91,12 @@ Cada Método agrupa módulos lógicamente. Los steps de módulos están en `step
 | Método   | Sub-método | Carpeta                  | Módulos (steps)                          |
 | -------- | ---------- | ------------------------ | ---------------------------------------- |
 | Metodo 1 | 1.1        | `steps/methods/metod_1/` | **universe**                             |
-| Metodo 2 | -          | `steps/methods/metod_2/` | target (futuro)                          |
+| Metodo 2 | 2.1        | `steps/methods/metod_2/` | **target**                               |
 | Metodo 3 | -          | `steps/methods/metod_3/` | segmentacion (futuro)                    |
 | Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi** |
 | Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlación**, gini         |
 
-Los sub-métodos organizan la selección en el UI y las carpetas de output (`reports/METOD1.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`).
+Los sub-métodos organizan la selección en el UI y las carpetas de output (`reports/METOD1.1/`, `reports/METOD2.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`).
 
 Cada módulo-step es independiente: checa `&run_<modulo>`, lee `&ctx_scope`, crea CASLIBs, itera seg o unv, y limpia.
 
@@ -173,7 +173,81 @@ Formato de imagen: JPEG. HTML usa `bitmap_mode=inline`.
 
 ---
 
-## 3) Módulo: Gini
+## 2.5) Modulo: Target (Metodo 2.1)
+
+**Fecha de corte:** Target analiza la variable target (ratio de default), por lo que la fecha maxima de analisis es `def_cld` (fecha de cierre de default). El parametro `timedefault` filtra datos donde `byvar <= def_cld` (default cerrado).
+
+**Ruta**
+- `src/modules/target/`
+
+**API publica**
+- `%target_run(...)`
+- Parametros de entrada:
+  - `input_caslib=PROC` - CASLIB de entrada
+  - `train_table=_train_input` - tabla TRAIN promovida por `run_module`
+  - `oot_table=_oot_input` - tabla OOT promovida por `run_module`
+  - `output_caslib=OUT` - CASLIB de salida
+  - `troncal_id`, `scope`, `run_id` - contexto
+
+**Nota arquitectonica:** Target compara TRAIN vs OOT. Usa `run_module.sas` con `dual_input=1`.
+
+**Estructura interna**
+```
+src/modules/target/
+  target_run.sas              %target_run - entry point publico
+  target_contract.sas         %target_contract - validaciones
+  impl/
+    target_compute.sas        %_target_describe - evolutivo RD + materialidad
+                              %_target_bandas - bandas +/-2s (TRAIN -> OOT)
+                              %_target_ponderado_promedio - RD ponderado por monto (promedio)
+                              %_target_ponderado_suma - RD ponderado por monto (suma) + ratio
+    target_report.sas         %_target_report - HTML + Excel + JPEG
+```
+
+**Inputs tipicos**
+- Dos datasets: TRAIN y OOT, promovidos como `_train_input` y `_oot_input`.
+- Variables resueltas desde `casuser.cfg_troncales`:
+  - `byvar` (variable temporal, ej. YYYYMM) - requerida
+  - `target` (variable target binaria) - requerida
+  - `monto` (variable de monto) - opcional (WARNING si ausente)
+  - `def_cld` (fecha maxima de cierre default, YYYYMM) - requerida
+
+**Validaciones (contract)**
+- Tabla TRAIN accesible y no vacia (nobs > 0).
+- Tabla OOT accesible y no vacia (nobs > 0).
+- `byvar` presente en ambas tablas.
+- `target` presente en ambas tablas.
+- `monto` presente (solo WARNING si falta; analisis ponderados se omiten).
+- `def_cld` definido y no vacio.
+
+**Computo**
+- **Evolutivo RD**: mean(target) por periodo, con filtro `byvar <= def_cld`.
+- **Materialidad**: PROC FREQ cruzando byvar * target.
+- **Diferencia relativa**: compara promedio de primeros 3 meses vs ultimos 3 meses (o primer/ultimo mes si < 6 meses).
+- **Bandas +/-2s**: mean/std se calculan desde TRAIN y se aplican a OOT via macrovars globales (`_tgt_global_avg`, `_tgt_std_monthly`).
+- **Target ponderado promedio**: sum(target*monto)/sum(monto) por periodo, con bandas.
+- **Target ponderado suma**: sum(target*monto) por periodo + ratio normalizado sobre monto total.
+
+**Tablas temporales (casuser)** - se eliminan al finalizar:
+- `_tgt_train`, `_tgt_oot` - copias de trabajo
+- `_tgt_evolut_target`, `_tgt_monthly`, `_tgt_monthly_pond`, `_tgt_monthly_sum_pond`, `_tgt_monthly_norm`
+- `_tgt_first_months`, `_tgt_last_months`, `_tgt_first_mean`, `_tgt_last_mean`, `_tgt_results`
+
+**No persiste tablas .sas7bdat** (analisis visual solamente).
+
+**Reportes**
+- `outputs/runs/<run_id>/reports/METOD2.1/<prefix>_train.html` - graficos TRAIN
+- `outputs/runs/<run_id>/reports/METOD2.1/<prefix>_oot.html` - graficos OOT
+- `outputs/runs/<run_id>/reports/METOD2.1/<prefix>.xlsx` - Excel multi-hoja (TRAIN + OOT)
+- `outputs/runs/<run_id>/images/METOD2.1/<prefix>_*.jpeg` - graficos JPEG independientes
+
+Formato de imagen: JPEG. HTML usa `bitmap_mode=inline`.
+
+**Compatibilidad de contexto**: segmento y universo.
+
+---
+
+## 3) Modulo: Gini
 
 **Fecha de corte:** Gini usa target/PD/XB, por lo que la fecha maxima de análisis es `def_cld`.
 
