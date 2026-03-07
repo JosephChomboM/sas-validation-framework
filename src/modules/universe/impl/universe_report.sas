@@ -25,14 +25,16 @@ Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
     %put NOTE: [universe_report] images_path=&images_path.;
     %put NOTE: [universe_report] file_prefix=&file_prefix.;
 
-    /* ---- Copiar tablas CAS a casuser para procesamiento temporal ------- */
-    data casuser._univ_train;
-        set &input_caslib..&train_table.;
-    run;
+    /* ---- Copiar tablas CAS a casuser (FEDSQL para CAS-to-CAS) --------- */
+    proc fedsql sessref=conn;
+        create table casuser._univ_train {options replace=true} as
+        select * from &input_caslib..&train_table.;
+    quit;
 
-    data casuser._univ_oot;
-        set &input_caslib..&oot_table.;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser._univ_oot {options replace=true} as
+        select * from &input_caslib..&oot_table.;
+    quit;
 
     /* ---- Crear directorios si no existen ------------------------------- */
     %local _dir_rc;

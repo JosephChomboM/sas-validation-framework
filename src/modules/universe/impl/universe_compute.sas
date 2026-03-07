@@ -26,8 +26,15 @@ Gráfico de barras de registros por periodo + tabla de duplicados
     title "Evolutivo Cuentas - &data.";
 
     proc freq data=&data.;
-        tables &byvar. / out=casuser._univ_evolut_cuenta;
+        tables &byvar.;
     run;
+
+    proc fedsql sessref=conn noprint;
+        create table casuser._univ_evolut_cuenta {options replace=true} as
+        select &byvar., count(*) as Count
+        from &data.
+        group by &byvar.;
+    quit;
 
     proc sgplot data=casuser._univ_evolut_cuenta;
         vbar &byvar. / response=Count NOOUTLINE FILLATTRS=(color=LIGHTSTEELBLUE)
@@ -37,9 +44,12 @@ Gráfico de barras de registros por periodo + tabla de duplicados
     run;
 
     /* Detección de duplicados */
-    proc sql noprint;
-        create table casuser._univ_dup as select &byvar., &id_var., count(*) as
-            N from &data. group by &byvar., &id_var. having N > 1;
+    proc fedsql sessref=conn noprint;
+        create table casuser._univ_dup {options replace=true} as 
+        select &byvar., &id_var., count(*) as N 
+        from &data. 
+        group by &byvar., &id_var. 
+        having count(*) > 1;
     quit;
 
     title;
@@ -59,14 +69,20 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
 
     %global _univ_mean _univ_std;
 
-    /* Eliminar duplicados por periodo + id */
-    proc sort data=&data. nodupkey out=casuser._univ_sindup;
-        by &byvar. &id_var.;
-    run;
+    /* Eliminar duplicados por periodo + id (FEDSQL para CAS) */
+    proc fedsql sessref=conn noprint;
+        create table casuser._univ_sindup {options replace=true} as
+        select distinct &byvar., &id_var.
+        from &data.;
+    quit;
 
-    proc freq data=casuser._univ_sindup;
-        tables &byvar. / out=casuser._univ_freq_cuentas;
-    run;
+    /* Contar cuentas unicas por periodo */
+    proc fedsql sessref=conn noprint;
+        create table casuser._univ_freq_cuentas {options replace=true} as
+        select &byvar., count(*) as Count
+        from casuser._univ_sindup
+        group by &byvar.;
+    quit;
 
     /* Calcular mean/std solo desde TRAIN */
     %if &is_train.=1 %then %do;
@@ -119,14 +135,10 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
 ===================================================================== */
 %macro _univ_evolutivo_monto(data=, monto_var=, byvar=);
 
-    proc sql;
-        create table casuser._univ_sum_monto as select &byvar., sum(&monto_var.)
+    proc fedsql sessref=conn;
+        create table casuser._univ_sum_monto {options replace=true} as select &byvar., sum(&monto_var.)
             as Sum_Monto from &data. group by &byvar.;
     quit;
-
-    proc sort data=casuser._univ_sum_monto;
-        by &byvar.;
-    run;
 
     title "Suma &monto_var. por &byvar.";
 
@@ -155,13 +167,14 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
     proc means data=&data. n mean nonobs;
         var &monto_var.;
         class &byvar.;
-        output out=casuser._univ_evolut_monto n=N mean=Mean;
     run;
 
-    data casuser._univ_evolut_monto2;
-        set casuser._univ_evolut_monto;
-        where _TYPE_ ne 0;
-    run;
+    proc fedsql sessref=conn noprint;
+        create table casuser._univ_evolut_monto2 {options replace=true} as
+        select &byvar., count(&monto_var.) as N, avg(&monto_var.) as Mean
+        from &data.
+        group by &byvar.;
+    quit;
 
     title "Evolutivo &monto_var.";
 
@@ -174,7 +187,7 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
     title;
 
     proc datasets library=casuser nolist nowarn;
-        delete _univ_evolut_monto _univ_evolut_monto2;
+        delete _univ_evolut_monto2;
     quit;
 
 %mend _univ_describe_monto;
