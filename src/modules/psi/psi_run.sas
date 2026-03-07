@@ -194,15 +194,15 @@ Compatibilidad: segmento y universo.
     libname _outlib "&_tables_path.";
 
     data _outlib.&_tbl_prefix._cubo;
-        set work._psi_cubo;
+        set casuser._psi_cubo;
     run;
 
     data _outlib.&_tbl_prefix._wide;
-        set work._psi_cubo_wide;
+        set casuser._psi_cubo_wide;
     run;
 
     data _outlib.&_tbl_prefix._rsmn;
-        set work._psi_resumen;
+        set casuser._psi_resumen;
     run;
 
     libname _outlib clear;
@@ -213,9 +213,9 @@ Compatibilidad: segmento y universo.
     %put NOTE: [psi_run] &_tbl_prefix._rsmn (resumen);
 
     /* ==================================================================
-    6) Cleanup - eliminar tablas temporales de work
+    6) Cleanup - eliminar tablas temporales de casuser (CAS)
     ================================================================== */
-    proc datasets library=work nolist nowarn;
+    proc datasets library=casuser nolist nowarn;
         delete _psi_cubo _psi_cubo_wide _psi_resumen;
         run;
 

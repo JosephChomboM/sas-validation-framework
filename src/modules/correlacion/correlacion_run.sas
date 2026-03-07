@@ -167,11 +167,11 @@ Compatibilidad: segmento y universo.
   libname _outlib "&_tables_path.";
 
   data _outlib.&_tbl_prefix._prsn;
-    set work._corr_pearson;
+    set casuser._corr_pearson;
   run;
 
   data _outlib.&_tbl_prefix._sprm;
-    set work._corr_spearman;
+    set casuser._corr_spearman;
   run;
 
   libname _outlib clear;
@@ -183,7 +183,7 @@ Compatibilidad: segmento y universo.
   /* ==================================================================
   6) Cleanup - eliminar tablas temporales de work
   ================================================================== */
-  proc datasets library=work nolist;
+  proc datasets library=casuser nolist;
     delete _corr_pearson _corr_spearman;
     run;
 

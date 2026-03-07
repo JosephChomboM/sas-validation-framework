@@ -2,8 +2,8 @@
    correlacion_compute.sas - Cómputo de matrices de correlación
 
    Genera dos tablas en WORK:
-     work._corr_pearson   - correlación de Pearson
-     work._corr_spearman  - correlación de Spearman
+     casuser._corr_pearson   - correlación de Pearson
+     casuser._corr_spearman  - correlación de Spearman
 
    Ambas filtradas a _type_='CORR' (solo filas de correlación,
    sin N, MEAN, STD).
@@ -17,7 +17,7 @@
 
   /* ---- Pearson -------------------------------------------------------- */
   proc corr data=&input_lib..&input_table.
-            outp=work._corr_pearson(where=(_type_='CORR'))
+            outp=casuser._corr_pearson(where=(_type_='CORR'))
             noprint;
     var &variables.;
   run;
@@ -25,7 +25,7 @@
   /* ---- Spearman ------------------------------------------------------- */
   proc corr data=&input_lib..&input_table.
             spearman
-            outs=work._corr_spearman(where=(_type_='CORR'))
+            outs=casuser._corr_spearman(where=(_type_='CORR'))
             noprint;
     var &variables.;
   run;

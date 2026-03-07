@@ -1,10 +1,10 @@
 /* =========================================================================
 psi_report.sas - Generación de reportes HTML + Excel + Gráficos PNG
 
-Lee las tablas de WORK generadas por psi_compute:
-work._psi_cubo
-work._psi_cubo_wide
-work._psi_resumen
+Lee las tablas de casuser (CAS) generadas por psi_compute:
+casuser._psi_cubo
+casuser._psi_cubo_wide
+casuser._psi_resumen
 
 Genera:
 <report_path>/<file_prefix>.html  - cubo + resumen con semáforo
@@ -23,7 +23,7 @@ Migrado de psi_legacy.sas (__psi_report + __plot_psi_tendencia).
 %_psi_plot_tendencia - Gráfico de tendencia temporal del PSI
 Un gráfico por variable con bandas semáforo
 ===================================================================== */
-%macro _psi_plot_tendencia(data=work._psi_cubo, byvar=, images_path=,
+%macro _psi_plot_tendencia(data=casuser._psi_cubo, byvar=, images_path=,
     file_prefix=);
 
     %local var_list n_vars i var_name;
@@ -85,7 +85,7 @@ Un gráfico por variable con bandas semáforo
 
 /* =====================================================================
 %_psi_report - Generador principal de reportes (HTML + Excel + PNG)
-Lee tablas de WORK generadas por _psi_compute
+Lee tablas de casuser (CAS) generadas por _psi_compute
 ===================================================================== */
 %macro _psi_report(report_path=, images_path=, file_prefix=, byvar=);
 
@@ -99,7 +99,7 @@ Lee tablas de WORK generadas por _psi_compute
     ods graphics on / outputfmt=svg;
     ods html5 file="&report_path./&file_prefix..html";
 
-    proc print data=work._psi_cubo noobs label
+    proc print data=casuser._psi_cubo noobs label
         style(column)={backgroundcolor=PsiSignif.};
         title "CUBO PSI: Detalle por Variable y Periodo - &file_prefix.";
         footnote
@@ -112,7 +112,7 @@ Lee tablas de WORK generadas por _psi_compute
         %end;
     run;
 
-    proc print data=work._psi_resumen noobs
+    proc print data=casuser._psi_resumen noobs
         style(column)={backgroundcolor=PsiSignif.};
         title "Resumen de Estabilidad PSI - &file_prefix.";
     run;
@@ -127,7 +127,7 @@ Lee tablas de WORK generadas por _psi_compute
         options(sheet_name="PSI_Detalle" sheet_interval="none"
         embedded_titles="yes");
 
-    proc print data=work._psi_cubo noobs label
+    proc print data=casuser._psi_cubo noobs label
         style(column)={backgroundcolor=PsiSignif.};
         title "CUBO PSI: Detalle por Variable y Periodo";
         footnote
@@ -145,7 +145,7 @@ Lee tablas de WORK generadas por _psi_compute
     ods excel options(sheet_name="PSI_Cubo_Wide" sheet_interval="now"
         embedded_titles="yes");
 
-    proc print data=work._psi_cubo_wide noobs
+    proc print data=casuser._psi_cubo_wide noobs
         style(column)={backgroundcolor=PsiSignif.};
         title "CUBO PSI: Variable x Mes";
     run;
@@ -154,7 +154,7 @@ Lee tablas de WORK generadas por _psi_compute
     ods excel options(sheet_name="Resumen" sheet_interval="now"
         embedded_titles="yes");
 
-    proc print data=work._psi_resumen noobs;
+    proc print data=casuser._psi_resumen noobs;
         title "Resumen de Estabilidad PSI";
         var Variable;
         var PSI_Total / style(data)={backgroundcolor=PsiSignif.};
@@ -173,7 +173,7 @@ Lee tablas de WORK generadas por _psi_compute
 
     /* ---- Gráficos PNG: solo tendencia temporal -------------------------- */
     %if %length(%superq(byvar)) > 0 %then %do;
-        %_psi_plot_tendencia( data=work._psi_cubo, byvar=&byvar.,
+        %_psi_plot_tendencia( data=casuser._psi_cubo, byvar=&byvar.,
             images_path=&images_path., file_prefix=&file_prefix. );
     %end;
 

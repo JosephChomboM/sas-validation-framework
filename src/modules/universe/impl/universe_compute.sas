@@ -2,8 +2,8 @@
 universe_compute.sas - Cómputo de análisis descriptivo del universo
 
 Contiene macros de cómputo que procesan las tablas y generan resultados
-intermedios en WORK. Estas macros son llamadas desde universe_report.sas
-dentro del contexto ODS (los gráficos se escriben al report directamente).
+intermedios en casuser (CAS). Estas macros son llamadas desde
+universe_report.sas dentro del contexto ODS.
 
 Macros:
 %_univ_describe_id      - Evolutivo cuentas + verificación duplicados
@@ -14,7 +14,7 @@ Macros:
 Las bandas se calculan desde TRAIN (is_train=1) y se aplican a OOT
 (is_train=0) usando las macro variables globales &_univ_mean y &_univ_std.
 
-Migrado de universe_legacy.sas.
+Tablas temporales se crean en casuser (CAS).
 ========================================================================= */
 
 /* =====================================================================
@@ -26,10 +26,10 @@ Gráfico de barras de registros por periodo + tabla de duplicados
     title "Evolutivo Cuentas - &data.";
 
     proc freq data=&data.;
-        tables &byvar. / out=work._univ_evolut_cuenta;
+        tables &byvar. / out=casuser._univ_evolut_cuenta;
     run;
 
-    proc sgplot data=work._univ_evolut_cuenta;
+    proc sgplot data=casuser._univ_evolut_cuenta;
         vbar &byvar. / response=Count NOOUTLINE FILLATTRS=(color=LIGHTSTEELBLUE)
             barwidth=0.4;
         yaxis label="Cuentas" min=0;
@@ -38,13 +38,13 @@ Gráfico de barras de registros por periodo + tabla de duplicados
 
     /* Detección de duplicados */
     proc sql noprint;
-        create table work._univ_dup as select &byvar., &id_var., count(*) as N
-            from &data. group by &byvar., &id_var. having N > 1;
+        create table casuser._univ_dup as select &byvar., &id_var., count(*) as
+            N from &data. group by &byvar., &id_var. having N > 1;
     quit;
 
     title;
 
-    proc datasets library=work nolist nowarn;
+    proc datasets library=casuser nolist nowarn;
         delete _univ_evolut_cuenta _univ_dup;
     quit;
 
@@ -60,22 +60,22 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
     %global _univ_mean _univ_std;
 
     /* Eliminar duplicados por periodo + id */
-    proc sort data=&data. nodupkey out=work._univ_sindup;
+    proc sort data=&data. nodupkey out=casuser._univ_sindup;
         by &byvar. &id_var.;
     run;
 
-    proc freq data=work._univ_sindup;
-        tables &byvar. / out=work._univ_freq_cuentas;
+    proc freq data=casuser._univ_sindup;
+        tables &byvar. / out=casuser._univ_freq_cuentas;
     run;
 
     /* Calcular mean/std solo desde TRAIN */
     %if &is_train.=1 %then %do;
         proc sql noprint;
             select mean(Count) into :_univ_mean trimmed from
-                work._univ_freq_cuentas;
+                casuser._univ_freq_cuentas;
 
             select std(Count) into :_univ_std trimmed from
-                work._univ_freq_cuentas;
+                casuser._univ_freq_cuentas;
         quit;
         %put NOTE: [univ_bandas] TRAIN: mean=&_univ_mean. std=&_univ_std.;
     %end;
@@ -88,7 +88,7 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
 
     title "Evolutivo Cuentas (±2σ) - &data.";
 
-    proc sgplot data=work._univ_freq_cuentas subpixel noautolegend;
+    proc sgplot data=casuser._univ_freq_cuentas subpixel noautolegend;
         band x=&byvar. lower=&inf. upper=&sup. / fillattrs=(color=graydd)
             legendlabel="± 2 Desv. Estandar" name="band1";
         series x=&byvar. y=Count / markers lineattrs=(color=black thickness=2)
@@ -108,7 +108,7 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
         %let _univ_std=0;
     %end;
 
-    proc datasets library=work nolist nowarn;
+    proc datasets library=casuser nolist nowarn;
         delete _univ_sindup _univ_freq_cuentas;
     quit;
 
@@ -120,28 +120,28 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
 %macro _univ_evolutivo_monto(data=, monto_var=, byvar=);
 
     proc sql;
-        create table work._univ_sum_monto as select &byvar., sum(&monto_var.) as
-            Sum_Monto from &data. group by &byvar.;
+        create table casuser._univ_sum_monto as select &byvar., sum(&monto_var.)
+            as Sum_Monto from &data. group by &byvar.;
     quit;
 
-    proc sort data=work._univ_sum_monto;
+    proc sort data=casuser._univ_sum_monto;
         by &byvar.;
     run;
 
     title "Suma &monto_var. por &byvar.";
 
-    proc sgplot data=work._univ_sum_monto;
+    proc sgplot data=casuser._univ_sum_monto;
         vbar &byvar. / response=Sum_Monto barwidth=1;
         xaxis label="&byvar.";
         yaxis label="&monto_var.";
     run;
 
-    proc print data=work._univ_sum_monto noobs;
+    proc print data=casuser._univ_sum_monto noobs;
     run;
 
     title;
 
-    proc datasets library=work nolist nowarn;
+    proc datasets library=casuser nolist nowarn;
         delete _univ_sum_monto;
     quit;
 
@@ -155,17 +155,17 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
     proc means data=&data. n mean nonobs;
         var &monto_var.;
         class &byvar.;
-        output out=work._univ_evolut_monto n=N mean=Mean;
+        output out=casuser._univ_evolut_monto n=N mean=Mean;
     run;
 
-    data work._univ_evolut_monto2;
-        set work._univ_evolut_monto;
+    data casuser._univ_evolut_monto2;
+        set casuser._univ_evolut_monto;
         where _TYPE_ ne 0;
     run;
 
     title "Evolutivo &monto_var.";
 
-    proc sgplot data=work._univ_evolut_monto2;
+    proc sgplot data=casuser._univ_evolut_monto2;
         vline &byvar. / response=Mean markers markerattrs=(symbol=circlefilled
             color=black) lineattrs=(color=crimson);
         yaxis label="mean &monto_var." valuesformat=COMMA16.0 min=0;
@@ -173,7 +173,7 @@ globales. En OOT (is_train=0) los reutiliza y luego los resetea.
 
     title;
 
-    proc datasets library=work nolist nowarn;
+    proc datasets library=casuser nolist nowarn;
         delete _univ_evolut_monto _univ_evolut_monto2;
     quit;
 

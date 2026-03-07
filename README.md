@@ -1,6 +1,6 @@
 ﻿# Framework SAS Viya (CAS) para Validación y Controles Automáticos
 
-Este repositorio contiene un framework modular en **SAS Viya / CAS** para preparar data (train/oot), ejecutar controles de validación (por ejemplo **Gini, PSI**) y generar artefactos (reportes, tablas, logs) de forma **estandarizada y automatizable**.
+Este repositorio contiene un framework modular en **SAS Viya / CAS** para preparar data (train/oot), ejecutar controles de validación (por ejemplo **Universe, Gini, PSI, Correlación**) y generar artefactos (reportes, tablas, logs) de forma **estandarizada y automatizable**.
 
 El diseño prioriza:
 - Convenciones determinísticas de rutas y nombres para facilitar loops y paralelización.
@@ -84,6 +84,12 @@ project_root/
           correlacion_report.sas
       gini/...
       psi/...
+      universe/
+        universe_run.sas
+        universe_contract.sas
+        impl/
+          universe_compute.sas
+          universe_report.sas
 
   runner/
     main.sas                        # entrypoint - incluye steps y orquesta pipeline
@@ -96,7 +102,8 @@ project_root/
     05_partition_data.sas            # particiones troncal/train/oot + universo/segmento
     context_and_modules.sas          # contexto unificado: scope + troncal + split + seg + módulos
     methods/                         # Steps de módulos organizados por método
-      metod_1/                       # Método 1: universe (futuro)
+      metod_1/                       # Método 1: universe (1.1)
+        step_universe.sas            # universe (1.1)
       metod_2/                       # Método 2: target (futuro)
       metod_3/                       # Método 3: segmentación (futuro)
       metod_4/                       # Método 4: análisis de variables
@@ -113,19 +120,25 @@ project_root/
       <run_id>/
         logs/
         reports/
+          METOD1.1/          # universe reports
+          METOD4.2/          # PSI reports
+          METOD4.3/          # correlación reports
         images/
+          METOD1.1/          # universe charts (JPEG)
+          METOD4.2/          # PSI charts (PNG)
         tables/
-        manifests/
+          METOD4.2/          # PSI tables (.sas7bdat)
+          METOD4.3/          # correlación tables (.sas7bdat)
         experiments/           # outputs de análisis exploratorio (modo CUSTOM)
 ```
 
 Notas:
-- `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las únicas tablas persistentes en `casuser`. Step 02 las promueve para compatibilidad con background submit.
+- `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las tablas de configuración en `casuser`. Además, `casuser` se usa para tablas temporales/intermedias de módulos (reemplazando `work`). Step 02 promueve las tablas de config para compatibilidad con background submit.
 - `steps/*.sas` modelan el frontend del flujo: un step de contexto unificado (scope + troncal + split + segmento + módulos) seguido de ejecución de módulos.
 - Cada módulo tiene su propio step en `steps/methods/metod_N/` que lee `&ctx_scope` para saber si iterar segmentos o base.
-- Los módulos se agrupan en sub-métodos: Método 4.2 (estabilidad, fillrate, missings, psi) y Método 4.3 (bivariado, correlacion, gini).
-- Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
-- Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/...` incluyendo `experiments/`) en cada corrida, independientemente de `data_prep_enabled`.
+- Los módulos se agrupan en sub-métodos: Método 1.1 (universe), Método 4.2 (estabilidad, fillrate, missings, psi) y Método 4.3 (bivariado, correlacion, gini). Los reportes se organizan en subcarpetas `METOD1.1/`, `METOD4.2/`, `METOD4.3/`.
+- Todo dato operativo persistente (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`). Tablas temporales de módulos se crean en `casuser` y se eliminan al finalizar.
+- Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`) en cada corrida, independientemente de `data_prep_enabled`. Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) se crean dinámicamente.
 - Step 03 crea `data/raw/`, `data/processed/`, y subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal. Solo se ejecuta durante data prep.
 - Parámetros específicos de módulos de análisis (`threshold`, `corr_mode`, etc.) **no** viven en `config.sas`; se configuran en el step del módulo correspondiente.
 - `def_cld` en `config.sas` define la fecha maxima (YYYYMM) para controles que usan target/PD/XB (ej. Gini). Controles que solo analizan variables (ej. correlacion, PSI) usan `oot_max_mes`.
@@ -142,7 +155,7 @@ Todo bloque que usa CASLIBs sigue estrictamente: **create → promote → work �
 ## 3) Convenciones y estándares (para automatización)
 
 ### 3.0 CASLIBs y casuser
-- **`casuser`** se usa **únicamente** para las tablas de configuración (`cfg_troncales`, `cfg_segmentos`) generadas por `config.sas`.
+- **`casuser`** se usa para las tablas de configuración (`cfg_troncales`, `cfg_segmentos`) y para tablas temporales/intermedias de módulos (reemplazando `work`). Cada módulo limpia sus tablas temporales al finalizar.
 - Todo dato operativo (raw, processed, outputs) se accede mediante **PATH-based CASLIBs** (GLOBAL) mapeados a carpetas del filesystem, siguiendo `docs/caslib_lifecycle.md`.
 - CASLIBs estándar del framework:
   - `RAW` → `data/raw/` (subdirs=0)
@@ -171,9 +184,15 @@ Reglas:
 Todo output va en:
 - `outputs/runs/<run_id>/logs`
 - `outputs/runs/<run_id>/reports`
+  - `METOD1.1/` - universe reports
+  - `METOD4.2/` - PSI reports
+  - `METOD4.3/` - correlación reports
 - `outputs/runs/<run_id>/images`
+  - `METOD1.1/` - universe charts (JPEG)
+  - `METOD4.2/` - PSI charts (PNG)
 - `outputs/runs/<run_id>/tables`
-- `outputs/runs/<run_id>/manifests`
+  - `METOD4.2/` - PSI tables
+  - `METOD4.3/` - correlación tables
 - `outputs/runs/<run_id>/experiments` - outputs exploratorios (modo CUSTOM de módulos)
 
 Reglas:
@@ -215,18 +234,17 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 
 ### 5.1 Flujo de steps
 
-| Step | Archivo | Configura |
-|------|---------|-----------|
-| 01 | `steps/01_setup_project.sas` | Rutas del proyecto |
-| 02 | `steps/02_load_config.sas` | Carga `config.sas` + promote config + dirs de output del run |
-| 03 | `steps/03_create_folders.sas` | Carpetas de data + `troncal_X/train/oot/` (solo data prep) |
-| 04 | `steps/04_import_raw_data.sas` | Importación ADLS (una vez por proyecto) |
-| 05 | `steps/05_partition_data.sas` | Particiones por troncal/split/scope |
-| - | `steps/context_and_modules.sas` | Contexto (scope + troncal + split + seg) + módulos |
-| - | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación |
-| - | `steps/methods/metod_4/step_psi.sas` | Config + ejecución PSI |
-| - | `steps/methods/metod_4/step_gini.sas` | (futuro) |
-| - | `steps/methods/metod_4/step_*.sas` | estabilidad, fillrate, missings, psi, bivariado (futuro) |
+| Step | Archivo                                      | Configura                                                    |
+| ---- | -------------------------------------------- | ------------------------------------------------------------ |
+| 01   | `steps/01_setup_project.sas`                 | Rutas del proyecto                                           |
+| 02   | `steps/02_load_config.sas`                   | Carga `config.sas` + promote config + dirs de output del run |
+| 03   | `steps/03_create_folders.sas`                | Carpetas de data + `troncal_X/train/oot/` (solo data prep)   |
+| 04   | `steps/04_import_raw_data.sas`               | Importación ADLS (una vez por proyecto)                      |
+| 05   | `steps/05_partition_data.sas`                | Particiones por troncal/split/scope                          |
+| -    | `steps/context_and_modules.sas`              | Contexto (scope + troncal + split + seg) + módulos           |
+| -    | `steps/methods/metod_1/step_universe.sas`    | Config + ejecución universe (1.1)                            |
+| -    | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación                               |
+| -    | `steps/methods/metod_4/step_psi.sas`         | Config + ejecución PSI                                       |
 
 ### 5.2 Cómo usar
 1. Configurar rutas/config (Steps 01–02). Siempre se ejecutan.

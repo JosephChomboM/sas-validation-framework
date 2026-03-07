@@ -52,7 +52,7 @@ Este documento describe:
   - API pública (`*_run.sas`)
   - Validaciones (`*_contract.sas`)
   - Implementación interna (`impl/`)
-- Módulos implementados: `correlacion` (referencia), `psi`. Pendientes: `gini`.
+- Módulos implementados: `correlacion` (referencia), `psi`, `universe`. Pendientes: `gini`.
 - `run_module.sas` incluye dinámicamente `<modulo>_run.sas` y ejecuta `%<modulo>_run(...)`.
 
 6) **Runner**
@@ -85,11 +85,16 @@ Reglas:
 - No se incluyen “train/oot” ni “troncal” en el nombre del archivo (ya están en la ruta).
 
 ### 3.3 Outputs por run
-- `outputs/runs/<run_id>/logs`
 - `outputs/runs/<run_id>/reports`
+- `outputs/runs/<run_id>/reports/METOD1.1` - universe
+- `outputs/runs/<run_id>/reports/METOD4.2` - PSI
+- `outputs/runs/<run_id>/reports/METOD4.3` - correlación
 - `outputs/runs/<run_id>/images`
+- `outputs/runs/<run_id>/images/METOD4.2` - PSI charts
+- `outputs/runs/<run_id>/images/METOD1.1` - universe charts
 - `outputs/runs/<run_id>/tables`
-- `outputs/runs/<run_id>/manifests`
+- `outputs/runs/<run_id>/tables/METOD4.2` - PSI tables
+- `outputs/runs/<run_id>/tables/METOD4.3` - correlación tables
 - `outputs/runs/<run_id>/experiments` - outputs de análisis exploratorio (modo CUSTOM de módulos)
 
 ---
@@ -99,7 +104,7 @@ Reglas:
 ### 4.1 Principio
 El `config.sas` declara parámetros; el framework ejecuta. Se evita lógica de orquestación en el config.
 
-**Las tablas de configuración (`casuser.cfg_troncales`, `casuser.cfg_segmentos`) son las únicas tablas que residen en `casuser`.** Todo dato operativo (raw, processed, outputs) usa CASLIBs PATH-based dedicados.
+**Las tablas de configuración (`casuser.cfg_troncales`, `casuser.cfg_segmentos`) residen en `casuser`.** Además, `casuser` se usa como librería para tablas temporales/intermedias de los módulos (reemplazando `work`). Todas las tablas temporales se eliminan al finalizar cada módulo. Todo dato operativo persistente (raw, processed, outputs) usa CASLIBs PATH-based dedicados.
 
 ### 4.2 Parámetros por troncal
 Se recomienda declarar, por troncal:
@@ -155,19 +160,20 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 
 ### 5.2 Flujo de steps
 
-| Step | Archivo | Qué configura | Macro vars que setea |
-|------|---------|---------------|---------------------|
-| 01 | `steps/01_setup_project.sas` | Rutas del proyecto | `&fw_root`, `&fw_sas_dataset_name` |
-| 02 | `steps/02_load_config.sas` | Cargar/validar `config.sas` + promote config + crear dirs de output del run | `cfg_troncales`, `cfg_segmentos`, `&run_id` |
-| 03 | `steps/03_create_folders.sas` | Carpetas de data + troncal dirs (solo data prep) | (N/A) |
-| 04 | `steps/04_import_raw_data.sas` | Importación ADLS | `&adls_import_enabled`, `&adls_*`, `&raw_table` |
-| 05 | `steps/05_partition_data.sas` | Particiones universo/segmento | (N/A) |
-| - | `steps/context_and_modules.sas` | Contexto (scope + troncal + split + seg) + módulos habilitados | `&ctx_scope`, `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id`, `&ctx_n_segments`, `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
-| - | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación | `&corr_mode`, `&corr_custom_vars` |
-| - | `steps/methods/metod_4/step_psi.sas` | Config + ejecución PSI | `&psi_mode`, `&psi_n_buckets`, `&psi_mensual` |
-| - | `steps/methods/metod_4/step_gini.sas` | Config + ejecución gini (futuro) | - |
+| Step | Archivo                                      | Qué configura                                                               | Macro vars que setea                                                                                                                                                                                                  |
+| ---- | -------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 01   | `steps/01_setup_project.sas`                 | Rutas del proyecto                                                          | `&fw_root`, `&fw_sas_dataset_name`                                                                                                                                                                                    |
+| 02   | `steps/02_load_config.sas`                   | Cargar/validar `config.sas` + promote config + crear dirs de output del run | `cfg_troncales`, `cfg_segmentos`, `&run_id`                                                                                                                                                                           |
+| 03   | `steps/03_create_folders.sas`                | Carpetas de data + troncal dirs (solo data prep)                            | (N/A)                                                                                                                                                                                                                 |
+| 04   | `steps/04_import_raw_data.sas`               | Importación ADLS                                                            | `&adls_import_enabled`, `&adls_*`, `&raw_table`                                                                                                                                                                       |
+| 05   | `steps/05_partition_data.sas`                | Particiones universo/segmento                                               | (N/A)                                                                                                                                                                                                                 |
+| -    | `steps/context_and_modules.sas`              | Contexto (scope + troncal + split + seg) + módulos habilitados              | `&ctx_scope`, `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id`, `&ctx_n_segments`, `&run_universe`, `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
+| -    | `steps/methods/metod_1/step_universe.sas`    | Config + ejecución universe (1.1)                                           | (dual_input)                                                                                                                                                                                                          |
+| -    | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación                                              | `&corr_mode`, `&corr_custom_vars`                                                                                                                                                                                     |
+| -    | `steps/methods/metod_4/step_psi.sas`         | Config + ejecución PSI                                                      | `&psi_mode`, `&psi_n_buckets`, `&psi_mensual`                                                                                                                                                                         |
+| -    | `steps/methods/metod_4/step_gini.sas`        | Config + ejecución gini (futuro)                                            | -                                                                                                                                                                                                                     |
 
-**Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|manifests|experiments`). Estas carpetas se crean **siempre** (cada corrida).
+**Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`). Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) dentro de `reports/`, `images/` y `tables/` se crean dinámicamente por cada módulo cuando genera archivos.
 
 **Step 03** crea las carpetas de data (`data/raw`, `data/processed`) y las subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal en `casuser.cfg_troncales`. Solo se ejecuta durante data prep (`data_prep_enabled=1`).
 
@@ -194,15 +200,15 @@ Ejemplos:
 - En el `.flw`, cada módulo es un **nodo independiente** que puede ejecutarse via background submit.
 - Cada step de módulo es auto-contenido: tiene su config, crea CASLIBs, itera seg+unv, limpia.
 
-| Método | Sub-método | Carpeta | Módulos |
-|--------|------------|---------|----------|
-| Metodo 1 | - | `steps/methods/metod_1/` | universe (futuro) |
-| Metodo 2 | - | `steps/methods/metod_2/` | target (futuro) |
-| Metodo 3 | - | `steps/methods/metod_3/` | segmentacion (futuro) |
-| Metodo 4 | 4.2 | `steps/methods/metod_4/` | estabilidad, fillrate, missings, psi |
-| Metodo 4 | 4.3 | `steps/methods/metod_4/` | bivariado, correlacion, gini |
+| Método   | Sub-método | Carpeta                  | Módulos                                  |
+| -------- | ---------- | ------------------------ | ---------------------------------------- |
+| Metodo 1 | 1.1        | `steps/methods/metod_1/` | **universe**                             |
+| Metodo 2 | -          | `steps/methods/metod_2/` | target (futuro)                          |
+| Metodo 3 | -          | `steps/methods/metod_3/` | segmentacion (futuro)                    |
+| Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi** |
+| Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlacion**, gini         |
 
-Los sub-métodos (4.2, 4.3) definen la agrupación lógica para la selección en el UI y la organización de carpetas de output (`reports/metod_4_2/`, `reports/metod_4_3/`). Los step files viven todos en la misma carpeta `metod_4/`.
+Los sub-métodos definen la agrupación lógica para la selección en el UI y la organización de carpetas de output (`reports/METOD1.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`). Los step files viven en la carpeta de su método correspondiente.
 
 ---
 
@@ -257,11 +263,11 @@ Todo bloque que usa CASLIBs sigue estrictamente este patrón:
 
 Aplicación por fase:
 
-| Fase | CASLIBs | Crea | Dropea |
-|------|---------|------|--------|
-| Data Prep - ADLS import (Step 04) | LAKEHOUSE, RAW | `fw_import_adls_to_cas` | `fw_import_adls_to_cas` (al final) |
-| Data Prep - Partición (Step 05) | RAW, PROC | `fw_prepare_processed` | `fw_prepare_processed` (al final) |
-| Ejecución - módulo (step_*.sas) | PROC, OUT | inicio del step de módulo | final del step de módulo |
+| Fase                              | CASLIBs        | Crea                      | Dropea                             |
+| --------------------------------- | -------------- | ------------------------- | ---------------------------------- |
+| Data Prep - ADLS import (Step 04) | LAKEHOUSE, RAW | `fw_import_adls_to_cas`   | `fw_import_adls_to_cas` (al final) |
+| Data Prep - Partición (Step 05)   | RAW, PROC      | `fw_prepare_processed`    | `fw_prepare_processed` (al final)  |
+| Ejecución - módulo (step_*.sas)   | PROC, OUT      | inicio del step de módulo | final del step de módulo           |
 
 **Regla de promote en ejecucion:** `run_module.sas` soporta dos modos:
 - `dual_input=0` (default): promueve un solo input como `_active_input`. El modulo recibe `input_table=_active_input` + `split=<train|oot>`. Para correlacion, gini, etc.
@@ -335,14 +341,14 @@ SAS impone un máximo de **32 bytes** para nombres de datasets (`.sas7bdat`). Lo
 <mod_abbr>_t<N>_<spl>_<scope>_<tipo>
 ```
 
-| Componente | Abreviatura | Ejemplo |
-|------------|-------------|---------|
-| Módulo | 4 chars max | `corr`, `gini`, `psi` |
-| Troncal | `t<N>` | `t1`, `t2` |
-| Split | 3 chars | `trn` (train), `oot` |
-| Scope | variable | `base`, `seg001` |
-| Tipo | 4 chars max | `prsn` (pearson), `sprm` (spearman) |
-| CUSTOM prefix | `cx_` | `cx_corr_t1_trn_base_prsn` |
+| Componente    | Abreviatura | Ejemplo                             |
+| ------------- | ----------- | ----------------------------------- |
+| Módulo        | 4 chars max | `corr`, `gini`, `psi`               |
+| Troncal       | `t<N>`      | `t1`, `t2`                          |
+| Split         | 3 chars     | `trn` (train), `oot`                |
+| Scope         | variable    | `base`, `seg001`                    |
+| Tipo          | 4 chars max | `prsn` (pearson), `sprm` (spearman) |
+| CUSTOM prefix | `cx_`       | `cx_corr_t1_trn_base_prsn`          |
 
 Ejemplo: `corr_t1_trn_seg001_prsn` = 24 chars (✓ ≤ 32).
 
@@ -353,11 +359,11 @@ Los módulos persisten tablas de resultados como **`.sas7bdat`** usando `libname
 ```sas
 libname _outlib "&_tables_path.";
 data _outlib.&_tbl_prefix._prsn;
-  set work._corr_pearson;
+  set casuser._corr_pearson;
 run;
 libname _outlib clear;
 ```
-**No usar `_save_into_caslib` ni CAS para outputs tabulares de módulos.** CAS se usa solo para inputs (load/promote de `.sashdat` vía `_promote_castable`).
+**No usar `_save_into_caslib` ni CAS para outputs tabulares de módulos.** CAS se usa para inputs (load/promote de `.sashdat` vía `_promote_castable`) y para tablas temporales/intermedias.
 
 ### 7.8 Separación de rutas: reports vs tables
 Los módulos usan dos rutas de salida independientes:
@@ -379,7 +385,7 @@ Los módulos usan dos rutas de salida independientes:
   - **`PROC`** para `data/processed/`
 - No usar variantes como `RAWDATA`, `PROCESSED` o nombres alternos para esas dos capas.
 - Se mantienen archivos al mismo nivel en `train/` y `oot/` (no carpetas por segmento).
-- **`casuser` es exclusivo para tablas de configuración** (`cfg_troncales`, `cfg_segmentos`). Todo dato operativo usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`).
+- **`casuser` se usa para dos propósitos**: (a) tablas de configuración (`cfg_troncales`, `cfg_segmentos`), y (b) tablas temporales/intermedias de módulos (reemplazando `work`). Cada módulo limpia sus tablas temporales al finalizar.
 - Cada paso que crea un CASLIB o promueve tablas es responsable de su cleanup.
 - **Parámetros específicos de módulos** (`threshold`, `num_rounds`, `num_bins`, etc.) **no** se declaran en `config.sas`. Se configuran en los steps de métodos o en la invocación del módulo. `config.sas` solo contiene parámetros estructurales de troncales/segmentos (identificadores, variables, rangos, listas, segmentación).
 - **Step 02 crea las carpetas de output del run** (`outputs/runs/<run_id>/...`) en cada corrida, independientemente de `data_prep_enabled`. Step 03 solo crea dirs de data.
@@ -397,6 +403,6 @@ Los módulos usan dos rutas de salida independientes:
   - Flags `run_<modulo>` para habilitar/deshabilitar módulos.
 - Los steps de módulos leen `ctx_scope` para saber qué contexto iterar. Módulos que solo aplican a un scope verifican `ctx_scope` y auto-saltan si no es compatible.
 - **Arquitectura module-as-step**: cada módulo tiene su propio step SAS en `steps/methods/metod_N/`. Cada step checa su flag `&run_<modulo>`, lee `&ctx_scope` para saber qué contexto iterar, crea CASLIBs, ejecuta, y limpia.
-- **Sub-métodos**: Metodo 4 se subdivide en 4.2 (estabilidad, fillrate, missings, psi) y 4.3 (bivariado, correlacion, gini). Los sub-métodos organizan la selección en el UI y las carpetas de output.
+- **Sub-métodos**: Metodo 1 incluye sub-método 1.1 (universe). Metodo 4 se subdivide en 4.2 (estabilidad, fillrate, missings, psi) y 4.3 (bivariado, correlacion, gini). Los sub-métodos organizan la selección en el UI y las carpetas de output (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`).
 - **Step 02 promueve tablas config**: `cfg_troncales` y `cfg_segmentos` se promueven en Step 02 después de ser creadas por `config.sas`. Drop previo + promote, necesario para background submit en `.flw`.
 - **Variables de contexto unificadas**: `ctx_scope`, `ctx_troncal_id`, `ctx_split`, `ctx_seg_id`, `ctx_n_segments`. Los steps de módulos usan estas variables directamente sin necesidad de alias por scope (no existen `ctx_segment_*` ni `ctx_universe_*`).

@@ -18,7 +18,7 @@ Un módulo debe poder ejecutarse sobre:
 
 Donde `<split>` es `train` u `oot`.
 
-**Acceso a datos:** los inputs se leen desde el CASLIB `PROC` (PATH-based, con subdirs habilitado, mapeado a `data/processed/`). No se usa `casuser` para datos operativos; `casuser` es exclusivo para tablas de configuración.
+**Acceso a datos:** los inputs se leen desde el CASLIB `PROC` (PATH-based, con subdirs habilitado, mapeado a `data/processed/`). `casuser` se usa para tablas de configuración (`cfg_troncales`, `cfg_segmentos`) y para tablas temporales/intermedias de módulos (reemplazando `work`). Los módulos limpian sus tablas temporales en `casuser` al finalizar.
 
 Convención de naming operativo:
 - `RAW` para `data/raw/`
@@ -96,21 +96,92 @@ Si el contexto no está completo, el módulo debe fallar temprano con mensaje cl
 
 Cada Método agrupa módulos lógicamente. Los steps de módulos están en `steps/methods/metod_N/`.
 
-| Método | Sub-método | Carpeta | Módulos (steps) |
-|--------|------------|---------|------------------|
-| Metodo 1 | - | `steps/methods/metod_1/` | universe (futuro) |
-| Metodo 2 | - | `steps/methods/metod_2/` | target (futuro) |
-| Metodo 3 | - | `steps/methods/metod_3/` | segmentacion (futuro) |
-| Metodo 4 | 4.2 | `steps/methods/metod_4/` | estabilidad, fillrate, missings, psi |
-| Metodo 4 | 4.3 | `steps/methods/metod_4/` | bivariado, **correlación**, gini |
+| Método   | Sub-método | Carpeta                  | Módulos (steps)                          |
+| -------- | ---------- | ------------------------ | ---------------------------------------- |
+| Metodo 1 | 1.1        | `steps/methods/metod_1/` | **universe**                             |
+| Metodo 2 | -          | `steps/methods/metod_2/` | target (futuro)                          |
+| Metodo 3 | -          | `steps/methods/metod_3/` | segmentacion (futuro)                    |
+| Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi** |
+| Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlación**, gini         |
 
-Los sub-métodos organizan la selección en el UI y las carpetas de output (`reports/metod_4_2/`, `reports/metod_4_3/`).
+Los sub-métodos organizan la selección en el UI y las carpetas de output (`reports/METOD1.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`).
 
 Cada módulo-step es independiente: checa `&run_<modulo>`, lee `&ctx_scope`, crea CASLIBs, itera seg o unv, y limpia.
 
 ---
 
-## 2) Módulo: Gini
+## 2) Módulo: Universe (Método 1.1)
+
+**Fecha de corte:** Universe analiza la composición del datos (cuentas, montos) sin usar target/PD/XB, por lo que la fecha maxima de análisis es `oot_max_mes`.
+
+**Ruta**
+- `src/modules/universe/`
+
+**API pública**
+- `%universe_run(...)`
+- Parámetros de entrada:
+  - `input_caslib=PROC` - CASLIB de entrada
+  - `train_table=_train_input` - tabla TRAIN promovida por `run_module`
+  - `oot_table=_oot_input` - tabla OOT promovida por `run_module`
+  - `output_caslib=OUT` - CASLIB de salida
+  - `troncal_id`, `scope`, `run_id` - contexto
+
+**Nota arquitectónica:** Universe compara TRAIN vs OOT. Usa `run_module.sas` con `dual_input=1`.
+
+**Estructura interna**
+```
+src/modules/universe/
+  universe_run.sas              %universe_run - entry point público
+  universe_contract.sas         %universe_contract - validaciones
+  impl/
+    universe_compute.sas        %_univ_describe_id - evolutivo cuentas + duplicados
+                                %_univ_bandas_cuentas - bandas ±2σ (TRAIN → OOT)
+                                %_univ_evolutivo_monto - suma monto por periodo
+                                %_univ_describe_monto - media monto por periodo
+    universe_report.sas         %_universe_report - HTML + Excel + JPEG
+```
+
+**Inputs típicos**
+- Dos datasets: TRAIN y OOT, promovidos como `_train_input` y `_oot_input`.
+- Variables resueltas desde `casuser.cfg_troncales`:
+  - `byvar` (variable temporal, ej. YYYYMM) - requerida
+  - `id_var_id` (identificador de cuenta) - requerido
+  - `monto` (variable de monto) - opcional (WARNING si ausente)
+
+**Validaciones (contract)**
+- Tabla TRAIN accesible y no vacía (nobs > 0).
+- Tabla OOT accesible y no vacía (nobs > 0).
+- `byvar` presente en ambas tablas.
+- `id_var` presente en ambas tablas.
+- `monto_var` presente (solo WARNING si falta; análisis de monto se omite).
+
+**Cómputo**
+- Evolutivo de cuentas: PROC FREQ por periodo.
+- Detección de duplicados: count por `byvar` + `id_var` having N > 1.
+- Bandas ±2σ: mean/std se calculan desde TRAIN y se aplican a OOT via macrovars globales.
+- Evolutivo monto: suma por periodo (PROC SQL).
+- Media monto: PROC MEANS por periodo.
+
+**Tablas temporales (casuser)** - se eliminan al finalizar:
+- `_univ_train`, `_univ_oot` - copias de trabajo
+- `_univ_evolut_cuenta`, `_univ_dup`, `_univ_sindup`, `_univ_freq_cuentas`
+- `_univ_sum_monto`, `_univ_evolut_monto`, `_univ_evolut_monto2`
+
+**No persiste tablas .sas7bdat** (análisis visual solamente).
+
+**Reportes**
+- `outputs/runs/<run_id>/reports/METOD1.1/<prefix>_train.html` - gráficos TRAIN
+- `outputs/runs/<run_id>/reports/METOD1.1/<prefix>_oot.html` - gráficos OOT
+- `outputs/runs/<run_id>/reports/METOD1.1/<prefix>.xlsx` - Excel multi-hoja (TRAIN + OOT)
+- `outputs/runs/<run_id>/images/METOD1.1/<prefix>_*.jpeg` - gráficos JPEG independientes
+
+Formato de imagen: JPEG. HTML usa `hitmap_mode=inline`.
+
+**Compatibilidad de contexto**: segmento y universo.
+
+---
+
+## 3) Módulo: Gini
 
 **Fecha de corte:** Gini usa target/PD/XB, por lo que la fecha maxima de análisis es `def_cld`.
 
@@ -173,8 +244,6 @@ src/modules/psi/
                            %_psi_compute - orquestador: variables × periodos
     psi_report.sas         %_psi_report - Excel + HTML + gráficos PNG
                            %_psi_plot_tendencia - serie temporal por variable
-                           %_psi_plot_heatmap - heatmap Variable × Periodo
-                           %_psi_plot_resumen - rangos min-max + total
 ```
 
 **Inputs típicos**
@@ -185,10 +254,10 @@ src/modules/psi/
 
 **Modos de ejecución (configurados en `steps/methods/metod_4/step_psi.sas`)**
 
-| Modo | `psi_mode` | Variables | Output destino | Prefijo archivo |
-|------|------------|-----------|----------------|----------------|
-| Automático | `AUTO` | config → `num_list`/`cat_list` + fallback `num_unv`/`cat_unv` | `reports/`+`tables/`+`images/` | `psi_` |
-| Personalizado | `CUSTOM` | `psi_custom_vars_num/cat` + `psi_custom_byvar` | `experiments/` | `custom_psi_` |
+| Modo          | `psi_mode` | Variables                                                     | Output destino                 | Prefijo archivo |
+| ------------- | ---------- | ------------------------------------------------------------- | ------------------------------ | --------------- |
+| Automático    | `AUTO`     | config → `num_list`/`cat_list` + fallback `num_unv`/`cat_unv` | `reports/`+`tables/`+`images/` | `psi_`          |
+| Personalizado | `CUSTOM`   | `psi_custom_vars_num/cat` + `psi_custom_byvar`                | `experiments/`                 | `custom_psi_`   |
 
 Parámetros adicionales del step:
 - `psi_n_buckets` - número de bins para PROC RANK (default 10)
@@ -210,10 +279,10 @@ Parámetros adicionales del step:
 - PSI Total: OOT completo vs TRAIN completo.
 - Tablas temporales usan sufijo aleatorio (`&rnd.`) para evitar colisiones.
 
-**Tablas intermedias (work)**
-- `_psi_cubo` - detalle: Variable × Periodo × PSI × Tipo.
-- `_psi_cubo_wide` - pivot: Variable × mes_1 … mes_N × PSI_Total.
-- `_psi_resumen` - resumen con estadísticas, semáforo y alertas de tendencia.
+**Tablas intermedias (casuser)** - se eliminan al finalizar:
+- `casuser._psi_cubo` - detalle: Variable × Periodo × PSI × Tipo.
+- `casuser._psi_cubo_wide` - pivot: Variable × mes_1 … mes_N × PSI_Total.
+- `casuser._psi_resumen` - resumen con estadísticas, semáforo y alertas de tendencia.
 
 **Reportes - semáforo por PSI**
 - `PSI < 0.10` → lightgreen (estable)
@@ -222,21 +291,19 @@ Parámetros adicionales del step:
 
 Formato SAS `PsiSignif` aplicado vía `style(column)={backgroundcolor=PsiSignif.}` en ODS.
 
-Excel multi-hoja: PSI Detalle | PSI Cubo Wide | Resumen | Gráficos.
+Excel multi-hoja: PSI Detalle | PSI Cubo Wide | Resumen.
 HTML con cubo + resumen para vista rápida.
-Imágenes PNG: tendencia temporal, heatmap, resumen barras.
+Imágenes PNG: tendencia temporal por variable.
 
 **Outputs esperados**
 
 *Modo AUTO (validación estándar):*
-- `outputs/runs/<run_id>/reports/psi_troncal_X_<scope>.html` - cubo + resumen coloreado
-- `outputs/runs/<run_id>/reports/psi_troncal_X_<scope>.xlsx` - 4 hojas con semáforo
-- `outputs/runs/<run_id>/tables/psi_tX_<scope>_cubo.sas7bdat` - detalle Variable × Periodo
-- `outputs/runs/<run_id>/tables/psi_tX_<scope>_wide.sas7bdat` - pivot Variable × meses
-- `outputs/runs/<run_id>/tables/psi_tX_<scope>_rsmn.sas7bdat` - resumen con alertas
-- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_tend_*.png` - tendencia temporal
-- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_heatmap.png` - heatmap
-- `outputs/runs/<run_id>/images/psi_troncal_X_<scope>_resumen.png` - barras resumen
+- `outputs/runs/<run_id>/reports/METOD4.2/psi_troncal_X_<scope>.html` - cubo + resumen coloreado
+- `outputs/runs/<run_id>/reports/METOD4.2/psi_troncal_X_<scope>.xlsx` - 3 hojas con semáforo
+- `outputs/runs/<run_id>/tables/METOD4.2/psi_tX_<scope>_cubo.sas7bdat` - detalle Variable × Periodo
+- `outputs/runs/<run_id>/tables/METOD4.2/psi_tX_<scope>_wide.sas7bdat` - pivot Variable × meses
+- `outputs/runs/<run_id>/tables/METOD4.2/psi_tX_<scope>_rsmn.sas7bdat` - resumen con alertas
+- `outputs/runs/<run_id>/images/METOD4.2/psi_troncal_X_<scope>_tend_*.png` - tendencia temporal
 
 *Modo CUSTOM (análisis exploratorio):*
 - `outputs/runs/<run_id>/experiments/custom_psi_troncal_X_<scope>.*` (mismos tipos)
@@ -250,8 +317,7 @@ Imágenes PNG: tendencia temporal, heatmap, resumen barras.
 **Compatibilidad de contexto**: segmento y universo.
 
 **Cleanup**
-- Tablas temporales en `work` (`_psi_cubo`, `_psi_cubo_wide`, `_psi_resumen`, `_psi_dev`, `_psi_oot`) se eliminan al finalizar.
-- No se usan tablas temporales CAS para outputs (se persisten directamente como `.sas7bdat` vía `libname`).
+- Tablas temporales en `casuser` (`_psi_cubo`, `_psi_cubo_wide`, `_psi_resumen`, `_psi_dev`, `_psi_oot`) se eliminan al finalizar.
 - Tablas promovidas (`_train_input`, `_oot_input`) se dropean por `run_module.sas` despues de cada invocacion.
 
 ---
@@ -287,10 +353,10 @@ src/modules/correlacion/
 
 **Modos de ejecución (configurados en `steps/methods/metod_4/step_correlacion.sas`)**
 
-| Modo | `corr_mode` | Variables | Output destino | Prefijo archivo |
-|------|-------------|-----------|----------------|----------------|
-| Automático | `AUTO` | `cfg_segmentos.num_list` → fallback `cfg_troncales.num_unv` | `reports/` + `tables/` | `correlacion_` |
-| Personalizado | `CUSTOM` | `corr_custom_vars` (lista manual del usuario) | `experiments/` | `custom_correlacion_` |
+| Modo          | `corr_mode` | Variables                                                   | Output destino         | Prefijo archivo       |
+| ------------- | ----------- | ----------------------------------------------------------- | ---------------------- | --------------------- |
+| Automático    | `AUTO`      | `cfg_segmentos.num_list` → fallback `cfg_troncales.num_unv` | `reports/` + `tables/` | `correlacion_`        |
+| Personalizado | `CUSTOM`    | `corr_custom_vars` (lista manual del usuario)               | `experiments/`         | `custom_correlacion_` |
 
 - **AUTO** (por defecto): resuelve variables desde config. Segmento usa `cfg_segmentos.num_list` (si no vacío), fallback a `cfg_troncales.num_unv`. Universo usa `cfg_troncales.num_unv`.
 - **CUSTOM**: el usuario especifica variables en `corr_custom_vars` (separadas por espacio). Si `corr_custom_vars` está vacío, se hace fallback automático a AUTO con WARNING.
@@ -317,10 +383,10 @@ Formato SAS `CorrSignif` aplicado vía `style(column)={backgroundcolor=CorrSigni
 **Outputs esperados**
 
 *Modo AUTO (validación estándar):*
-- `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.html` - matrices coloreadas
-- `outputs/runs/<run_id>/reports/correlacion_troncal_X_<split>_<scope>.xlsx` - hojas Pearson + Spearman
-- `outputs/runs/<run_id>/tables/corr_tX_<spl>_<scope>_prsn.sas7bdat` - datos Pearson
-- `outputs/runs/<run_id>/tables/corr_tX_<spl>_<scope>_sprm.sas7bdat` - datos Spearman
+- `outputs/runs/<run_id>/reports/METOD4.3/correlacion_troncal_X_<split>_<scope>.html` - matrices coloreadas
+- `outputs/runs/<run_id>/reports/METOD4.3/correlacion_troncal_X_<split>_<scope>.xlsx` - hojas Pearson + Spearman
+- `outputs/runs/<run_id>/tables/METOD4.3/corr_tX_<spl>_<scope>_prsn.sas7bdat` - datos Pearson
+- `outputs/runs/<run_id>/tables/METOD4.3/corr_tX_<spl>_<scope>_sprm.sas7bdat` - datos Spearman
 
 *Modo CUSTOM (análisis exploratorio):*
 - `outputs/runs/<run_id>/experiments/custom_correlacion_troncal_X_<split>_<scope>.html`
@@ -337,8 +403,7 @@ Formato SAS `CorrSignif` aplicado vía `style(column)={backgroundcolor=CorrSigni
 **Compatibilidad de contexto**: segmento y universo.
 
 **Cleanup**
-- Tablas temporales en `work` (`_corr_pearson`, `_corr_spearman`) se eliminan al finalizar.
-- No se usan tablas temporales CAS para outputs (se persisten directamente como `.sas7bdat` vía `libname`).
+- Tablas temporales en `casuser` (`_corr_pearson`, `_corr_spearman`) se eliminan al finalizar.
 
 ---
 

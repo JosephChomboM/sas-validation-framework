@@ -2,8 +2,8 @@
    correlacion_report.sas - Generación de reportes HTML + Excel
 
    Lee las tablas de WORK generadas por correlacion_compute:
-     work._corr_pearson
-     work._corr_spearman
+     casuser._corr_pearson
+     casuser._corr_spearman
 
    Genera:
      <report_path>/<file_prefix>.html  - ambas matrices con semáforo
@@ -33,12 +33,12 @@
   ods graphics on / outputfmt=svg;
   ods html5 file="&report_path./&file_prefix..html";
 
-  proc print data=work._corr_pearson(drop=_type_ rename=(_name_=Variable))
+  proc print data=casuser._corr_pearson(drop=_type_ rename=(_name_=Variable))
              style(column)={backgroundcolor=CorrSignif.} noobs;
     title "Correlation Matrix (Pearson) - &file_prefix.";
   run;
 
-  proc print data=work._corr_spearman(drop=_type_ rename=(_name_=Variable))
+  proc print data=casuser._corr_spearman(drop=_type_ rename=(_name_=Variable))
              style(column)={backgroundcolor=CorrSignif.} noobs;
     title "Correlation Matrix (Spearman) - &file_prefix.";
   run;
@@ -50,14 +50,14 @@
   ods excel file="&report_path./&file_prefix..xlsx"
             options(sheet_name="Pearson" sheet_interval="none" embedded_titles="yes");
 
-  proc print data=work._corr_pearson(drop=_type_ rename=(_name_=Variable))
+  proc print data=casuser._corr_pearson(drop=_type_ rename=(_name_=Variable))
              style(column)={backgroundcolor=CorrSignif.} noobs;
     title "Correlation Matrix (Pearson)";
   run;
 
   ods excel options(sheet_name="Spearman" sheet_interval="now" embedded_titles="yes");
 
-  proc print data=work._corr_spearman(drop=_type_ rename=(_name_=Variable))
+  proc print data=casuser._corr_spearman(drop=_type_ rename=(_name_=Variable))
              style(column)={backgroundcolor=CorrSignif.} noobs;
     title "Correlation Matrix (Spearman)";
   run;
