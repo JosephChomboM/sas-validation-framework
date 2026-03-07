@@ -182,7 +182,7 @@ Compatibilidad: segmento y universo.
         &psi_mensual. );
 
     /* ==================================================================
-    4) Report - HTML + Excel + PNG
+    4) Report - HTML + Excel + JPEG
     ================================================================== */
     %_psi_report( report_path=&_report_path., images_path=&_images_path.,
         file_prefix=&_file_prefix., byvar=&_psi_byvar. );
@@ -191,6 +191,10 @@ Compatibilidad: segmento y universo.
     5) Persistir tablas como .sas7bdat en directorio de tables
     Usa _tables_path y _tbl_prefix (≤32 chars)
     ================================================================== */
+    /* ---- Crear directorio tables/METOD4.2 si no existe --------------- */
+    %let _dir_rc=%sysfunc(dcreate(METOD4.2, &_tables_path./../));
+    %let _dir_rc=%sysfunc(dcreate(., &_tables_path.));
+
     libname _outlib "&_tables_path.";
 
     data _outlib.&_tbl_prefix._cubo;

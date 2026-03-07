@@ -16,6 +16,11 @@ Codificación de colores (semáforo por valor absoluto):
 ========================================================================= */
 %macro _correlacion_report(report_path=, file_prefix=);
 
+  /* ---- Crear directorios METOD4.3 si no existen ----------------------- */
+  %local _dir_rc;
+  %let _dir_rc=%sysfunc(dcreate(METOD4.3, &report_path./../));
+  %let _dir_rc=%sysfunc(dcreate(., &report_path.));
+
   /* ---- Formato semáforo de correlación -------------------------------- */
   proc format;
     value CorrSignif -0.5 -< 0.0="lightgreen" 0.0 -< 0.5="lightgreen" -0.6
@@ -25,7 +30,7 @@ Codificación de colores (semáforo por valor absoluto):
   /* ---- HTML report ---------------------------------------------------- */
   ods graphics on;
   ods html5 file="&report_path./&file_prefix..html"
-    options(hitmap_mode="inline");
+    options(bitmap_mode="inline");
 
   proc print data=casuser._corr_pearson(drop=_type_ rename=(_name_=Variable))
     style(column)={backgroundcolor=CorrSignif.} noobs;

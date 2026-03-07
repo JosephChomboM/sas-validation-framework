@@ -1,4 +1,4 @@
-﻿# Framework SAS Viya (CAS) para Validación y Controles Automáticos
+# Framework SAS Viya (CAS) para Validación y Controles Automáticos
 
 Este repositorio contiene un framework modular en **SAS Viya / CAS** para preparar data (train/oot), ejecutar controles de validación (por ejemplo **Universe, Gini, PSI, Correlación**) y generar artefactos (reportes, tablas, logs) de forma **estandarizada y automatizable**.
 
@@ -145,7 +145,7 @@ Notas:
 
 ### 3.0a Ciclo de vida de CASLIBs
 
-Todo bloque que usa CASLIBs sigue estrictamente: **create → promote → work → drop**.
+Todo bloque que usa CASLIBs sigue estrictamente: **create ? promote ? work ? drop**.
 - Cada fase (data prep, ejecución segmento, ejecución universo) crea sus CASLIBs al inicio y los dropea al final.
 - `run_module.sas` promueve el input específico (`_active_input`) desde CASLIB `PROC`, ejecuta el módulo, y dropea la tabla promovida.
 - Ningún CASLIB sobrevive entre fases; los `.sashdat` en disco persisten.
@@ -158,14 +158,14 @@ Todo bloque que usa CASLIBs sigue estrictamente: **create → promote → work �
 - **`casuser`** se usa para las tablas de configuración (`cfg_troncales`, `cfg_segmentos`) y para tablas temporales/intermedias de módulos (reemplazando `work`). Cada módulo limpia sus tablas temporales al finalizar.
 - Todo dato operativo (raw, processed, outputs) se accede mediante **PATH-based CASLIBs** (GLOBAL) mapeados a carpetas del filesystem, siguiendo `docs/caslib_lifecycle.md`.
 - CASLIBs estándar del framework:
-  - `RAW` → `data/raw/` (subdirs=0)
-  - `PROC` → `data/processed/` (subdirs=1, para acceder subcarpetas troncal/split)
-  - `OUT` → `outputs/runs/<run_id>/` (subdirs=1, creado por el runner)
+  - `RAW` ? `data/raw/` (subdirs=0)
+  - `PROC` ? `data/processed/` (subdirs=1, para acceder subcarpetas troncal/split)
+  - `OUT` ? `outputs/runs/<run_id>/` (subdirs=1, creado por el runner)
 - Los módulos pueden crear CASLIBs scoped adicionales (ej. `MOD_GINI_<run_id>`) y son responsables de su cleanup.
 
 **Restricción SAS open code:** `%if`/`%do` no se permiten fuera de una macro. Todo archivo `.sas` que use lógica condicional debe encapsularla en `%macro ... %mend;`. Esto aplica a `runner/main.sas` (`%macro _main_pipeline`) y a steps individuales como `02`, `04`, `05`, `segmento/context`, `universo/context`.
 
-**Independencia de steps:** cada step carga sus propias dependencias (`%include "&fw_root./src/common/common_public.sas";`) y gestiona su propio ciclo de vida de CASLIBs (create → promote → work → drop). Ningún CASLIB operativo sobrevive entre steps. `casuser` (config) es la única excepción.
+**Independencia de steps:** cada step carga sus propias dependencias (`%include "&fw_root./src/common/common_public.sas";`) y gestiona su propio ciclo de vida de CASLIBs (create ? promote ? work ? drop). Ningún CASLIB operativo sobrevive entre steps. `casuser` (config) es la única excepción.
 - Se usa CASLIB/LIBNAME fijo `OUT` para outputs porque `LIBNAME` en SAS admite máximo 8 caracteres.
 - La separación por corrida se mantiene vía path físico `outputs/runs/<run_id>/`.
 - Convención estricta de naming operativo: usar solo `RAW` y `PROC` para capas de datos del framework (no usar `RAWDATA` ni `PROCESSED`).
@@ -248,8 +248,8 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 
 ### 5.2 Cómo usar
 1. Configurar rutas/config (Steps 01–02). Siempre se ejecutan.
-2. **Primera corrida**: `data_prep_enabled=1` → ejecutar Steps 03–05 (carpetas, ADLS, partición).
-   **Corridas posteriores**: `data_prep_enabled=0` → saltar Steps 03–05.
+2. **Primera corrida**: `data_prep_enabled=1` ? ejecutar Steps 03–05 (carpetas, ADLS, partición).
+   **Corridas posteriores**: `data_prep_enabled=0` ? saltar Steps 03–05.
 3. **Contexto + módulos**: configurar scope, troncal, split, segmento y módulos a correr en `steps/context_and_modules.sas`.
 4. Los steps de módulos se ejecutan leyendo `ctx_scope` para iterar segmentos (SEGMENTO) o base/troncal (UNIVERSO).
 
@@ -272,12 +272,12 @@ Ver `design.md §5` para el contrato completo.
    - `impl/<nuevo_modulo>_compute.sas`
    - `impl/<nuevo_modulo>_report.sas`
 3. Crear step del módulo en `steps/methods/metod_N/step_<nuevo_modulo>.sas`:
-   - Check de flag `&run_<nuevo_modulo>` al inicio (→ skip si 0)
+   - Check de flag `&run_<nuevo_modulo>` al inicio (? skip si 0)
    - Sección de configuración propia del módulo (params editables)
    - Crea CASLIBs PROC + OUT
    - Lee `&ctx_scope` para iterar:
-     - SEGMENTO → usa `ctx_troncal_id`, `ctx_n_segments`, `ctx_seg_id`
-     - UNIVERSO → usa `ctx_troncal_id`
+     - SEGMENTO ? usa `ctx_troncal_id`, `ctx_n_segments`, `ctx_seg_id`
+     - UNIVERSO ? usa `ctx_troncal_id`
    - Cleanup CASLIBs al final
 4. Añadir flag `run_<nuevo_modulo>` en `steps/context_and_modules.sas`.
 5. Documentar inputs/outputs en `docs/module_catalog.md`.

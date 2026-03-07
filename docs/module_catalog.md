@@ -1,4 +1,4 @@
-﻿# Catálogo de Módulos
+# Catálogo de Módulos
 
 Este documento describe módulos disponibles, sus entradas y salidas esperadas.
 
@@ -38,8 +38,8 @@ Convención de naming operativo:
 - Cada step de módulo checa su flag, lee `&ctx_scope`, crea CASLIBs PROC/OUT, itera, y limpia.
 
 **Contexto unificado:**
-- `steps/context_and_modules.sas` → seleccionar scope (UNIVERSO|SEGMENTO), troncal, split, segmento + módulos habilitados
-- `steps/methods/metod_N/step_<modulo>.sas` → cada step lee `ctx_scope` para iterar base o segmentos
+- `steps/context_and_modules.sas` ? seleccionar scope (UNIVERSO|SEGMENTO), troncal, split, segmento + módulos habilitados
+- `steps/methods/metod_N/step_<modulo>.sas` ? cada step lee `ctx_scope` para iterar base o segmentos
 
 El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) a cada modulo via `%run_module`.
 
@@ -52,7 +52,7 @@ El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) 
 - Lee `&ctx_scope` para determinar si itera segmentos (SEGMENTO) o base/troncal (UNIVERSO).
 - Por cada contexto, `run_module.sas` promueve el input específico desde `PROC` como tabla `_active_input` (vía `%_promote_castable`), ejecuta el módulo, y dropea la tabla promovida.
 - Al final del step se dropean `PROC` y `OUT` (archivos en disco persisten).
-- Patrón obligatorio: **create → promote → work → drop**.
+- Patrón obligatorio: **create ? promote ? work ? drop**.
 
 **Restricciones SAS**: ver `design.md §7` y `design.md §8`.
 
@@ -84,7 +84,7 @@ Todo módulo debe aceptar o derivar estos campos de contexto:
 
 Si el contexto no está completo, el módulo debe fallar temprano con mensaje claro.
 
-### 1.2 Matriz Método → módulos (contrato funcional)
+### 1.2 Matriz Método ? módulos (contrato funcional)
 
 Cada Método agrupa módulos lógicamente. Los steps de módulos están en `steps/methods/metod_N/`.
 
@@ -127,7 +127,7 @@ src/modules/universe/
   universe_contract.sas         %universe_contract - validaciones
   impl/
     universe_compute.sas        %_univ_describe_id - evolutivo cuentas + duplicados
-                                %_univ_bandas_cuentas - bandas ±2σ (TRAIN → OOT)
+                                %_univ_bandas_cuentas - bandas ±2s (TRAIN ? OOT)
                                 %_univ_evolutivo_monto - suma monto por periodo
                                 %_univ_describe_monto - media monto por periodo
     universe_report.sas         %_universe_report - HTML + Excel + JPEG
@@ -150,7 +150,7 @@ src/modules/universe/
 **Cómputo**
 - Evolutivo de cuentas: PROC FREQ por periodo.
 - Detección de duplicados: count por `byvar` + `id_var` having N > 1.
-- Bandas ±2σ: mean/std se calculan desde TRAIN y se aplican a OOT via macrovars globales.
+- Bandas ±2s: mean/std se calculan desde TRAIN y se aplican a OOT via macrovars globales.
 - Evolutivo monto: suma por periodo (PROC SQL).
 - Media monto: PROC MEANS por periodo.
 
@@ -167,7 +167,7 @@ src/modules/universe/
 - `outputs/runs/<run_id>/reports/METOD1.1/<prefix>.xlsx` - Excel multi-hoja (TRAIN + OOT)
 - `outputs/runs/<run_id>/images/METOD1.1/<prefix>_*.jpeg` - gráficos JPEG independientes
 
-Formato de imagen: JPEG. HTML usa `hitmap_mode=inline`.
+Formato de imagen: JPEG. HTML usa `bitmap_mode=inline`.
 
 **Compatibilidad de contexto**: segmento y universo.
 
@@ -248,7 +248,7 @@ src/modules/psi/
 
 | Modo          | `psi_mode` | Variables                                                     | Output destino                 | Prefijo archivo |
 | ------------- | ---------- | ------------------------------------------------------------- | ------------------------------ | --------------- |
-| Automático    | `AUTO`     | config → `num_list`/`cat_list` + fallback `num_unv`/`cat_unv` | `reports/`+`tables/`+`images/` | `psi_`          |
+| Automático    | `AUTO`     | config ? `num_list`/`cat_list` + fallback `num_unv`/`cat_unv` | `reports/`+`tables/`+`images/` | `psi_`          |
 | Personalizado | `CUSTOM`   | `psi_custom_vars_num/cat` + `psi_custom_byvar`                | `experiments/`                 | `custom_psi_`   |
 
 Parámetros adicionales del step:
@@ -265,7 +265,7 @@ Parámetros adicionales del step:
 
 **Cómputo**
 - Discretización: PROC RANK (variables continuas, buckets definidos por TRAIN) o valores directos (categóricas).
-- Heurística: variables numéricas con ≤ 10 valores distintos se tratan como categóricas.
+- Heurística: variables numéricas con = 10 valores distintos se tratan como categóricas.
 - Suavizado Laplace para evitar log(0): `(n + 0.5) / (total + 0.5 * n_buckets)`.
 - PSI Mensual: cada periodo en OOT vs TRAIN completo.
 - PSI Total: OOT completo vs TRAIN completo.
@@ -277,9 +277,9 @@ Parámetros adicionales del step:
 - `casuser._psi_resumen` - resumen con estadísticas, semáforo y alertas de tendencia.
 
 **Reportes - semáforo por PSI**
-- `PSI < 0.10` → lightgreen (estable)
-- `0.10 ≤ PSI < 0.25` → yellow (alerta)
-- `PSI ≥ 0.25` → red (crítico)
+- `PSI < 0.10` ? lightgreen (estable)
+- `0.10 = PSI < 0.25` ? yellow (alerta)
+- `PSI = 0.25` ? red (crítico)
 
 Formato SAS `PsiSignif` aplicado vía `style(column)={backgroundcolor=PsiSignif.}` en ODS.
 
@@ -287,7 +287,7 @@ Excel multi-hoja: PSI Detalle | PSI Cubo Wide | Resumen | Graficos (tendencia te
 HTML con cubo + resumen para vista rápida.
 Imágenes JPEG: tendencia temporal por variable (archivos independientes).
 
-**Convención ODS**: JPEG, `hitmap_mode=inline`, imágenes en Excel + JPEG simultáneo vía dual ODS, `reset=all` (ver `design.md §7.9`).
+**Convención ODS**: JPEG, `bitmap_mode=inline`, imágenes en Excel + JPEG simultáneo vía dual ODS, `reset=all` (ver `design.md §7.9`).
 
 **Outputs esperados**
 
@@ -303,7 +303,7 @@ Imágenes JPEG: tendencia temporal por variable (archivos independientes).
 - `outputs/runs/<run_id>/experiments/custom_psi_troncal_X_<scope>.*` (mismos tipos)
 - Tablas con prefijo `cx_psi_tX_<scope>_*`
 
-*Naming compacto de tablas .sas7bdat (≤ 32 chars, límite SAS):*
+*Naming compacto de tablas .sas7bdat (= 32 chars, límite SAS):*
 - `<scope>` = `base` | `segNNN`
 - Ejemplo: `psi_t1_base_cubo` (16 chars), `psi_t1_seg001_rsmn` (19 chars)
 - CUSTOM: `cx_psi_t1_base_cubo` (20 chars)
@@ -349,7 +349,7 @@ src/modules/correlacion/
 
 | Modo          | `corr_mode` | Variables                                                   | Output destino         | Prefijo archivo       |
 | ------------- | ----------- | ----------------------------------------------------------- | ---------------------- | --------------------- |
-| Automático    | `AUTO`      | `cfg_segmentos.num_list` → fallback `cfg_troncales.num_unv` | `reports/` + `tables/` | `correlacion_`        |
+| Automático    | `AUTO`      | `cfg_segmentos.num_list` ? fallback `cfg_troncales.num_unv` | `reports/` + `tables/` | `correlacion_`        |
 | Personalizado | `CUSTOM`    | `corr_custom_vars` (lista manual del usuario)               | `experiments/`         | `custom_correlacion_` |
 
 - **AUTO** (por defecto): resuelve variables desde config. Segmento usa `cfg_segmentos.num_list` (si no vacío), fallback a `cfg_troncales.num_unv`. Universo usa `cfg_troncales.num_unv`.
@@ -368,9 +368,9 @@ src/modules/correlacion/
 - Ambas matrices filtradas a `_type_='CORR'`.
 
 **Reportes - semáforo por |r|**
-- `|r| < 0.5` → lightgreen (débil)
-- `0.5 ≤ |r| < 0.6` → yellow (moderada)
-- `|r| ≥ 0.6` → red (fuerte)
+- `|r| < 0.5` ? lightgreen (débil)
+- `0.5 = |r| < 0.6` ? yellow (moderada)
+- `|r| = 0.6` ? red (fuerte)
 
 Formato SAS `CorrSignif` aplicado vía `style(column)={backgroundcolor=CorrSignif.}` en ODS.
 
@@ -388,7 +388,7 @@ Formato SAS `CorrSignif` aplicado vía `style(column)={backgroundcolor=CorrSigni
 - `outputs/runs/<run_id>/experiments/cx_corr_tX_<spl>_<scope>_prsn.sas7bdat`
 - `outputs/runs/<run_id>/experiments/cx_corr_tX_<spl>_<scope>_sprm.sas7bdat`
 
-*Naming compacto de tablas .sas7bdat (≤ 32 chars, límite SAS):*
+*Naming compacto de tablas .sas7bdat (= 32 chars, límite SAS):*
 - `<spl>` = `trn` | `oot`
 - `<scope>` = `base` | `segNNN`
 - Ejemplo: `corr_t1_trn_seg001_prsn` (24 chars)
@@ -411,12 +411,12 @@ Para agregar un módulo nuevo:
    - `impl/<modulo>_compute.sas`
    - `impl/<modulo>_report.sas` (si aplica)
 3. Crear step de módulo en `steps/methods/metod_N/step_<modulo>.sas`:
-   - Check de flag `&run_<modulo>` al inicio (→ skip si 0)
+   - Check de flag `&run_<modulo>` al inicio (? skip si 0)
    - Sección de configuración propia (params editables)
    - Crea CASLIBs PROC + OUT
    - Lee `&ctx_scope` para decidir iteración:
-     - SEGMENTO → itera via `ctx_n_segments`, `ctx_seg_id`
-     - UNIVERSO → ejecuta base/troncal via `ctx_troncal_id`
+     - SEGMENTO ? itera via `ctx_n_segments`, `ctx_seg_id`
+     - UNIVERSO ? ejecuta base/troncal via `ctx_troncal_id`
    - Cleanup CASLIBs al final
 4. Añadir flag `run_<nuevo_modulo>` en `steps/context_and_modules.sas`.
    - Inputs esperados

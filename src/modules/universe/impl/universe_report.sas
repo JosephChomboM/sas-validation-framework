@@ -15,7 +15,7 @@ Las bandas ±2σ se calculan desde TRAIN y se aplican a OOT
 (vía macrovars globales _univ_mean, _univ_std en universe_compute).
 
 Tablas temporales se crean en casuser (CAS).
-Formato de imagen: JPEG. HTML usa hitmap_mode=inline.
+Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
 ========================================================================= */
 %macro _universe_report( input_caslib=, train_table=, oot_table=, byvar=, id_var
     =, monto_var=, report_path=, images_path=, file_prefix=);
@@ -55,7 +55,7 @@ Formato de imagen: JPEG. HTML usa hitmap_mode=inline.
     ods listing gpath="&images_path.";
 
     ods html5 file="&report_path./&file_prefix._train.html"
-        options(hitmap_mode="inline");
+        options(bitmap_mode="inline");
     ods excel file="&report_path./&file_prefix..xlsx"
         options(sheet_name="TRAIN_DescribeUniverso" sheet_interval="none"
         embedded_titles="yes");
@@ -84,7 +84,7 @@ Formato de imagen: JPEG. HTML usa hitmap_mode=inline.
     OOT: HTML + segunda hoja Excel
     ================================================================== */
     ods html5 file="&report_path./&file_prefix._oot.html"
-        options(hitmap_mode="inline");
+        options(bitmap_mode="inline");
     ods excel options(sheet_name="OOT_DescribeUniverso" sheet_interval="now"
         embedded_titles="yes");
     ods graphics / imagename="&file_prefix._oot_cuentas" imagefmt=jpeg;

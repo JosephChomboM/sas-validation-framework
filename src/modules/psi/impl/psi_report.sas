@@ -16,7 +16,7 @@ PSI < 0.10       → lightgreen  (estable)
 0.10 ≤ PSI < 0.25 → yellow     (alerta)
 PSI ≥ 0.25       → red         (crítico)
 
-Convención ODS: JPEG, hitmap_mode=inline, reset=all.
+Convención ODS: JPEG, bitmap_mode=inline, reset=all.
 Los gráficos van tanto al Excel (hoja Graficos) como a JPEG independientes.
 ========================================================================= */
 
@@ -84,6 +84,13 @@ archivos JPEG independientes (vía ods listing gpath).
 ===================================================================== */
 %macro _psi_report(report_path=, images_path=, file_prefix=, byvar=);
 
+    /* ---- Crear directorios METOD4.2 si no existen ----------------------- */
+    %local _dir_rc;
+    %let _dir_rc=%sysfunc(dcreate(METOD4.2, &report_path./../));
+    %let _dir_rc=%sysfunc(dcreate(., &report_path.));
+    %let _dir_rc=%sysfunc(dcreate(METOD4.2, &images_path./../));
+    %let _dir_rc=%sysfunc(dcreate(., &images_path.));
+
     /* ---- Formato semáforo PSI ------------------------------------------ */
     proc format;
         value PsiSignif -0.0 -< 0.1="lightgreen" 0.1 -< 0.25="yellow" 0.25 -<
@@ -95,7 +102,7 @@ archivos JPEG independientes (vía ods listing gpath).
     ================================================================== */
     ods graphics on;
     ods html5 file="&report_path./&file_prefix..html"
-        options(hitmap_mode="inline");
+        options(bitmap_mode="inline");
 
     proc print data=casuser._psi_cubo noobs label
         style(column)={backgroundcolor=PsiSignif.};

@@ -164,6 +164,10 @@ Compatibilidad: segmento y universo.
   5) Persistir tablas como .sas7bdat en directorio de tables
   Usa _tables_path (separado de _report_path) y _tbl_prefix (≤32 ch)
   ================================================================== */
+  /* ---- Crear directorio tables/METOD4.3 si no existe ------------------- */
+  %let _dir_rc=%sysfunc(dcreate(METOD4.3, &_tables_path./../));
+  %let _dir_rc=%sysfunc(dcreate(., &_tables_path.));
+
   libname _outlib "&_tables_path.";
 
   data _outlib.&_tbl_prefix._prsn;
