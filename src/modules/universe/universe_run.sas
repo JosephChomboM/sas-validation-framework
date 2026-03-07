@@ -36,8 +36,8 @@ Compatibilidad: segmento y universo.
     %global _univ_rc;
     %let _univ_rc=0;
 
-    %local _univ_byvar _univ_id_var _univ_monto _report_path _file_prefix
-        _scope_abbr;
+    %local _univ_byvar _univ_id_var _univ_monto _report_path _images_path
+        _file_prefix _scope_abbr;
 
     %put NOTE:======================================================;
     %put NOTE: [universe_run] INICIO;
@@ -62,15 +62,16 @@ Compatibilidad: segmento y universo.
         id_var=&_univ_id_var. monto=&_univ_monto.;
 
     /* ==================================================================
-    Determinar rutas de salida (subcarpeta metod_1_1/)
+    Determinar rutas de salida (subcarpeta METOD1.1/)
     ================================================================== */
     %if %substr(&scope., 1, 3)=seg %then %let _scope_abbr=&scope.;
     %else %let _scope_abbr=base;
 
-    %let _report_path=&fw_root./outputs/runs/&run_id./reports/metod_1_1;
+    %let _report_path=&fw_root./outputs/runs/&run_id./reports/METOD1.1;
+    %let _images_path=&fw_root./outputs/runs/&run_id./images/METOD1.1;
     %let _file_prefix=universe_troncal_&troncal_id._&_scope_abbr.;
 
-    %put NOTE: [universe_run] Output → reports/metod_1_1/;
+    %put NOTE: [universe_run] Output → reports/METOD1.1/ + images/METOD1.1/;
 
     /* ==================================================================
     2) Contract - validaciones
@@ -89,8 +90,8 @@ Compatibilidad: segmento y universo.
     ================================================================== */
     %_universe_report( input_caslib=&input_caslib., train_table=&train_table.,
         oot_table=&oot_table., byvar=&_univ_byvar., id_var=&_univ_id_var.,
-        monto_var=&_univ_monto., report_path=&_report_path., file_prefix=
-        &_file_prefix. );
+        monto_var=&_univ_monto., report_path=&_report_path., images_path=
+        &_images_path., file_prefix=&_file_prefix. );
 
     /* No se persisten tablas (análisis visual solamente) */
     %put NOTE:======================================================;

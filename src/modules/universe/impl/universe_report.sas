@@ -16,7 +16,7 @@ Las bandas ±2σ se calculan desde TRAIN y se aplican a OOT
 Migrado de universe_legacy.sas (__describe_universe_report).
 ========================================================================= */
 %macro _universe_report( input_caslib=, train_table=, oot_table=, byvar=, id_var
-    =, monto_var=, report_path=, file_prefix=);
+    =, monto_var=, report_path=, images_path=, file_prefix=);
 
     %put NOTE: [universe_report] Generando reportes...;
     %put NOTE: [universe_report] report_path=&report_path.;
@@ -31,10 +31,12 @@ Migrado de universe_legacy.sas (__describe_universe_report).
         set &input_caslib..&oot_table.;
     run;
 
-    /* ---- Crear directorio de reportes si no existe ---------------------- */
+    /* ---- Crear directorios si no existen ------------------------------- */
     %local _dir_rc;
-    %let _dir_rc=%sysfunc(dcreate(metod_1_1, &report_path./../));
+    %let _dir_rc=%sysfunc(dcreate(METOD1.1, &report_path./../));
     %let _dir_rc=%sysfunc(dcreate(., &report_path.));
+    %let _dir_rc=%sysfunc(dcreate(METOD1.1, &images_path./../));
+    %let _dir_rc=%sysfunc(dcreate(., &images_path.));
 
     /* ---- Detectar si monto está disponible ------------------------------ */
     %local _has_monto;
@@ -44,14 +46,16 @@ Migrado de universe_legacy.sas (__describe_universe_report).
     %end;
 
     /* ==================================================================
-    TRAIN: HTML + primera hoja Excel
+    TRAIN: HTML + primera hoja Excel + PNG images
     ================================================================== */
     ods graphics on / outputfmt=svg;
+    ods listing gpath="&images_path.";
 
     ods html5 file="&report_path./&file_prefix._train.html";
     ods excel file="&report_path./&file_prefix..xlsx"
         options(sheet_name="TRAIN_DescribeUniverso" sheet_interval="none"
         embedded_titles="yes");
+    ods graphics / imagename="&file_prefix._trn_cuentas" imagefmt=png;
 
     %_univ_describe_id(data=work._univ_train, byvar=&byvar., id_var=&id_var.);
 
@@ -76,6 +80,7 @@ Migrado de universe_legacy.sas (__describe_universe_report).
     ods html5 file="&report_path./&file_prefix._oot.html";
     ods excel options(sheet_name="OOT_DescribeUniverso" sheet_interval="now"
         embedded_titles="yes");
+    ods graphics / imagename="&file_prefix._oot_cuentas" imagefmt=png;
 
     %_univ_describe_id(data=work._univ_oot, byvar=&byvar., id_var=&id_var.);
 
@@ -94,6 +99,7 @@ Migrado de universe_legacy.sas (__describe_universe_report).
 
     ods excel close;
     ods html5 close;
+    ods graphics / reset;
     ods graphics off;
 
     /* ---- Cleanup -------------------------------------------------------- */

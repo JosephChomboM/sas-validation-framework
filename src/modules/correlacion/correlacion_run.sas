@@ -130,11 +130,11 @@ Compatibilidad: segmento y universo.
     %put NOTE: [correlacion_run] Output → experiments/ (exploratorio);
   %end;
   %else %do;
-    %let _report_path=&fw_root./outputs/runs/&run_id./reports/metod_4_3;
-    %let _tables_path=&fw_root./outputs/runs/&run_id./tables/metod_4_3;
+    %let _report_path=&fw_root./outputs/runs/&run_id./reports/METOD4.3;
+    %let _tables_path=&fw_root./outputs/runs/&run_id./tables/METOD4.3;
     %let _file_prefix=correlacion_troncal_&troncal_id._&split._&scope.;
     %let _tbl_prefix=corr_t&troncal_id._&_spl_abbr._&_scope_abbr.;
-    %put NOTE: [correlacion_run] Output → reports/metod_4_3/ (estándar);
+    %put NOTE: [correlacion_run] Output → reports/METOD4.3/ (estándar);
   %end;
 
   /* ==================================================================
