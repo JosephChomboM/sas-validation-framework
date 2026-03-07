@@ -1,5 +1,5 @@
 /* =========================================================================
-psi_report.sas - Generación de reportes HTML + Excel + Gráficos PNG
+psi_report.sas - Generación de reportes HTML + Excel + Gráficos JPEG
 
 Lee las tablas de casuser (CAS) generadas por psi_compute:
 casuser._psi_cubo
@@ -7,24 +7,25 @@ casuser._psi_cubo_wide
 casuser._psi_resumen
 
 Genera:
-<report_path>/<file_prefix>.html  - cubo + resumen con semáforo
-<report_path>/<file_prefix>.xlsx  - hoja PSI, Cubo Wide, Resumen, Gráficos
-<images_path>/<file_prefix>_tend_*.png  - tendencia temporal por variable
+<report_path>/<file_prefix>.html              - cubo + resumen con semáforo
+<report_path>/<file_prefix>.xlsx              - hojas: Detalle, Wide, Resumen, Graficos
+<images_path>/<file_prefix>_tend_*.jpeg       - tendencia temporal por variable
 
 Codificación de colores (semáforo PSI):
 PSI < 0.10       → lightgreen  (estable)
 0.10 ≤ PSI < 0.25 → yellow     (alerta)
 PSI ≥ 0.25       → red         (crítico)
 
-Migrado de psi_legacy.sas (__psi_report + __plot_psi_tendencia).
+Convención ODS: JPEG, hitmap_mode=inline, reset=all.
+Los gráficos van tanto al Excel (hoja Graficos) como a JPEG independientes.
 ========================================================================= */
 
 /* =====================================================================
 %_psi_plot_tendencia - Gráfico de tendencia temporal del PSI
-Un gráfico por variable con bandas semáforo
+Un gráfico por variable con bandas semáforo.
+Se ejecuta dentro de un contexto ODS ya abierto (Excel + listing).
 ===================================================================== */
-%macro _psi_plot_tendencia(data=casuser._psi_cubo, byvar=, images_path=,
-    file_prefix=);
+%macro _psi_plot_tendencia(data=casuser._psi_cubo, byvar=, file_prefix=);
 
     %local var_list n_vars i var_name;
 
@@ -37,17 +38,14 @@ Un gráfico por variable con bandas semáforo
     quit;
 
     %if &n_vars.=0 %then %do;
-        %put NOTE: [psi_plot_tendencia] No hay datos mensuales para graficar
-            tendencia.;
+        %put NOTE: [psi_plot_tendencia] No hay datos mensuales para graficar.;
         %return;
     %end;
-
-    ods listing gpath="&images_path.";
 
     %do i=1 %to &n_vars.;
         %let var_name=%scan(&var_list., &i., |);
 
-        ods graphics / imagename="&file_prefix._tend_&var_name." imagefmt=png
+        ods graphics / imagename="&file_prefix._tend_&var_name." imagefmt=jpeg
             width=800px height=400px;
 
         title "PSI Temporal: &var_name.";
@@ -74,18 +72,15 @@ Un gráfico por variable con bandas semáforo
         run;
 
         title;
-
-        %put NOTE: [psi_plot_tendencia]=>
-            &images_path./&file_prefix._tend_&var_name..png;
     %end;
-
-    ods graphics / reset;
 
 %mend _psi_plot_tendencia;
 
 /* =====================================================================
-%_psi_report - Generador principal de reportes (HTML + Excel + PNG)
-Lee tablas de casuser (CAS) generadas por _psi_compute
+%_psi_report - Generador principal de reportes (HTML + Excel + JPEG)
+Lee tablas de casuser (CAS) generadas por _psi_compute.
+Los gráficos se renderizan en la hoja "Graficos" del Excel Y como
+archivos JPEG independientes (vía ods listing gpath).
 ===================================================================== */
 %macro _psi_report(report_path=, images_path=, file_prefix=, byvar=);
 
@@ -95,9 +90,12 @@ Lee tablas de casuser (CAS) generadas por _psi_compute
             9999="red" ;
     run;
 
-    /* ---- HTML report ---------------------------------------------------- */
-    ods graphics on / outputfmt=svg;
-    ods html5 file="&report_path./&file_prefix..html";
+    /* ==================================================================
+    1) HTML report (tablas solamente)
+    ================================================================== */
+    ods graphics on;
+    ods html5 file="&report_path./&file_prefix..html"
+        options(hitmap_mode="inline");
 
     proc print data=casuser._psi_cubo noobs label
         style(column)={backgroundcolor=PsiSignif.};
@@ -118,15 +116,22 @@ Lee tablas de casuser (CAS) generadas por _psi_compute
     run;
 
     ods html5 close;
+    ods graphics / reset=all;
     ods graphics off;
     title;
     footnote;
 
-    /* ---- Excel report (multi-hoja) -------------------------------------- */
+    /* ==================================================================
+    2) Excel report (tablas + gráficos en hoja "Graficos")
+    ================================================================== */
+    ods graphics on;
+    ods listing gpath="&images_path.";
+
     ods excel file="&report_path./&file_prefix..xlsx"
         options(sheet_name="PSI_Detalle" sheet_interval="none"
         embedded_titles="yes");
 
+    /* ---- Hoja 1: PSI Detalle ------------------------------------------ */
     proc print data=casuser._psi_cubo noobs label
         style(column)={backgroundcolor=PsiSignif.};
         title "CUBO PSI: Detalle por Variable y Periodo";
@@ -142,6 +147,7 @@ Lee tablas de casuser (CAS) generadas por _psi_compute
     title;
     footnote;
 
+    /* ---- Hoja 2: PSI Cubo Wide ---------------------------------------- */
     ods excel options(sheet_name="PSI_Cubo_Wide" sheet_interval="now"
         embedded_titles="yes");
 
@@ -151,6 +157,7 @@ Lee tablas de casuser (CAS) generadas por _psi_compute
     run;
     title;
 
+    /* ---- Hoja 3: Resumen ---------------------------------------------- */
     ods excel options(sheet_name="Resumen" sheet_interval="now"
         embedded_titles="yes");
 
@@ -169,15 +176,21 @@ Lee tablas de casuser (CAS) generadas por _psi_compute
     run;
     title;
 
-    ods excel close;
-
-    /* ---- Gráficos PNG: solo tendencia temporal -------------------------- */
+    /* ---- Hoja 4: Graficos (tendencia temporal) ------------------------ */
     %if %length(%superq(byvar)) > 0 %then %do;
+        ods excel options(sheet_name="Graficos" sheet_interval="now"
+            embedded_titles="yes");
+
         %_psi_plot_tendencia( data=casuser._psi_cubo, byvar=&byvar.,
-            images_path=&images_path., file_prefix=&file_prefix. );
+            file_prefix=&file_prefix. );
     %end;
+
+    ods excel close;
+    ods graphics / reset=all;
+    ods graphics off;
 
     %put NOTE: [psi_report] HTML=> &report_path./&file_prefix..html;
     %put NOTE: [psi_report] Excel=> &report_path./&file_prefix..xlsx;
+    %put NOTE: [psi_report] JPEG=> &images_path./;
 
 %mend _psi_report;

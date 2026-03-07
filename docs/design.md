@@ -365,11 +365,43 @@ libname _outlib clear;
 ```
 **No usar `_save_into_caslib` ni CAS para outputs tabulares de módulos.** CAS se usa para inputs (load/promote de `.sashdat` vía `_promote_castable`) y para tablas temporales/intermedias.
 
-### 7.8 Separación de rutas: reports vs tables
-Los módulos usan dos rutas de salida independientes:
-- `_report_path` → `outputs/runs/<run_id>/reports/` para `.html` y `.xlsx`
-- `_tables_path` → `outputs/runs/<run_id>/tables/` para `.sas7bdat`
-- En modo CUSTOM ambas apuntan a `experiments/`.
+### 7.9 Convenciones ODS para reportes
+Todos los módulos siguen estas convenciones para generación de reportes:
+
+- **Formato de imagen**: JPEG (`imagefmt=jpeg`). No usar SVG ni PNG.
+- **HTML5**: siempre con `options(hitmap_mode="inline")` para embeber imágenes directamente.
+- **Imágenes en Excel**: los gráficos deben ir **tanto en el Excel** (hoja dedicada) **como en archivos JPEG independientes** (vía `ods listing gpath`). Abrir ambos destinos ODS simultáneamente.
+- **Reset**: después de cerrar cada destino ODS, ejecutar `ods graphics / reset=all;` seguido de `ods graphics off;`.
+- **ODS graphics on**: usar `ods graphics on;` sin `outputfmt=` (sin forzar SVG).
+- **Subcarpetas por método**: los reportes van a `reports/METOD<N.M>/`, imágenes a `images/METOD<N.M>/`.
+
+Patrón estándar:
+```sas
+ods graphics on;
+ods listing gpath="&images_path.";
+
+ods html5 file="..." options(hitmap_mode="inline");
+ods excel file="..." options(sheet_name="Data" ...);
+
+ods graphics / imagename="..." imagefmt=jpeg;
+/* ... proc sgplot / proc print ... */
+
+ods excel options(sheet_name="Graficos" sheet_interval="now");
+/* ... proc sgplot (va al Excel Y al listing/JPEG) ... */
+
+ods excel close;
+ods html5 close;
+ods graphics / reset=all;
+ods graphics off;
+```
+
+### 7.10 Persistencia de tablas: política de mínimos
+Persistir **solo las tablas más importantes** como `.sas7bdat` para no saturar de archivos innecesarios.
+
+- **PSI**: cubo, cubo_wide, resumen (3 tablas por ejecución).
+- **Correlación**: pearson, spearman (2 tablas por split).
+- **Universe**: **no persiste tablas** (análisis visual; resultados solo en HTML/Excel).
+- Si un módulo genera muchas tablas intermedias, **no** persistirlas todas. Solo las que aporten valor para auditoría o downstream.
 
 ---
 
@@ -377,32 +409,14 @@ Los módulos usan dos rutas de salida independientes:
 
 - No se usa JSON como fuente de configuración; solo `config.sas` + `steps/*.sas`.
 - No se usan `.flw` ni `.step` como artefactos ejecutables; se reemplaza con `runner/main.sas` + `steps/*.sas` como frontend.
-- Los parámetros de usuario (rutas, ADLS, métodos) viven en `steps/*.sas`; la configuración de troncales/segmentos en `config.sas`.
-- El CASLIB/LIBNAME de salida del framework es **`OUT`** (fijo) para respetar el límite de 8 caracteres en `LIBNAME` de SAS.
-- La segregación por corrida se mantiene por path físico `outputs/runs/<run_id>/`, no por nombre de CASLIB.
-- Para evitar ambigüedad operativa, en data del framework solo se permiten estos nombres de CASLIB/LIBNAME:
-  - **`RAW`** para `data/raw/`
-  - **`PROC`** para `data/processed/`
-- No usar variantes como `RAWDATA`, `PROCESSED` o nombres alternos para esas dos capas.
-- Se mantienen archivos al mismo nivel en `train/` y `oot/` (no carpetas por segmento).
-- **`casuser` se usa para dos propósitos**: (a) tablas de configuración (`cfg_troncales`, `cfg_segmentos`), y (b) tablas temporales/intermedias de módulos (reemplazando `work`). Cada módulo limpia sus tablas temporales al finalizar.
-- Cada paso que crea un CASLIB o promueve tablas es responsable de su cleanup.
-- **Parámetros específicos de módulos** (`threshold`, `num_rounds`, `num_bins`, etc.) **no** se declaran en `config.sas`. Se configuran en los steps de métodos o en la invocación del módulo. `config.sas` solo contiene parámetros estructurales de troncales/segmentos (identificadores, variables, rangos, listas, segmentación).
-- **Step 02 crea las carpetas de output del run** (`outputs/runs/<run_id>/...`) en cada corrida, independientemente de `data_prep_enabled`. Step 03 solo crea dirs de data.
-- **Step 03 crea automáticamente** las subcarpetas `data/processed/troncal_X/train/` y `data/processed/troncal_X/oot/` iterando `casuser.cfg_troncales`, garantizando que la estructura de directorios exista antes de la partición (Step 05).
-- **Steps 03–05 (data prep) se ejecutan una sola vez** por proyecto (o cuando se quiera regenerar data). El flag `data_prep_enabled` en `runner/main.sas` controla este comportamiento.
-- **Ciclo de vida estricto de CASLIBs**: todo CASLIB creado se dropea al final del mismo step (`create → promote → work → drop`). Ningún CASLIB sobrevive entre steps. Las tablas promovidas se eliminan al dropear el CASLIB.
-- **Independencia de steps**: cada step es autónomo. Si usa macros del framework, incluye `common_public.sas` al inicio de su archivo. Si usa CASLIBs operativos, los crea y dropea dentro de sí mismo. `casuser` (config) es la única excepción - persiste en la sesión CAS.
-- **Restricción SAS open code**: `%if`/`%do` no se permiten fuera de una macro. Todo archivo `.sas` que use lógica condicional la encapsula en `%macro ... %mend;`. Esto aplica a `runner/main.sas` (`%macro _main_pipeline`), a steps individuales (`_step02_load`, `_step04_import`, `_step05_partition`, `_ctx_seg_validate`, `_ctx_unv_validate`) y a cualquier futuro `.sas` que necesite `%if`/`%do`.
-- **`run_module.sas` promueve el input** desde CASLIB `PROC` como tabla `_active_input`, ejecuta el módulo, y dropea la tabla promovida al finalizar. Los módulos reciben `input_table=_active_input` en vez de un path.
-- **Modo AUTO / CUSTOM por módulo**: los módulos que soportan personalización de variables exponen `<module>_mode` (AUTO | CUSTOM) y `<module>_custom_vars` en su step de módulo (`steps/methods/metod_N/step_<modulo>.sas`). En modo AUTO, el módulo resuelve variables desde config; en modo CUSTOM, usa las variables definidas por el usuario.
-- **Carpeta `experiments/`**: los outputs generados en modo CUSTOM se rutan a `outputs/runs/<run_id>/experiments/` en lugar de `reports/` + `tables/`. Esto separa resultados oficiales de validación de análisis exploratorios ad-hoc. El prefijo `custom_` se añade a los archivos para identificarlos.
-- **Contexto unificado**: la ejecución usa un solo step `context_and_modules.sas` donde el usuario elige:
-  - `ctx_scope` (UNIVERSO | SEGMENTO)
-  - `ctx_troncal_id`, `ctx_split`, `ctx_seg_id` (solo si SEGMENTO)
-  - Flags `run_<modulo>` para habilitar/deshabilitar módulos.
-- Los steps de módulos leen `ctx_scope` para saber qué contexto iterar. Módulos que solo aplican a un scope verifican `ctx_scope` y auto-saltan si no es compatible.
-- **Arquitectura module-as-step**: cada módulo tiene su propio step SAS en `steps/methods/metod_N/`. Cada step checa su flag `&run_<modulo>`, lee `&ctx_scope` para saber qué contexto iterar, crea CASLIBs, ejecuta, y limpia.
-- **Sub-métodos**: Metodo 1 incluye sub-método 1.1 (universe). Metodo 4 se subdivide en 4.2 (estabilidad, fillrate, missings, psi) y 4.3 (bivariado, correlacion, gini). Los sub-métodos organizan la selección en el UI y las carpetas de output (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`).
-- **Step 02 promueve tablas config**: `cfg_troncales` y `cfg_segmentos` se promueven en Step 02 después de ser creadas por `config.sas`. Drop previo + promote, necesario para background submit en `.flw`.
-- **Variables de contexto unificadas**: `ctx_scope`, `ctx_troncal_id`, `ctx_split`, `ctx_seg_id`, `ctx_n_segments`. Los steps de módulos usan estas variables directamente sin necesidad de alias por scope (no existen `ctx_segment_*` ni `ctx_universe_*`).
+- CASLIB/LIBNAME de salida: **`OUT`** (fijo, ≤8 chars). Segregación por path físico `outputs/runs/<run_id>/`.
+- CASLIBs operativos: solo `RAW`, `PROC`, `OUT`. No usar aliases alternos.
+- **`casuser`**: config (`cfg_troncales`, `cfg_segmentos`) + tablas temporales de módulos. Cada módulo limpia al finalizar.
+- **Ciclo de vida**: create → promote → work → drop. Ningún CASLIB sobrevive entre steps.
+- **Independencia de steps**: cada step carga `common_public.sas` y gestiona sus propios CASLIBs.
+- **Restricción open code**: `%if`/`%do` solo dentro de `%macro ... %mend;`.
+- **Sub-métodos**: M1.1 (universe), M4.2 (estabilidad, fillrate, missings, psi), M4.3 (bivariado, correlacion, gini). Carpetas: `METOD1.1/`, `METOD4.2/`, `METOD4.3/`.
+- **Modo AUTO/CUSTOM**: AUTO resuelve vars desde config; CUSTOM usa vars manuales y outputs van a `experiments/`.
+- **ODS**: JPEG, hitmap_mode=inline, imágenes embebidas en Excel, `reset=all` (ver §7.9).
+- **Tablas**: persistir solo las esenciales por módulo (ver §7.10).
+

@@ -54,15 +54,7 @@ El runner pasa el contexto (`troncal_id`, `split`, `seg_id` opcional, `run_id`) 
 - Al final del step se dropean `PROC` y `OUT` (archivos en disco persisten).
 - Patrón obligatorio: **create → promote → work → drop**.
 
-**Independencia de steps:**
-- Cada step es autónomo: carga sus dependencias vía `%include "&fw_root./src/common/common_public.sas";`.
-- Todo step que cree CASLIBs operativos (PROC, OUT, RAW) los dropea al finalizar, junto con las tablas promovidas.
-- `casuser` (config) no se dropea entre steps; persiste en la sesión CAS.
-
-**Restricción SAS open code:**
-- `%if`/`%do` no se permiten fuera de una macro. Todo `.sas` que use lógica condicional la encapsula en `%macro ... %mend;`.
-- Aplica tanto a steps (`_ctx_seg_validate`, etc.) como al runner (`%macro _main_pipeline`).
-- Si un módulo necesita condicionales en su entry point, debe usar el mismo patrón.
+**Restricciones SAS**: ver `design.md §7` y `design.md §8`.
 
 **Parámetros específicos de módulos:**
 - Parámetros como `threshold`, `num_rounds`, `num_bins`, `corr_mode` y similares **no** se declaran en `config.sas`.
@@ -242,7 +234,7 @@ src/modules/psi/
   impl/
     psi_compute.sas        %_psi_calc - PSI para una variable (core)
                            %_psi_compute - orquestador: variables × periodos
-    psi_report.sas         %_psi_report - Excel + HTML + gráficos PNG
+    psi_report.sas         %_psi_report - HTML + Excel (con Graficos) + JPEG
                            %_psi_plot_tendencia - serie temporal por variable
 ```
 
@@ -291,9 +283,11 @@ Parámetros adicionales del step:
 
 Formato SAS `PsiSignif` aplicado vía `style(column)={backgroundcolor=PsiSignif.}` en ODS.
 
-Excel multi-hoja: PSI Detalle | PSI Cubo Wide | Resumen.
+Excel multi-hoja: PSI Detalle | PSI Cubo Wide | Resumen | Graficos (tendencia temporal embebida).
 HTML con cubo + resumen para vista rápida.
-Imágenes PNG: tendencia temporal por variable.
+Imágenes JPEG: tendencia temporal por variable (archivos independientes).
+
+**Convención ODS**: JPEG, `hitmap_mode=inline`, imágenes en Excel + JPEG simultáneo vía dual ODS, `reset=all` (ver `design.md §7.9`).
 
 **Outputs esperados**
 
@@ -303,7 +297,7 @@ Imágenes PNG: tendencia temporal por variable.
 - `outputs/runs/<run_id>/tables/METOD4.2/psi_tX_<scope>_cubo.sas7bdat` - detalle Variable × Periodo
 - `outputs/runs/<run_id>/tables/METOD4.2/psi_tX_<scope>_wide.sas7bdat` - pivot Variable × meses
 - `outputs/runs/<run_id>/tables/METOD4.2/psi_tX_<scope>_rsmn.sas7bdat` - resumen con alertas
-- `outputs/runs/<run_id>/images/METOD4.2/psi_troncal_X_<scope>_tend_*.png` - tendencia temporal
+- `outputs/runs/<run_id>/images/METOD4.2/psi_troncal_X_<scope>_tend_*.jpeg` - tendencia temporal
 
 *Modo CUSTOM (análisis exploratorio):*
 - `outputs/runs/<run_id>/experiments/custom_psi_troncal_X_<scope>.*` (mismos tipos)
