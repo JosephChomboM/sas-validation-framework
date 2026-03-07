@@ -221,10 +221,10 @@ Compatibilidad: segmento y universo.
     ================================================================== */
     proc datasets library=casuser nolist nowarn;
         delete _psi_cubo _psi_cubo_wide _psi_resumen;
-        run;
+    quit;
 
-        %put NOTE:======================================================;
-        %put NOTE: [psi_run] FIN - &_file_prefix. (mode=&psi_mode.);
-        %put NOTE:======================================================;
+    %put NOTE:======================================================;
+    %put NOTE: [psi_run] FIN - &_file_prefix. (mode=&psi_mode.);
+    %put NOTE:======================================================;
 
 %mend psi_run;

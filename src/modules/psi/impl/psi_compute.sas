@@ -1,29 +1,34 @@
 /* =========================================================================
-psi_compute.sas - Core de cómputo del PSI
+psi_compute.sas - Core de computo del PSI
 
 Contiene dos macros:
 
 1) %_psi_calc - PSI para UNA variable (core unitario)
-Input:  dos datasets (dev, oot) y nombre de variable
-Output: macro variable &psi_valor con el valor PSI
+   Input:  dos datasets (dev, oot) y nombre de variable
+   Output: macro variable &psi_valor con el valor PSI
 
-2) %_psi_compute - Orquestador: itera variables × periodos
-Input:  tablas CAS promovidas (vía caslib.table), listas de vars,
-variable temporal (byvar), parámetros de discretización
-Output: tres tablas en casuser (CAS):
-- casuser._psi_cubo       Variable × Periodo × PSI × Tipo
-- casuser._psi_cubo_wide  pivot Variable × meses + PSI_Total
-- casuser._psi_resumen    estadísticas + semáforo + alertas tendencia
+2) %_psi_compute - Orquestador: itera variables x periodos
+   Input:  tablas CAS promovidas (via caslib.table), listas de vars,
+           variable temporal (byvar), parametros de discretizacion
+   Output: tres tablas en casuser (CAS):
+           - casuser._psi_cubo       Variable x Periodo x PSI x Tipo
+           - casuser._psi_cubo_wide  pivot Variable x meses + PSI_Total
+           - casuser._psi_resumen    estadisticas + semaforo + alertas tendencia
 
-Migrado de psi_legacy.sas (_psi_calc + __psi_variables).
-Adaptado para tablas CAS (input_caslib.table en lugar de datasets locales).
+Patron CAS: las tablas input se copian de CAS a work para procesamiento
+local (PROC RANK, INSERT INTO, PROC SORT, PROC TRANSPOSE no soportan
+CAS como destino directo). Los 3 resultados finales se copian a casuser
+al terminar. work se limpia al final.
 ========================================================================= */
 
 /* =====================================================================
-%_psi_calc - PSI para una variable
-Método: PROC RANK (continuas) o valores directos (categóricas)
-Suavizado Laplace: (n + 0.5) / (total + 0.5 * n_buckets)
-===================================================================== */
+   %_psi_calc - PSI para una variable
+   Metodo: PROC RANK (continuas) o valores directos (categoricas)
+   Suavizado Laplace: (n + 0.5) / (total + 0.5 * n_buckets)
+
+   NOTA: dev= y oot= deben ser tablas en work (sin prefijo de libreria).
+   Todas las tablas temporales se crean en work.
+   ===================================================================== */
 %macro _psi_calc(dev=, oot=, var=, n_buckets=10, flg_continue=1);
 
     %local rnd n_cortes i;
@@ -100,7 +105,7 @@ Suavizado Laplace: (n + 0.5) / (total + 0.5 * n_buckets)
         %end;
 
     %end;
-    /*----- Variables categóricas: usar valores como bucket -----*/
+    /*----- Variables categoricas: usar valores como bucket -----*/
     %else %do;
 
         data _dev_bucket_&rnd.;
@@ -145,8 +150,8 @@ Suavizado Laplace: (n + 0.5) / (total + 0.5 * n_buckets)
 
     %if %length(&psi_valor.)=0 or &psi_valor.=. %then %let psi_valor=0;
 
-    /* Cleanup temporales */
-    proc datasets lib=casuser nolist nowarn;
+    /* Cleanup temporales (work) */
+    proc datasets lib=work nolist nowarn;
         delete _rank_dev_&rnd. _cortes_&rnd. _dev_bucket_&rnd. _oot_bucket_&rnd.
             _freq_dev_&rnd. _freq_oot_&rnd. _psi_calc_&rnd.;
     quit;
@@ -154,34 +159,42 @@ Suavizado Laplace: (n + 0.5) / (total + 0.5 * n_buckets)
 %mend _psi_calc;
 
 /* =====================================================================
-%_psi_compute - Orquestador: variables × periodos → cubo + wide + resumen
-Genera tablas en casuser (CAS):
-casuser._psi_cubo        detalle Variable × Periodo × PSI × Tipo
-casuser._psi_cubo_wide   pivot Variable × meses + PSI_Total
-casuser._psi_resumen     estadísticas + semáforo + alertas tendencia
+   %_psi_compute - Orquestador: variables x periodos -> cubo + wide + resumen
 
-Parámetros:
-input_caslib  = CASLIB de las tablas promovidas
-train_table   = nombre tabla TRAIN promovida
-oot_table     = nombre tabla OOT promovida
-vars_num      = lista de variables numéricas (separadas por espacio)
-vars_cat      = lista de variables categóricas (separadas por espacio)
-byvar         = variable temporal para breakdown mensual
-n_buckets     = número de bins para PROC RANK (default 10)
-mensual       = 1=breakdown mensual, 0=solo total
-===================================================================== */
+   Patron CAS:
+     1) Copia tablas CAS (input_caslib) a work para procesamiento local
+     2) Toda la iteracion (INSERT INTO, PROC SORT, PROC TRANSPOSE) corre
+        en work - estas operaciones no estan soportadas en CAS
+     3) Los 3 resultados finales se copian a casuser al terminar
+     4) work se limpia al final
+
+   Output final en casuser (CAS):
+     casuser._psi_cubo        detalle Variable x Periodo x PSI x Tipo
+     casuser._psi_cubo_wide   pivot Variable x meses + PSI_Total
+     casuser._psi_resumen     estadisticas + semaforo + alertas tendencia
+
+   Parametros:
+     input_caslib  = CASLIB de las tablas promovidas
+     train_table   = nombre tabla TRAIN promovida
+     oot_table     = nombre tabla OOT promovida
+     vars_num      = lista de variables numericas (separadas por espacio)
+     vars_cat      = lista de variables categoricas (separadas por espacio)
+     byvar         = variable temporal para breakdown mensual
+     n_buckets     = numero de bins para PROC RANK (default 10)
+     mensual       = 1=breakdown mensual, 0=solo total
+   ===================================================================== */
 %macro _psi_compute( input_caslib=, train_table=, oot_table=, vars_num=,
     vars_cat=, byvar=, n_buckets=10, mensual=1 );
 
     %local n v m c z v_aux v_cat es_categorica num_valores lista_var meses_oot
         n_meses hay_mensual;
 
-    %put NOTE: [psi_compute] Iniciando cómputo PSI...;
+    %put NOTE: [psi_compute] Iniciando computo PSI...;
     %put NOTE: [psi_compute] vars_num=&vars_num.;
     %put NOTE: [psi_compute] vars_cat=&vars_cat.;
     %put NOTE: [psi_compute] byvar=&byvar. mensual=&mensual.;
 
-    /* ---- 1) Construir lista unificada (categóricas marcadas con #) ----- */
+    /* ---- 1) Construir lista unificada (categoricas marcadas con #) ----- */
     %let lista_var=&vars_num.;
 
     %let z=1;
@@ -193,12 +206,16 @@ mensual       = 1=breakdown mensual, 0=solo total
         %let v_cat=%scan(&vars_cat., &z., %str( ));
     %end;
 
-    /* ---- 2) Copiar tablas CAS a WORK para procesamiento local ---------- */
-    data casuser._psi_dev;
+    /* ---- 2) Copiar tablas CAS a work para procesamiento local ----------
+       CAS no soporta INSERT INTO, PROC SORT in-place, PROC TRANSPOSE
+       ni PROC DATASETS CHANGE. Se trabaja en work y se copia a casuser
+       al final.
+       ------------------------------------------------------------------- */
+    data _psi_dev;
         set &input_caslib..&train_table.;
     run;
 
-    data casuser._psi_oot;
+    data _psi_oot;
         set &input_caslib..&oot_table.;
     run;
 
@@ -209,25 +226,25 @@ mensual       = 1=breakdown mensual, 0=solo total
     %if %length(%superq(byvar)) > 0 %then %do;
         proc sql noprint;
             select distinct &byvar. into :meses_oot separated by ' ' from
-                casuser._psi_oot order by &byvar.;
+                _psi_oot order by &byvar.;
 
             select count(distinct &byvar.) into :n_meses trimmed from
-                casuser._psi_oot;
+                _psi_oot;
         quit;
     %end;
 
     %put NOTE: [psi_compute] Meses OOT: &meses_oot. (n=&n_meses.);
 
-    /* ---- 4) Inicializar CUBO PSI --------------------------------------- */
+    /* ---- 4) Inicializar CUBO PSI (en work) ----------------------------- */
     %if %length(%superq(byvar)) > 0 %then %do;
         proc sql;
-            create table casuser._psi_cubo ( Variable char(64), &byvar. num, PSI
+            create table _psi_cubo ( Variable char(64), &byvar. num, PSI
                 num format=10.6, Tipo char(15) );
         quit;
     %end;
     %else %do;
         proc sql;
-            create table casuser._psi_cubo ( Variable char(64), Periodo num, PSI
+            create table _psi_cubo ( Variable char(64), Periodo num, PSI
                 num format=10.6, Tipo char(15) );
         quit;
     %end;
@@ -238,7 +255,7 @@ mensual       = 1=breakdown mensual, 0=solo total
 
     %do %while(%length(&v.) > 0);
 
-        /* Determinar si es categórica */
+        /* Determinar si es categorica */
         %let es_categorica=0;
         %let v_aux=&v.;
 
@@ -249,7 +266,7 @@ mensual       = 1=breakdown mensual, 0=solo total
         %else %do;
             proc sql noprint;
                 select count(distinct &v_aux.) into :num_valores trimmed from
-                    casuser._psi_oot;
+                    _psi_oot;
             quit;
             %if &num_valores. <= 10 %then %let es_categorica=1;
         %end;
@@ -263,17 +280,17 @@ mensual       = 1=breakdown mensual, 0=solo total
 
             %do %while(%length(&c.) > 0);
 
-                data casuser._psi_oot_mes;
-                    set casuser._psi_oot;
+                data _psi_oot_mes;
+                    set _psi_oot;
                     where &byvar.=&c.;
                 run;
 
-                %_psi_calc( dev=casuser._psi_dev, oot=casuser._psi_oot_mes,
+                %_psi_calc( dev=_psi_dev, oot=_psi_oot_mes,
                     var=&v_aux., n_buckets=&n_buckets., flg_continue=%eval(1 -
                     &es_categorica.) );
 
                 proc sql;
-                    insert into casuser._psi_cubo (Variable, &byvar., PSI, Tipo)
+                    insert into _psi_cubo (Variable, &byvar., PSI, Tipo)
                         values ("&v_aux.", &c., &psi_valor., "Mensual");
                 quit;
 
@@ -283,18 +300,18 @@ mensual       = 1=breakdown mensual, 0=solo total
         %end;
 
         /*----- PSI Total (DEV vs OOT completo) -----*/
-        %_psi_calc( dev=casuser._psi_dev, oot=casuser._psi_oot, var=&v_aux.,
+        %_psi_calc( dev=_psi_dev, oot=_psi_oot, var=&v_aux.,
             n_buckets=&n_buckets., flg_continue=%eval(1 - &es_categorica.) );
 
         %if %length(%superq(byvar)) > 0 %then %do;
             proc sql;
-                insert into casuser._psi_cubo (Variable, &byvar., PSI, Tipo) values
+                insert into _psi_cubo (Variable, &byvar., PSI, Tipo) values
                     ("&v_aux.", 999999, &psi_valor., "Total");
             quit;
         %end;
         %else %do;
             proc sql;
-                insert into casuser._psi_cubo (Variable, Periodo, PSI, Tipo) values
+                insert into _psi_cubo (Variable, Periodo, PSI, Tipo) values
                     ("&v_aux.", 999999, &psi_valor., "Total");
             quit;
         %end;
@@ -303,51 +320,51 @@ mensual       = 1=breakdown mensual, 0=solo total
         %let v=%scan(&lista_var., &n., %str( ));
     %end;
 
-    /* ---- 6) Crear CUBO formato wide (Variable × Mes) ------------------- */
+    /* ---- 6) Crear CUBO formato wide (Variable x Mes) ------------------- */
     %if %length(%superq(byvar)) > 0 %then %do;
 
-        proc sort data=casuser._psi_cubo;
+        proc sort data=_psi_cubo;
             by Variable &byvar.;
         run;
 
         %let hay_mensual=0;
 
         proc sql noprint;
-            select count(*) into :hay_mensual trimmed from casuser._psi_cubo where
+            select count(*) into :hay_mensual trimmed from _psi_cubo where
                 Tipo="Mensual";
         quit;
 
         %if &hay_mensual. > 0 %then %do;
-            proc transpose data=casuser._psi_cubo(where=(Tipo="Mensual"))
-                out=casuser._psi_cubo_wide(drop=_NAME_) prefix=mes_;
+            proc transpose data=_psi_cubo(where=(Tipo="Mensual"))
+                out=_psi_cubo_wide(drop=_NAME_) prefix=mes_;
                 by Variable;
                 id &byvar.;
                 var PSI;
             run;
 
             proc sql;
-                create table casuser._psi_wide_tmp as select a.*, b.PSI as
-                    PSI_Total format=10.6 from casuser._psi_cubo_wide a left join
-                    casuser._psi_cubo(where=(Tipo="Total")) b on a.Variable=
+                create table _psi_wide_tmp as select a.*, b.PSI as
+                    PSI_Total format=10.6 from _psi_cubo_wide a left join
+                    _psi_cubo(where=(Tipo="Total")) b on a.Variable=
                     b.Variable;
             quit;
 
-            proc datasets lib=casuser nolist nowarn;
+            proc datasets lib=work nolist nowarn;
                 delete _psi_cubo_wide;
                 change _psi_wide_tmp=_psi_cubo_wide;
             quit;
         %end;
         %else %do;
             proc sql;
-                create table casuser._psi_cubo_wide as select Variable, PSI as
-                    PSI_Total format=10.6 from casuser._psi_cubo where
+                create table _psi_cubo_wide as select Variable, PSI as
+                    PSI_Total format=10.6 from _psi_cubo where
                     Tipo="Total";
             quit;
         %end;
 
-        /* ---- 7) Resumen con estadísticas y alertas --------------------- */
+        /* ---- 7) Resumen con estadisticas y alertas --------------------- */
         proc sql;
-            create table casuser._psi_resumen as select Variable, max(case when
+            create table _psi_resumen as select Variable, max(case when
                 Tipo="Total" then PSI else . end) as PSI_Total format=10.6,
                 min(case when Tipo="Mensual" then PSI else . end) as PSI_Min
                 format=10.6, max(case when Tipo="Mensual" then PSI else . end)
@@ -361,12 +378,12 @@ mensual       = 1=breakdown mensual, 0=solo total
                 sum(case when Tipo="Mensual" then 1 else 0 end) as Total_Meses,
                 max(case when Tipo="Mensual" then &byvar. else . end) as
                 Ultimo_Mes, min(case when Tipo="Mensual" then &byvar. else .
-                end) as Primer_Mes from casuser._psi_cubo group by Variable;
+                end) as Primer_Mes from _psi_cubo group by Variable;
         quit;
 
         /* Agregar tendencia y alertas */
         proc sql;
-            create table casuser._psi_resumen_tmp as select a.*, b.PSI as
+            create table _psi_resumen_tmp as select a.*, b.PSI as
                 PSI_Primer_Mes format=10.6, c.PSI as PSI_Ultimo_Mes format=10.6,
                 coalesce(c.PSI, 0) - coalesce(b.PSI, 0) as Tendencia
                 format=10.6, case when a.PSI_Total < 0.10 then 'VERDE' when
@@ -376,14 +393,14 @@ mensual       = 1=breakdown mensual, 0=solo total
                 0) - coalesce(b.PSI, 0) < -0.05 then 'MEJORANDO' else 'ESTABLE'
                 end as Alerta_Tendencia length=15, case when a.Total_Meses > 0
                 then a.Meses_Rojo / a.Total_Meses else 0 end as Pct_Meses_Rojo
-                format=percent8.1 from casuser._psi_resumen a left join
-                casuser._psi_cubo b on a.Variable=b.Variable and a.Primer_Mes=
-                b.&byvar. and b.Tipo="Mensual" left join casuser._psi_cubo c on
+                format=percent8.1 from _psi_resumen a left join
+                _psi_cubo b on a.Variable=b.Variable and a.Primer_Mes=
+                b.&byvar. and b.Tipo="Mensual" left join _psi_cubo c on
                 a.Variable=c.Variable and a.Ultimo_Mes=c.&byvar. and
                 c.Tipo="Mensual";
         quit;
 
-        proc datasets lib=casuser nolist nowarn;
+        proc datasets lib=work nolist nowarn;
             delete _psi_resumen;
             change _psi_resumen_tmp=_psi_resumen;
         quit;
@@ -392,24 +409,38 @@ mensual       = 1=breakdown mensual, 0=solo total
     %else %do;
         /* Sin byvar: solo cubo wide con Total y resumen simplificado */
         proc sql;
-            create table casuser._psi_cubo_wide as select Variable, PSI as
-                PSI_Total format=10.6 from casuser._psi_cubo where Tipo="Total";
+            create table _psi_cubo_wide as select Variable, PSI as
+                PSI_Total format=10.6 from _psi_cubo where Tipo="Total";
         quit;
 
         proc sql;
-            create table casuser._psi_resumen as select Variable, PSI as PSI_Total
+            create table _psi_resumen as select Variable, PSI as PSI_Total
                 format=10.6, case when PSI < 0.10 then 'VERDE' when PSI < 0.25
                 then 'AMARILLO' else 'ROJO' end as Semaforo_Total length=10 from
-                casuser._psi_cubo where Tipo="Total";
+                _psi_cubo where Tipo="Total";
         quit;
     %end;
 
-    /* ---- 8) Cleanup temporales ----------------------------------------- */
-    proc datasets lib=casuser nolist nowarn;
-        delete _psi_dev _psi_oot _psi_oot_mes;
+    /* ---- 8) Copiar resultados finales a casuser (CAS) ------------------ */
+    data casuser._psi_cubo;
+        set _psi_cubo;
+    run;
+
+    data casuser._psi_cubo_wide;
+        set _psi_cubo_wide;
+    run;
+
+    data casuser._psi_resumen;
+        set _psi_resumen;
+    run;
+
+    /* ---- 9) Cleanup work ----------------------------------------------- */
+    proc datasets lib=work nolist nowarn;
+        delete _psi_dev _psi_oot _psi_oot_mes _psi_cubo _psi_cubo_wide
+            _psi_resumen;
     quit;
 
-    %put NOTE: [psi_compute] Cómputo completado. Tablas generadas:;
+    %put NOTE: [psi_compute] Computo completado. Tablas en casuser:;
     %put NOTE: [psi_compute] casuser._psi_cubo;
     %put NOTE: [psi_compute] casuser._psi_cubo_wide;
     %put NOTE: [psi_compute] casuser._psi_resumen;
