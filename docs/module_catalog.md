@@ -475,6 +475,163 @@ Formato SAS `CorrSignif` aplicado vía `style(column)={backgroundcolor=CorrSigni
 
 ---
 
+## 4.5) Modulo: Estabilidad Temporal (Metodo 4.2)
+
+**Fecha de corte:** Estabilidad analiza la evolucion temporal de variables (no usa target/PD/XB), por lo que la fecha maxima de analisis es `oot_max_mes`.
+
+**Ruta**
+- `src/modules/estabilidad/`
+
+**API publica**
+- `%estabilidad_run(...)`
+- Parametros de entrada:
+  - `input_caslib=PROC` - CASLIB de entrada
+  - `train_table=_train_input` - tabla TRAIN promovida por `run_module`
+  - `oot_table=_oot_input` - tabla OOT promovida por `run_module`
+  - `output_caslib=OUT` - CASLIB de salida
+  - `troncal_id`, `scope`, `run_id` - contexto
+
+**Nota arquitectonica:** Estabilidad compara TRAIN vs OOT. Usa `run_module.sas` con `dual_input=1`.
+
+**Estructura interna**
+```
+src/modules/estabilidad/
+  estabilidad_run.sas              %estabilidad_run - entry point publico
+  estabilidad_contract.sas         %estabilidad_contract - validaciones
+  impl/
+    estabilidad_compute.sas        %_estab_var_continuo - N/mean/missing por periodo (FEDSQL)
+                                   %_estab_var_discreto - distribucion % por categoria (work staging)
+                                   %_estab_variables - orquestador: itera num + cat
+    estabilidad_report.sas         %_estabilidad_report - HTML + Excel + JPEG
+```
+
+**Inputs tipicos**
+- Dos datasets: TRAIN y OOT, promovidos como `_train_input` y `_oot_input`.
+- Variables resueltas desde `casuser.cfg_troncales`/`cfg_segmentos`:
+  - `byvar` (variable temporal, ej. YYYYMM) - requerida
+  - `var_num_list` (variables numericas) - al menos una lista requerida
+  - `var_cat_list` (variables categoricas) - al menos una lista requerida
+
+**Modos de ejecucion (configurados en `steps/methods/metod_4/step_estabilidad.sas`)**
+
+| Modo          | `estab_mode` | Variables                                                 | Output destino       | Prefijo archivo |
+| ------------- | ------------ | --------------------------------------------------------- | -------------------- | --------------- |
+| Automatico    | `AUTO`       | config → `var_num_list`/`var_cat_list` + fallback troncal | `reports/`+`images/` | `estab_`        |
+| Personalizado | `CUSTOM`     | `estab_custom_vars_num/cat`                               | `experiments/`       | `custom_estab_` |
+
+**Validaciones (contract)**
+- Tabla TRAIN accesible y no vacia (nobs > 0).
+- Tabla OOT accesible y no vacia (nobs > 0).
+- Al menos una lista de variables (num o cat) no vacia.
+- `byvar` presente en ambas tablas.
+
+**Computo**
+- **Numericas**: PROC FEDSQL agrega N, mean, missing count por periodo. PROC SGPLOT genera barras (N) + linea (promedio).
+- **Categoricas**: work como staging (recodifica missings via DATA step), PROC SQL para distribucion por periodo y grupo, PROC SGPLOT barras agrupadas.
+
+**Tablas temporales (casuser + work)** - se eliminan al finalizar:
+- `_estab_train`, `_estab_oot` - copias de trabajo CAS
+- `_estab_cont` - agregacion numerica CAS
+- `_estab_disc_stg`, `_estab_disc_cnt`, `_estab_disc_pct` - staging work (categoricas)
+
+**No persiste tablas .sas7bdat** (analisis visual solamente).
+
+**Reportes**
+- `outputs/runs/<run_id>/reports/METOD4.2/<prefix>_train.html` - graficos TRAIN
+- `outputs/runs/<run_id>/reports/METOD4.2/<prefix>_oot.html` - graficos OOT
+- `outputs/runs/<run_id>/reports/METOD4.2/<prefix>.xlsx` - Excel multi-hoja (TRAIN + OOT)
+- `outputs/runs/<run_id>/images/METOD4.2/<prefix>_*.jpeg` - graficos JPEG independientes
+
+**Compatibilidad de contexto**: segmento y universo.
+
+---
+
+## 4.6) Modulo: Missings / Dummies (Metodo 4.2)
+
+**Fecha de corte:** Missings analiza valores dummy/missing en variables (no usa target/PD/XB), por lo que la fecha maxima de analisis es `oot_max_mes`.
+
+**Ruta**
+- `src/modules/missings/`
+
+**API publica**
+- `%missings_run(...)`
+- Parametros de entrada:
+  - `input_caslib=PROC` - CASLIB de entrada
+  - `train_table=_train_input` - tabla TRAIN promovida por `run_module`
+  - `oot_table=_oot_input` - tabla OOT promovida por `run_module`
+  - `output_caslib=OUT` - CASLIB de salida
+  - `troncal_id`, `scope`, `run_id` - contexto
+
+**Nota arquitectonica:** Missings compara TRAIN vs OOT. Usa `run_module.sas` con `dual_input=1`.
+
+**Estructura interna**
+```
+src/modules/missings/
+  missings_run.sas              %missings_run - entry point publico
+  missings_contract.sas         %missings_contract - validaciones
+  impl/
+    missings_compute.sas        %_miss_calc_var - missings/dummies para una variable
+                                %_miss_compute - orquestador: itera variables, semaforo
+    missings_report.sas         %_missings_report - HTML + Excel + JPEG
+```
+
+**Inputs tipicos**
+- Dos datasets: TRAIN y OOT, promovidos como `_train_input` y `_oot_input`.
+- Variables resueltas desde `casuser.cfg_troncales`/`cfg_segmentos`:
+  - `var_num_list` (variables numericas) - al menos una lista requerida
+  - `var_cat_list` (variables categoricas) - al menos una lista requerida
+
+**Modos de ejecucion (configurados en `steps/methods/metod_4/step_missings.sas`)**
+
+| Modo          | `miss_mode` | Variables                                                 | Output destino       | Prefijo archivo |
+| ------------- | ----------- | --------------------------------------------------------- | -------------------- | --------------- |
+| Automatico    | `AUTO`      | config → `var_num_list`/`var_cat_list` + fallback troncal | `reports/`+`images/` | `miss_`         |
+| Personalizado | `CUSTOM`    | `miss_custom_vars_num/cat`                                | `experiments/`       | `custom_miss_`  |
+
+Parametros adicionales del step:
+- `miss_threshold` - umbral de missing (default 0.1). Variables con pct >= threshold se marcan en rojo.
+
+**Valores dummy (numericos)**
+- `., 1111111111, -1111111111, 2222222222, -2222222222, 3333333333, -3333333333, 4444444444, 5555555555, 6666666666, 7777777777, -999999999`
+
+**Valores missing (categoricos)**
+- `'', 'MISSING', ' ', '.'`
+
+**Validaciones (contract)**
+- Tabla TRAIN accesible y no vacia (nobs > 0).
+- Tabla OOT accesible y no vacia (nobs > 0).
+- Al menos una lista de variables (num o cat) no vacia.
+
+**Computo**
+- **Numericas**: PROC SQL cuenta ocurrencias de valores dummy, calcula pct sobre total.
+- **Categoricas**: PROC SQL cuenta blancos, 'MISSING', '.'.
+- Iteracion via INSERT INTO en `work` (CAS no soporta INSERT INTO). Resultado final se usa directamente en PROC PRINT.
+- Semaforo `MissSignif`: blanco si pct < threshold, rojo si pct >= threshold.
+
+**Tablas temporales (casuser + work)** - se eliminan al finalizar:
+- `_miss_train`, `_miss_oot` - copias de trabajo CAS
+- `_miss_tmp`, `_miss_var_summary`, `_miss_report` - staging work
+
+**No persiste tablas .sas7bdat** (analisis visual solamente).
+
+**Reportes - semaforo por pct_miss**
+- `pct_miss < threshold` → white (OK)
+- `pct_miss >= threshold` → red (alerta)
+
+Formato SAS `MissSignif` aplicado via `style(column)={backgroundcolor=MissSignif.}` en ODS.
+
+**Reportes**
+- `outputs/runs/<run_id>/reports/METOD4.2/<prefix>_train.html` - tablas TRAIN
+- `outputs/runs/<run_id>/reports/METOD4.2/<prefix>_oot.html` - tablas OOT
+- `outputs/runs/<run_id>/reports/METOD4.2/<prefix>.xlsx` - Excel multi-hoja (TRAIN + OOT)
+
+**Compatibilidad de contexto**: segmento y universo.
+
+**Cleanup**
+- Tablas temporales en `casuser` y `work` se eliminan al finalizar.
+
+---
+
 ## 5) Reglas para agregar módulos
 
 Para agregar un módulo nuevo:

@@ -1,0 +1,177 @@
+/* =========================================================================
+estabilidad_run.sas - Macro publica del modulo Estabilidad (Metodo 4.2)
+
+API:
+%estabilidad_run(
+input_caslib  = PROC,
+train_table   = _train_input,
+oot_table     = _oot_input,
+output_caslib = OUT,
+troncal_id    = <id>,
+scope         = base | segNNN,
+run_id        = <run_id>
+)
+
+Flujo interno:
+1) Resolver variables desde cfg_troncales/cfg_segmentos (byvar, vars num/cat)
+2) Ejecutar contract (validaciones)
+3) Generar reportes HTML + Excel (TRAIN + OOT en un solo reporte)
+4) Cleanup
+
+NOTA: No persiste tablas .sas7bdat (analisis visual solamente).
+Usa oot_max_mes como fecha maxima (no usa target/PD/XB).
+
+Dual-input: recibe train + oot promovidas por run_module(dual_input=1).
+
+Compatibilidad: segmento y universo.
+
+Modos de ejecucion (configurados en step_estabilidad.sas):
+AUTO   - resuelve vars desde config (num_list/cat_list o num_unv/cat_unv)
+CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
+========================================================================= */
+/* ---- Incluir componentes del modulo ----------------------------------- */
+%include "&fw_root./src/modules/estabilidad/estabilidad_contract.sas";
+%include "&fw_root./src/modules/estabilidad/impl/estabilidad_compute.sas";
+%include "&fw_root./src/modules/estabilidad/impl/estabilidad_report.sas";
+
+%macro estabilidad_run( input_caslib=PROC, train_table=_train_input,
+    oot_table=_oot_input, output_caslib=OUT, troncal_id=, scope=, run_id=);
+
+    /* ---- Return code ---------------------------------------------------- */
+    %global _estab_rc;
+    %let _estab_rc=0;
+
+    %local _estab_byvar _estab_vars_num _estab_vars_cat _report_path
+        _images_path _file_prefix _scope_abbr _estab_is_custom;
+
+    %put NOTE:======================================================;
+    %put NOTE: [estabilidad_run] INICIO;
+    %put NOTE: troncal=&troncal_id. scope=&scope.;
+    %put NOTE: train=&input_caslib..&train_table.;
+    %put NOTE: oot=&input_caslib..&oot_table.;
+    %put NOTE:======================================================;
+
+    /* ==================================================================
+    1) Resolver variables
+    ================================================================== */
+    %let _estab_vars_num= ;
+    %let _estab_vars_cat= ;
+    %let _estab_byvar= ;
+    %let _estab_is_custom=0;
+
+    /* ------ Modo CUSTOM: variables personalizadas ---------------------- */
+    %if %upcase(&estab_mode.)=CUSTOM %then %do;
+        %if %length(%superq(estab_custom_vars_num)) > 0 or
+            %length(%superq(estab_custom_vars_cat)) > 0 %then %do;
+            %let _estab_vars_num=&estab_custom_vars_num.;
+            %let _estab_vars_cat=&estab_custom_vars_cat.;
+            %let _estab_is_custom=1;
+            %put NOTE: [estabilidad_run] Modo CUSTOM activado.;
+        %end;
+        %else %do;
+            %put WARNING: [estabilidad_run] estab_mode=CUSTOM pero sin variables
+                custom. Fallback a AUTO.;
+        %end;
+    %end;
+
+    /* ------ Modo AUTO (o fallback): variables de configuracion ---------- */
+    %if &_estab_is_custom.=0 %then %do;
+        %put NOTE: [estabilidad_run] Modo AUTO - resolviendo vars desde config.;
+
+        /* Resolver byvar desde config del troncal */
+        proc sql noprint;
+            select strip(byvar) into :_estab_byvar trimmed from
+                casuser.cfg_troncales where troncal_id=&troncal_id.;
+        quit;
+
+        /* Variables del segmento (si scope es segmento) */
+        %if %substr(&scope., 1, 3)=seg %then %do;
+            %local _seg_num;
+            %let _seg_num=%eval(%substr(&scope., 4));
+
+            proc sql noprint;
+                select strip(var_num_list) into :_estab_vars_num trimmed from
+                    casuser.cfg_segmentos where troncal_id=&troncal_id. and
+                    seg_id=&_seg_num.;
+                select strip(var_cat_list) into :_estab_vars_cat trimmed from
+                    casuser.cfg_segmentos where troncal_id=&troncal_id. and
+                    seg_id=&_seg_num.;
+            quit;
+        %end;
+
+        /* Fallback a troncal si no hay vars de segmento */
+        %if %length(%superq(_estab_vars_num))=0 %then %do;
+            proc sql noprint;
+                select strip(var_num_list) into :_estab_vars_num trimmed from
+                    casuser.cfg_troncales where troncal_id=&troncal_id.;
+            quit;
+        %end;
+
+        %if %length(%superq(_estab_vars_cat))=0 %then %do;
+            proc sql noprint;
+                select strip(var_cat_list) into :_estab_vars_cat trimmed from
+                    casuser.cfg_troncales where troncal_id=&troncal_id.;
+            quit;
+        %end;
+    %end;
+    %else %do;
+        /* CUSTOM: resolver byvar desde config igualmente */
+        proc sql noprint;
+            select strip(byvar) into :_estab_byvar trimmed from
+                casuser.cfg_troncales where troncal_id=&troncal_id.;
+        quit;
+    %end;
+
+    %put NOTE: [estabilidad_run] Variables resueltas:;
+    %put NOTE: [estabilidad_run] num=&_estab_vars_num.;
+    %put NOTE: [estabilidad_run] cat=&_estab_vars_cat.;
+    %put NOTE: [estabilidad_run] byvar=&_estab_byvar.;
+
+    /* ==================================================================
+    Determinar rutas de salida
+    ================================================================== */
+    %if %substr(&scope., 1, 3)=seg %then %let _scope_abbr=&scope.;
+    %else %let _scope_abbr=base;
+
+    %if &_estab_is_custom.=1 %then %do;
+        %let _report_path=&fw_root./outputs/runs/&run_id./experiments;
+        %let _images_path=&fw_root./outputs/runs/&run_id./experiments;
+        %let _file_prefix=custom_estab_troncal_&troncal_id._&_scope_abbr.;
+        %put NOTE: [estabilidad_run] Output -> experiments/ (exploratorio);
+    %end;
+    %else %do;
+        %let _report_path=&fw_root./outputs/runs/&run_id./reports/METOD4.2;
+        %let _images_path=&fw_root./outputs/runs/&run_id./images/METOD4.2;
+        %let _file_prefix=estab_troncal_&troncal_id._&_scope_abbr.;
+        %put NOTE: [estabilidad_run] Output -> reports/METOD4.2/ +
+            images/METOD4.2/;
+    %end;
+
+    /* ==================================================================
+    2) Contract - validaciones
+    ================================================================== */
+    %estabilidad_contract( input_caslib=&input_caslib.,
+        train_table=&train_table., oot_table=&oot_table.,
+        vars_num=&_estab_vars_num., vars_cat=&_estab_vars_cat.,
+        byvar=&_estab_byvar. );
+
+    %if &_estab_rc. ne 0 %then %do;
+        %put ERROR: [estabilidad_run] Contract fallido - modulo abortado.;
+        %return;
+    %end;
+
+    /* ==================================================================
+    3) Report - HTML + Excel (incluye computo inline)
+    ================================================================== */
+    %_estabilidad_report( input_caslib=&input_caslib.,
+        train_table=&train_table., oot_table=&oot_table., byvar=&_estab_byvar.,
+        vars_num=&_estab_vars_num., vars_cat=&_estab_vars_cat.,
+        report_path=&_report_path., images_path=&_images_path.,
+        file_prefix=&_file_prefix. );
+
+    /* No se persisten tablas (analisis visual solamente) */
+    %put NOTE:======================================================;
+    %put NOTE: [estabilidad_run] FIN - &_file_prefix. (mode=&estab_mode.);
+    %put NOTE:======================================================;
+
+%mend estabilidad_run;
