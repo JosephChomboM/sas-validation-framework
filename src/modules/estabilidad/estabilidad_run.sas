@@ -26,7 +26,8 @@ Dual-input: recibe train + oot promovidas por run_module(dual_input=1).
 Compatibilidad: segmento y universo.
 
 Modos de ejecucion (configurados en step_estabilidad.sas):
-AUTO   - resuelve vars desde config (num_list/cat_list o num_unv/cat_unv)
+AUTO   - resuelve vars desde config (cfg_segmentos.num_list/cat_list,
+fallback cfg_troncales.num_unv/cat_unv)
 CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
 ========================================================================= */
 /* ---- Incluir componentes del modulo ----------------------------------- */
@@ -42,7 +43,7 @@ CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
     %let _estab_rc=0;
 
     %local _estab_byvar _estab_vars_num _estab_vars_cat _report_path
-        _images_path _file_prefix _scope_abbr _estab_is_custom;
+        _images_path _file_prefix _scope_abbr _estab_is_custom _seg_num;
 
     %put NOTE:======================================================;
     %put NOTE: [estabilidad_run] INICIO;
@@ -84,32 +85,32 @@ CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
                 casuser.cfg_troncales where troncal_id=&troncal_id.;
         quit;
 
-        /* Variables del segmento (si scope es segmento) */
+        /* Si es segmento, intentar override desde cfg_segmentos */
         %if %substr(&scope., 1, 3)=seg %then %do;
-            %local _seg_num;
-            %let _seg_num=%eval(%substr(&scope., 4));
+            %let _seg_num=%sysfunc(inputn(%substr(&scope., 4), best.));
 
             proc sql noprint;
-                select strip(var_num_list) into :_estab_vars_num trimmed from
+                select strip(num_list) into :_estab_vars_num trimmed from
                     casuser.cfg_segmentos where troncal_id=&troncal_id. and
                     seg_id=&_seg_num.;
-                select strip(var_cat_list) into :_estab_vars_cat trimmed from
+
+                select strip(cat_list) into :_estab_vars_cat trimmed from
                     casuser.cfg_segmentos where troncal_id=&troncal_id. and
                     seg_id=&_seg_num.;
             quit;
         %end;
 
-        /* Fallback a troncal si no hay vars de segmento */
+        /* Fallback a vars del troncal si no hay override */
         %if %length(%superq(_estab_vars_num))=0 %then %do;
             proc sql noprint;
-                select strip(var_num_list) into :_estab_vars_num trimmed from
+                select strip(num_unv) into :_estab_vars_num trimmed from
                     casuser.cfg_troncales where troncal_id=&troncal_id.;
             quit;
         %end;
 
         %if %length(%superq(_estab_vars_cat))=0 %then %do;
             proc sql noprint;
-                select strip(var_cat_list) into :_estab_vars_cat trimmed from
+                select strip(cat_unv) into :_estab_vars_cat trimmed from
                     casuser.cfg_troncales where troncal_id=&troncal_id.;
             quit;
         %end;

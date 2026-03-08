@@ -508,16 +508,16 @@ src/modules/estabilidad/
 **Inputs tipicos**
 - Dos datasets: TRAIN y OOT, promovidos como `_train_input` y `_oot_input`.
 - Variables resueltas desde `casuser.cfg_troncales`/`cfg_segmentos`:
-  - `byvar` (variable temporal, ej. YYYYMM) - requerida
-  - `var_num_list` (variables numericas) - al menos una lista requerida
-  - `var_cat_list` (variables categoricas) - al menos una lista requerida
+  - `byvar` (variable temporal, ej. YYYYMM) - requerida de `cfg_troncales`
+  - `num_list` / fallback `num_unv` (variables numéricas) - al menos una lista requerida
+  - `cat_list` / fallback `cat_unv` (variables categóricas) - al menos una lista requerida
 
 **Modos de ejecucion (configurados en `steps/methods/metod_4/step_estabilidad.sas`)**
 
-| Modo          | `estab_mode` | Variables                                                 | Output destino       | Prefijo archivo |
-| ------------- | ------------ | --------------------------------------------------------- | -------------------- | --------------- |
-| Automatico    | `AUTO`       | config → `var_num_list`/`var_cat_list` + fallback troncal | `reports/`+`images/` | `estab_`        |
-| Personalizado | `CUSTOM`     | `estab_custom_vars_num/cat`                               | `experiments/`       | `custom_estab_` |
+| Modo          | `estab_mode` | Variables                                                       | Output destino       | Prefijo archivo |
+| ------------- | ------------ | --------------------------------------------------------------- | -------------------- | --------------- |
+| Automatico    | `AUTO`       | seg → `num_list`/`cat_list`, fallback tro → `num_unv`/`cat_unv` | `reports/`+`images/` | `estab_`        |
+| Personalizado | `CUSTOM`     | `estab_custom_vars_num/cat`                                     | `experiments/`       | `custom_estab_` |
 
 **Validaciones (contract)**
 - Tabla TRAIN accesible y no vacia (nobs > 0).
@@ -578,15 +578,15 @@ src/modules/missings/
 **Inputs tipicos**
 - Dos datasets: TRAIN y OOT, promovidos como `_train_input` y `_oot_input`.
 - Variables resueltas desde `casuser.cfg_troncales`/`cfg_segmentos`:
-  - `var_num_list` (variables numericas) - al menos una lista requerida
-  - `var_cat_list` (variables categoricas) - al menos una lista requerida
+  - `num_list` / fallback `num_unv` (variables numéricas) - al menos una lista requerida
+  - `cat_list` / fallback `cat_unv` (variables categóricas) - al menos una lista requerida
 
 **Modos de ejecucion (configurados en `steps/methods/metod_4/step_missings.sas`)**
 
-| Modo          | `miss_mode` | Variables                                                 | Output destino       | Prefijo archivo |
-| ------------- | ----------- | --------------------------------------------------------- | -------------------- | --------------- |
-| Automatico    | `AUTO`      | config → `var_num_list`/`var_cat_list` + fallback troncal | `reports/`+`images/` | `miss_`         |
-| Personalizado | `CUSTOM`    | `miss_custom_vars_num/cat`                                | `experiments/`       | `custom_miss_`  |
+| Modo          | `miss_mode` | Variables                                                       | Output destino       | Prefijo archivo |
+| ------------- | ----------- | --------------------------------------------------------------- | -------------------- | --------------- |
+| Automatico    | `AUTO`      | seg → `num_list`/`cat_list`, fallback tro → `num_unv`/`cat_unv` | `reports/`+`images/` | `miss_`         |
+| Personalizado | `CUSTOM`    | `miss_custom_vars_num/cat`                                      | `experiments/`       | `custom_miss_`  |
 
 Parametros adicionales del step:
 - `miss_threshold` - umbral de missing (default 0.1). Variables con pct >= threshold se marcan en rojo.
