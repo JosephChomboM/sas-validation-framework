@@ -1,4 +1,4 @@
-﻿# Diseño del Framework (SAS Viya / CAS)
+# Diseño del Framework (SAS Viya / CAS)
 
 ## 1) Alcance
 
@@ -52,7 +52,7 @@ Este documento describe:
   - API pública (`*_run.sas`)
   - Validaciones (`*_contract.sas`)
   - Implementación interna (`impl/`)
-- Módulos implementados: `correlacion` (referencia), `psi`, `universe`, `target`, `estabilidad`, `missings`. Pendientes: `gini`, `fillrate`, `bivariado`.
+- Módulos implementados: `correlacion` (referencia), `psi`, `universe`, `target`. Pendientes: `gini`.
 - `run_module.sas` incluye dinámicamente `<modulo>_run.sas` y ejecuta `%<modulo>_run(...)`.
 
 6) **Runner**
@@ -169,13 +169,12 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 03   | `steps/03_create_folders.sas`                | Carpetas de data + troncal dirs (solo data prep)                            | (N/A)                                                                                                                                                                                                                 |
 | 04   | `steps/04_import_raw_data.sas`               | Importación ADLS                                                            | `&adls_import_enabled`, `&adls_*`, `&raw_table`                                                                                                                                                                       |
 | 05   | `steps/05_partition_data.sas`                | Particiones universo/segmento                                               | (N/A)                                                                                                                                                                                                                 |
-| -    | `steps/context_and_modules.sas`              | Contexto (scope + troncal + split + seg) + módulos habilitados              | `&ctx_scope`, `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id`, `&ctx_n_segments`, `&run_universe`, `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
+| -    | `steps/context_and_modules.sas`              | Contexto (scope + troncal + split + seg) + módulos habilitados              | `&ctx_scope`, `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id`, `&ctx_n_segments`, `&run_universe`, `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_similitud`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
 | -    | `steps/methods/metod_1/step_universe.sas`    | Config + ejecución universe (1.1)                                           | (dual_input)                                                                                                                                                                                                          |
 | -    | `steps/methods/metod_2/step_target.sas`      | Config + ejecución target (2.1)                                             | (dual_input)                                                                                                                                                                                                          |
 | -    | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación                                              | `&corr_mode`, `&corr_custom_vars`                                                                                                                                                                                     |
 | -    | `steps/methods/metod_4/step_psi.sas`         | Config + ejecución PSI                                                      | `&psi_mode`, `&psi_n_buckets`, `&psi_mensual`                                                                                                                                                                         |
-| -    | `steps/methods/metod_4/step_estabilidad.sas` | Config + ejecución estabilidad temporal                                     | `&estab_mode`, `&estab_custom_vars_num`, `&estab_custom_vars_cat`                                                                                                                                                     |
-| -    | `steps/methods/metod_4/step_missings.sas`    | Config + ejecución missings/dummies                                         | `&miss_mode`, `&miss_threshold`, `&miss_custom_vars_num`, `&miss_custom_vars_cat`                                                                                                                                     |
+| -    | `steps/methods/metod_4/step_similitud.sas`   | Config + ejecución similitud                                                | `&simil_mode`, `&simil_n_groups`                                                                                                                                                                                       |
 | -    | `steps/methods/metod_4/step_gini.sas`        | Config + ejecución gini (futuro)                                            | -                                                                                                                                                                                                                     |
 
 **Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`). Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) dentro de `reports/`, `images/` y `tables/` se crean dinámicamente por cada módulo cuando genera archivos.
@@ -192,7 +191,7 @@ Ejemplos:
 - `_id_project_root` (Step 01)
 - `_id_import_enabled`, `_id_adls_storage`, `_id_adls_container`, `_id_adls_parquet_path`, `_id_raw_table_name` (Step 04)
 - Contexto: `_id_scope`, `_id_troncal_id`, `_id_split`, `_id_seg_id`, `_id_seg_num` (context_and_modules)
-- Módulos: `_id_run_estabilidad`, `_id_run_fillrate`, `_id_run_missings`, `_id_run_psi`, `_id_run_bivariado`, `_id_run_correlacion`, `_id_run_gini` (context_and_modules)
+- Módulos: `_id_run_estabilidad`, `_id_run_fillrate`, `_id_run_missings`, `_id_run_psi`, `_id_run_similitud`, `_id_run_bivariado`, `_id_run_correlacion`, `_id_run_gini` (context_and_modules)
 
 ### 5.4 Relación entre steps y config.sas
 - **Steps**: parámetros simples (rutas, flags, listas). El usuario los edita como un formulario.
@@ -205,13 +204,13 @@ Ejemplos:
 - En el `.flw`, cada módulo es un **nodo independiente** que puede ejecutarse via background submit.
 - Cada step de módulo es auto-contenido: tiene su config, crea CASLIBs, itera seg+unv, limpia.
 
-| Método   | Sub-método | Carpeta                  | Módulos                                          |
-| -------- | ---------- | ------------------------ | ------------------------------------------------ |
-| Metodo 1 | 1.1        | `steps/methods/metod_1/` | **universe**                                     |
-| Metodo 2 | 2.1        | `steps/methods/metod_2/` | **target**                                       |
-| Metodo 3 | -          | `steps/methods/metod_3/` | segmentacion (futuro)                            |
-| Metodo 4 | 4.2        | `steps/methods/metod_4/` | **estabilidad**, fillrate, **missings**, **psi** |
-| Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlacion**, gini                 |
+| Método   | Sub-método | Carpeta                  | Módulos                                  |
+| -------- | ---------- | ------------------------ | ---------------------------------------- |
+| Metodo 1 | 1.1        | `steps/methods/metod_1/` | **universe**                             |
+| Metodo 2 | 2.1        | `steps/methods/metod_2/` | **target**                               |
+| Metodo 3 | -          | `steps/methods/metod_3/` | segmentacion (futuro)                    |
+| Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi**, **similitud** |
+| Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlacion**, gini                        |
 
 Los sub-métodos definen la agrupación lógica para la selección en el UI y la organización de carpetas de output (`reports/METOD1.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`). Los step files viven en la carpeta de su método correspondiente.
 
@@ -420,7 +419,7 @@ Persistir **solo las tablas más importantes** como `.sas7bdat` para no saturar 
 - **Ciclo de vida**: create ? promote ? work ? drop. Ningún CASLIB sobrevive entre steps.
 - **Independencia de steps**: cada step carga `common_public.sas` y gestiona sus propios CASLIBs.
 - **Restricción open code**: `%if`/`%do` solo dentro de `%macro ... %mend;`.
-- **Sub-métodos**: M1.1 (universe), M2.1 (target), M4.2 (estabilidad, fillrate, missings, psi), M4.3 (bivariado, correlacion, gini). Carpetas: `METOD1.1/`, `METOD2.1/`, `METOD4.2/`, `METOD4.3/`.
+- **Sub-métodos**: M1.1 (universe), M2.1 (target), M4.2 (estabilidad, fillrate, missings, psi, similitud), M4.3 (bivariado, correlacion, gini). Carpetas: `METOD1.1/`, `METOD2.1/`, `METOD4.2/`, `METOD4.3/`.
 - **Modo AUTO/CUSTOM**: AUTO resuelve vars desde config; CUSTOM usa vars manuales y outputs van a `experiments/`.
 - **ODS**: JPEG, bitmap_mode=inline, imágenes embebidas en Excel, `reset=all` (ver §7.9).
 - **Tablas**: persistir solo las esenciales por módulo (ver §7.10).
@@ -434,16 +433,16 @@ Persistir **solo las tablas más importantes** como `.sas7bdat` para no saturar 
 
 CAS tiene limitaciones cuando tanto source como destination son CAS librefs:
 
-| Operación                             | Error                                             | Alternativa                                          |
-| ------------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
-| `INSERT INTO casuser.x VALUES(...)`   | `Update access is not supported`                  | Usar `work` para acumular, copiar a casuser al final |
-| `DATA casuser.x; SET casuser.y;`      | `Both source and destination include CAS libname` | Usar `PROC FEDSQL SESSREF=conn`                      |
-| `PROC SORT data=casuser.x;`           | No soportado in-place                             | Hacer sort en `work` o usar ORDER BY en FEDSQL       |
-| `PROC TRANSPOSE ... out=casuser.x`    | Output to CAS no soportado                        | Transponer en `work`, copiar resultado a casuser     |
-| `PROC DATASETS lib=casuser; CHANGE`   | Rename no soportado en CAS                        | Renombrar en `work`                                  |
-| `PROC FREQ out=casuser.x`             | Output to CAS no confiable                        | Usar FEDSQL con count/group by                       |
-| `PROC MEANS output out=casuser.x`     | Output to CAS no confiable                        | Usar FEDSQL con avg/count                            |
-| HAVING con alias (ej. `having N > 1`) | Alias no permitido en HAVING                      | Usar `having count(*) > 1`                           |
+| Operación | Error | Alternativa |
+|---|---|---|
+| `INSERT INTO casuser.x VALUES(...)` | `Update access is not supported` | Usar `work` para acumular, copiar a casuser al final |
+| `DATA casuser.x; SET casuser.y;` | `Both source and destination include CAS libname` | Usar `PROC FEDSQL SESSREF=conn` |
+| `PROC SORT data=casuser.x;` | No soportado in-place | Hacer sort en `work` o usar ORDER BY en FEDSQL |
+| `PROC TRANSPOSE ... out=casuser.x` | Output to CAS no soportado | Transponer en `work`, copiar resultado a casuser |
+| `PROC DATASETS lib=casuser; CHANGE` | Rename no soportado en CAS | Renombrar en `work` |
+| `PROC FREQ out=casuser.x` | Output to CAS no confiable | Usar FEDSQL con count/group by |
+| `PROC MEANS output out=casuser.x` | Output to CAS no confiable | Usar FEDSQL con avg/count |
+| HAVING con alias (ej. `having N > 1`) | Alias no permitido en HAVING | Usar `having count(*) > 1` |
 
 ### 9.2 Dos patrones CAS-compatible
 
