@@ -84,6 +84,12 @@ project_root/
           correlacion_report.sas
       gini/...
       psi/...
+      bootstrap/
+        bootstrap_run.sas
+        bootstrap_contract.sas
+        impl/
+          bootstrap_compute.sas
+          bootstrap_report.sas
       universe/
         universe_run.sas
         universe_contract.sas
@@ -114,6 +120,7 @@ project_root/
         step_fillrate.sas            # fillrate (4.2, futuro)
         step_missings.sas            # missings (4.2, futuro)
         step_psi.sas                 # psi (4.2, futuro)
+        step_bootstrap.sas           # bootstrap (4.3)
 
   outputs/
     runs/
@@ -122,7 +129,7 @@ project_root/
         reports/
           METOD1.1/          # universe reports
           METOD4.2/          # PSI reports
-          METOD4.3/          # correlación reports
+          METOD4.3/          # correlación, bootstrap reports
         images/
           METOD1.1/          # universe charts (JPEG)
           METOD4.2/          # PSI charts (PNG)
@@ -136,12 +143,12 @@ Notas:
 - `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las tablas de configuración en `casuser`. Además, `casuser` se usa para tablas temporales/intermedias de módulos (reemplazando `work`). Step 02 promueve las tablas de config para compatibilidad con background submit.
 - `steps/*.sas` modelan el frontend del flujo: un step de contexto unificado (scope + troncal + split + segmento + módulos) seguido de ejecución de módulos.
 - Cada módulo tiene su propio step en `steps/methods/metod_N/` que lee `&ctx_scope` para saber si iterar segmentos o base.
-- Los módulos se agrupan en sub-métodos: Método 1.1 (universe), Método 4.2 (estabilidad, fillrate, missings, psi) y Método 4.3 (bivariado, correlacion, gini). Los reportes se organizan en subcarpetas `METOD1.1/`, `METOD4.2/`, `METOD4.3/`.
+- Los módulos se agrupan en sub-métodos: Método 1.1 (universe), Método 4.2 (estabilidad, fillrate, missings, psi) y Método 4.3 (bivariado, correlacion, gini, bootstrap). Los reportes se organizan en subcarpetas `METOD1.1/`, `METOD4.2/`, `METOD4.3/`.
 - Todo dato operativo persistente (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`). Tablas temporales de módulos se crean en `casuser` y se eliminan al finalizar.
 - Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`) en cada corrida, independientemente de `data_prep_enabled`. Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) se crean dinámicamente.
 - Step 03 crea `data/raw/`, `data/processed/`, y subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal. Solo se ejecuta durante data prep.
 - Parámetros específicos de módulos de análisis (`threshold`, `corr_mode`, etc.) **no** viven en `config.sas`; se configuran en el step del módulo correspondiente.
-- `def_cld` en `config.sas` define la fecha maxima (YYYYMM) para controles que usan target/PD/XB (ej. Gini). Controles que solo analizan variables (ej. correlacion, PSI) usan `oot_max_mes`.
+- `def_cld` en `config.sas` define la fecha maxima (YYYYMM) para controles que usan target/PD/XB (ej. Gini, Bootstrap). Controles que solo analizan variables (ej. correlacion, PSI) usan `oot_max_mes`.
 
 ### 3.0a Ciclo de vida de CASLIBs
 

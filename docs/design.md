@@ -89,14 +89,15 @@ Reglas:
 - `outputs/runs/<run_id>/reports/METOD1.1` - universe
 - `outputs/runs/<run_id>/reports/METOD2.1` - target
 - `outputs/runs/<run_id>/reports/METOD4.2` - PSI
-- `outputs/runs/<run_id>/reports/METOD4.3` - correlación
+- `outputs/runs/<run_id>/reports/METOD4.3` - correlación, bootstrap
 - `outputs/runs/<run_id>/images`
 - `outputs/runs/<run_id>/images/METOD1.1` - universe charts
 - `outputs/runs/<run_id>/images/METOD2.1` - target charts
 - `outputs/runs/<run_id>/images/METOD4.2` - PSI charts
+- `outputs/runs/<run_id>/images/METOD4.3` - correlacion, bootstrap charts
 - `outputs/runs/<run_id>/tables`
 - `outputs/runs/<run_id>/tables/METOD4.2` - PSI tables
-- `outputs/runs/<run_id>/tables/METOD4.3` - correlacion tables
+- `outputs/runs/<run_id>/tables/METOD4.3` - correlacion, bootstrap tables
 - `outputs/runs/<run_id>/experiments` - outputs de análisis exploratorio (modo CUSTOM de módulos)
 
 ---
@@ -169,12 +170,13 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 03   | `steps/03_create_folders.sas`                | Carpetas de data + troncal dirs (solo data prep)                            | (N/A)                                                                                                                                                                                                                 |
 | 04   | `steps/04_import_raw_data.sas`               | Importación ADLS                                                            | `&adls_import_enabled`, `&adls_*`, `&raw_table`                                                                                                                                                                       |
 | 05   | `steps/05_partition_data.sas`                | Particiones universo/segmento                                               | (N/A)                                                                                                                                                                                                                 |
-| -    | `steps/context_and_modules.sas`              | Contexto (scope + troncal + split + seg) + módulos habilitados              | `&ctx_scope`, `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id`, `&ctx_n_segments`, `&run_universe`, `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_similitud`, `&run_bivariado`, `&run_correlacion`, `&run_gini` |
+| -    | `steps/context_and_modules.sas`              | Contexto (scope + troncal + split + seg) + módulos habilitados              | `&ctx_scope`, `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id`, `&ctx_n_segments`, `&run_universe`, `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_similitud`, `&run_bivariado`, `&run_correlacion`, `&run_gini`, `&run_bootstrap` |
 | -    | `steps/methods/metod_1/step_universe.sas`    | Config + ejecución universe (1.1)                                           | (dual_input)                                                                                                                                                                                                          |
 | -    | `steps/methods/metod_2/step_target.sas`      | Config + ejecución target (2.1)                                             | (dual_input)                                                                                                                                                                                                          |
 | -    | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación                                              | `&corr_mode`, `&corr_custom_vars`                                                                                                                                                                                     |
 | -    | `steps/methods/metod_4/step_psi.sas`         | Config + ejecución PSI                                                      | `&psi_mode`, `&psi_n_buckets`, `&psi_mensual`                                                                                                                                                                         |
 | -    | `steps/methods/metod_4/step_similitud.sas`   | Config + ejecución similitud                                                | `&simil_mode`, `&simil_n_groups`                                                                                                                                                                                       |
+| -    | `steps/methods/metod_4/step_bootstrap.sas`   | Config + ejecución bootstrap                                               | `&boot_mode`, `&boot_nrounds`, `&boot_seed`, `&boot_samprate`, `&boot_ponderada`                                                                                                                                      |
 | -    | `steps/methods/metod_4/step_gini.sas`        | Config + ejecución gini (futuro)                                            | -                                                                                                                                                                                                                     |
 
 **Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`). Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) dentro de `reports/`, `images/` y `tables/` se crean dinámicamente por cada módulo cuando genera archivos.
@@ -191,7 +193,7 @@ Ejemplos:
 - `_id_project_root` (Step 01)
 - `_id_import_enabled`, `_id_adls_storage`, `_id_adls_container`, `_id_adls_parquet_path`, `_id_raw_table_name` (Step 04)
 - Contexto: `_id_scope`, `_id_troncal_id`, `_id_split`, `_id_seg_id`, `_id_seg_num` (context_and_modules)
-- Módulos: `_id_run_estabilidad`, `_id_run_fillrate`, `_id_run_missings`, `_id_run_psi`, `_id_run_similitud`, `_id_run_bivariado`, `_id_run_correlacion`, `_id_run_gini` (context_and_modules)
+- Módulos: `_id_run_estabilidad`, `_id_run_fillrate`, `_id_run_missings`, `_id_run_psi`, `_id_run_similitud`, `_id_run_bivariado`, `_id_run_correlacion`, `_id_run_gini`, `_id_run_bootstrap` (context_and_modules)
 
 ### 5.4 Relación entre steps y config.sas
 - **Steps**: parámetros simples (rutas, flags, listas). El usuario los edita como un formulario.
@@ -210,7 +212,7 @@ Ejemplos:
 | Metodo 2 | 2.1        | `steps/methods/metod_2/` | **target**                               |
 | Metodo 3 | -          | `steps/methods/metod_3/` | segmentacion (futuro)                    |
 | Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi**, **similitud** |
-| Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlacion**, gini                        |
+| Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlacion**, gini, **bootstrap**         |
 
 Los sub-métodos definen la agrupación lógica para la selección en el UI y la organización de carpetas de output (`reports/METOD1.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`). Los step files viven en la carpeta de su método correspondiente.
 
@@ -419,7 +421,7 @@ Persistir **solo las tablas más importantes** como `.sas7bdat` para no saturar 
 - **Ciclo de vida**: create ? promote ? work ? drop. Ningún CASLIB sobrevive entre steps.
 - **Independencia de steps**: cada step carga `common_public.sas` y gestiona sus propios CASLIBs.
 - **Restricción open code**: `%if`/`%do` solo dentro de `%macro ... %mend;`.
-- **Sub-métodos**: M1.1 (universe), M2.1 (target), M4.2 (estabilidad, fillrate, missings, psi, similitud), M4.3 (bivariado, correlacion, gini). Carpetas: `METOD1.1/`, `METOD2.1/`, `METOD4.2/`, `METOD4.3/`.
+- **Sub-métodos**: M1.1 (universe), M2.1 (target), M4.2 (estabilidad, fillrate, missings, psi, similitud), M4.3 (bivariado, correlacion, gini, bootstrap). Carpetas: `METOD1.1/`, `METOD2.1/`, `METOD4.2/`, `METOD4.3/`.
 - **Modo AUTO/CUSTOM**: AUTO resuelve vars desde config; CUSTOM usa vars manuales y outputs van a `experiments/`.
 - **ODS**: JPEG, bitmap_mode=inline, imágenes embebidas en Excel, `reset=all` (ver §7.9).
 - **Tablas**: persistir solo las esenciales por módulo (ver §7.10).

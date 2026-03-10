@@ -94,7 +94,7 @@ Cada Método agrupa módulos lógicamente. Los steps de módulos están en `step
 | Metodo 2 | 2.1        | `steps/methods/metod_2/` | **target**                               |
 | Metodo 3 | -          | `steps/methods/metod_3/` | segmentacion (futuro)                    |
 | Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi**, **similitud** |
-| Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlación**, gini                        |
+| Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlación**, gini, **bootstrap**            |
 
 Los sub-métodos organizan la selección en el UI y las carpetas de output (`reports/METOD1.1/`, `reports/METOD2.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`).
 
@@ -472,6 +472,120 @@ Formato SAS `CorrSignif` aplicado vía `style(column)={backgroundcolor=CorrSigni
 
 **Cleanup**
 - Tablas temporales en `casuser` (`_corr_pearson`, `_corr_spearman`) se eliminan al finalizar.
+
+---
+
+## 4.5) Módulo: Bootstrap (Método 4.3)
+
+**Fecha de corte:** Bootstrap usa target para PROC LOGISTIC, por lo que la fecha maxima de analisis es `def_cld`.
+
+**Ruta**
+- `src/modules/bootstrap/`
+
+**API pública**
+- `%bootstrap_run(...)`
+- Parámetros de entrada:
+  - `input_caslib=PROC` - CASLIB de entrada
+  - `train_table=_train_input` - tabla TRAIN promovida por `run_module`
+  - `oot_table=_oot_input` - tabla OOT promovida por `run_module`
+  - `output_caslib=OUT` - CASLIB de salida
+  - `troncal_id`, `scope`, `run_id` - contexto
+
+**Nota arquitectónica:** Bootstrap compara TRAIN vs OOT. Usa `run_module.sas` con `dual_input=1`.
+
+**Estructura interna**
+```
+src/modules/bootstrap/
+  bootstrap_run.sas              %bootstrap_run - entry point público
+  bootstrap_contract.sas         %bootstrap_contract - validaciones
+  impl/
+    bootstrap_compute.sas        %_boot_regresion - PROC LOGISTIC estándar
+                                 %_boot_reg_ponderada - PROC LOGISTIC ponderada
+                                 %_boot_pesos - pesos por variable
+                                 %_boot_compute - orquestador bootstrap
+    bootstrap_report.sas         %_boot_plot_resumen - highlow chart (p5-p95)
+                                 %_boot_plot_by_var - histograma + densidad por variable
+                                 %_boot_report - HTML + Excel + JPEG
+```
+
+**Inputs típicos**
+- Dos datasets: TRAIN y OOT, promovidos como `_train_input` y `_oot_input`.
+- Variables resueltas desde `casuser.cfg_troncales` / `casuser.cfg_segmentos`:
+  - `target` (variable target binaria) - requerida
+  - `byvar` (variable temporal) - para filtro def_cld
+  - `def_cld` (fecha maxima cierre default) - para filtro temporal
+  - `num_list` / `num_unv` (variables numéricas del modelo logistico)
+
+**Modos de ejecución (configurados en `steps/methods/metod_4/step_bootstrap.sas`)**
+
+| Modo          | `boot_mode` | Variables                                                     | Output destino                          | Prefijo archivo |
+| ------------- | ----------- | ------------------------------------------------------------- | --------------------------------------- | --------------- |
+| Automático    | `AUTO`      | config -> `num_list` / fallback `num_unv` + target + def_cld  | `reports/`+`tables/`+`images/`          | `boot_`         |
+| Personalizado | `CUSTOM`    | `boot_custom_vars` + target + def_cld de config               | `experiments/`                          | `custom_boot_`  |
+
+Parámetros adicionales del step:
+- `boot_nrounds` - número de iteraciones bootstrap (default 100)
+- `boot_seed` - seed para PROC SURVEYSELECT (default 12345)
+- `boot_samprate` - tasa de muestreo (default 1)
+- `boot_ponderada` - 0=estándar, 1=rebalanceo por evento
+- `boot_custom_vars` (solo CUSTOM)
+
+**Validaciones (contract)**
+- Lista de variables no vacía.
+- Variable target definida y no vacía.
+- Tabla TRAIN accesible y no vacía (nobs > 0) vía `proc sql count(*)`.
+- Tabla OOT accesible y no vacía (nobs > 0) vía `proc sql count(*)`.
+- target presente en ambas tablas.
+- Todas las variables de la lista presentes en TRAIN.
+- **No usar `table.tableExists`** (no confiable).
+
+**Cómputo**
+- Copia CAS -> work con filtro `byvar <= def_cld` y `keep=` (Pattern B optimizado).
+- **No ponderada** (rápido): PROC SURVEYSELECT con `reps=N` + PROC LOGISTIC `BY Replicate`. Sin loop.
+- **Ponderada**: loop 1..N con PROC SURVEYSELECT + `_boot_reg_ponderada` (rebalanceo por evento).
+- Modelos finales: PROC LOGISTIC sobre TRAIN y OOT completos.
+- Pesos por variable: `|beta * (mean_def1 - mean_def0)| / sum(todos)`.
+- Estadísticas de estabilidad de signo: n_positivos, n_negativos, pct_consistencia, flag.
+- Percentiles: p1, p5, p10, p25, p50, p75, p90, p95, p99.
+- Report final: merge stats + percentiles + betas TRAIN/OOT + pesos + alertas.
+
+**Tablas temporales (work)** - se eliminan al finalizar:
+- `_boot_train`, `_boot_oot` - copias de trabajo con filtro def_cld
+- `_boot_tablaout` - formato largo de iteraciones
+- `_boot_cubo_wide` - formato wide transpuesto
+- `_boot_report_final` - resumen final
+- `_bt_*` - intermedias de cómputo (con sufijo aleatorio)
+
+**Tablas persistidas (.sas7bdat)** - 2 tablas por ejecución:
+- `boot_tX_<scope>_rpt.sas7bdat` - resumen con stats + percentiles + alertas
+- `boot_tX_<scope>_cubo.sas7bdat` - cubo wide de iteraciones
+- CUSTOM: prefijo `cx_boot_tX_<scope>_*`
+
+**Reportes**
+- `.html` - HTML con tablas + gráficos embebidos (bitmap_mode=inline)
+- `.xlsx` - Excel multi-hoja:
+  - BOOTS_ITERACIONES: cubo wide
+  - BOOTS_CUBO: formato largo
+  - RESUMEN_ESTABILIDAD: stats + percentiles + alertas etiquetadas
+  - GRAFICOS: highlow chart resumen + histogramas por variable
+- `.jpeg` - Gráficos JPEG independientes (resumen + histograma por variable)
+
+*Modo AUTO:*
+- `outputs/runs/<run_id>/reports/METOD4.3/boot_troncal_X_<scope>.html`
+- `outputs/runs/<run_id>/reports/METOD4.3/boot_troncal_X_<scope>.xlsx`
+- `outputs/runs/<run_id>/tables/METOD4.3/boot_tX_<scope>_rpt.sas7bdat`
+- `outputs/runs/<run_id>/tables/METOD4.3/boot_tX_<scope>_cubo.sas7bdat`
+- `outputs/runs/<run_id>/images/METOD4.3/boot_troncal_X_<scope>_*.jpeg`
+
+*Modo CUSTOM:*
+- `outputs/runs/<run_id>/experiments/custom_boot_troncal_X_<scope>.*`
+- Tablas con prefijo `cx_boot_tX_<scope>_*`
+
+**Compatibilidad de contexto**: segmento y universo.
+
+**Cleanup**
+- Tablas temporales en work (`_boot_*`, `_bt_*`, `_btrp_*`, `_btp_*`) se eliminan al finalizar.
+- Tablas promovidas (`_train_input`, `_oot_input`) se dropean por `run_module.sas` despues de cada invocacion.
 
 ---
 
