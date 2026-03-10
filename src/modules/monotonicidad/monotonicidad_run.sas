@@ -21,7 +21,8 @@ Flujo interno:
 Regla de negocio:
 - Siempre usa default cerrado (def_cld) para filtrar el analisis.
 - AUTO usa cfg_segmentos/cfg_troncales.
-- CUSTOM usa listas definidas en el step y permite override de target/byvar.
+- CUSTOM usa listas definidas en el step y permite override de target/def_cld.
+- byvar siempre se resuelve desde config.sas.
 
 Dual-input: recibe train + oot promovidas por run_module(dual_input=1).
 Compatibilidad: segmento y universo.
@@ -76,8 +77,8 @@ Compatibilidad: segmento y universo.
 
             %if %length(%superq(mono_custom_target)) > 0 %then
                 %let _mono_target=&mono_custom_target.;
-            %if %length(%superq(mono_custom_byvar)) > 0 %then
-                %let _mono_byvar=&mono_custom_byvar.;
+            %if %length(%superq(mono_custom_def_cld)) > 0 %then
+                %let _mono_def_cld=&mono_custom_def_cld.;
 
             %put NOTE: [monotonicidad_run] Modo CUSTOM activado.;
         %end;

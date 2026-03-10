@@ -27,7 +27,8 @@ Dependencias:
 AUTO   -> usa variables de cfg_segmentos/cfg_troncales
           (num_list, cat_list, target, byvar).
           Outputs van a reports/ + images/ (validacion estandar).
-CUSTOM -> usa mono_custom_vars_num/cat y permite override target/byvar.
+CUSTOM -> usa mono_custom_vars_num/cat y permite override target/def_cld.
+          byvar siempre se resuelve desde config.sas.
           Outputs van a experiments/ (analisis exploratorio).              */
 %let mono_mode=AUTO;
 
@@ -38,7 +39,7 @@ CUSTOM -> usa mono_custom_vars_num/cat y permite override target/byvar.
 %let mono_custom_vars_num= ;
 %let mono_custom_vars_cat= ;
 %let mono_custom_target= ;
-%let mono_custom_byvar= ;
+%let mono_custom_def_cld= ;
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_monotonicidad;
