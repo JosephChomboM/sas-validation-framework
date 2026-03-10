@@ -2,9 +2,10 @@
 steps/methods/metod_7/step_monotonicidad.sas
 Step de modulo: Monotonicidad (METOD7)
 
-Analiza monotonicidad del score (pd/xb) vs target usando:
-- cortes definidos en TRAIN
+Analiza monotonicidad de variables numericas y categoricas vs target usando:
+- cortes definidos en TRAIN para variables numericas
 - reuso de cortes en OOT
+- agrupacion directa para categoricas
 - filtro por default cerrado (def_cld de config.sas)
 
 Usa run_module con dual_input=1 (TRAIN + OOT en una ejecucion).
@@ -22,8 +23,22 @@ Dependencias:
 %include "&fw_root./src/dispatch/run_module.sas";
 
 /* ---- CONFIGURACION DEL MODULO (editar aqui) --------------------------- */
-/* Numero de grupos para granular score en TRAIN.                          */
-%let mono_groups=5;
+/* mono_mode:
+AUTO   -> usa variables de cfg_segmentos/cfg_troncales
+          (num_list, cat_list, target, byvar).
+          Outputs van a reports/ + images/ (validacion estandar).
+CUSTOM -> usa mono_custom_vars_num/cat y permite override target/byvar.
+          Outputs van a experiments/ (analisis exploratorio).              */
+%let mono_mode=AUTO;
+
+/* Numero de grupos/bins para discretizacion de variables continuas        */
+%let mono_n_groups=5;
+
+/* Variables personalizadas (solo si mono_mode=CUSTOM)                    */
+%let mono_custom_vars_num= ;
+%let mono_custom_vars_cat= ;
+%let mono_custom_target= ;
+%let mono_custom_byvar= ;
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_monotonicidad;
@@ -39,7 +54,8 @@ Dependencias:
         %return;
     %end;
 
-    %put NOTE: [step_monotonicidad] Iniciando - scope=&ctx_scope.;
+    %put NOTE: [step_monotonicidad] Iniciando - scope=&ctx_scope.
+        mono_mode=&mono_mode. n_groups=&mono_n_groups.;
     %put NOTE: [step_monotonicidad] Usa dual_input=1 y def_cld (default cerrado).;
 
     /* ---- 1) Crear CASLIBs PROC + OUT --------------------------------- */
@@ -95,4 +111,3 @@ Dependencias:
 
 %mend _step_monotonicidad;
 %_step_monotonicidad;
-

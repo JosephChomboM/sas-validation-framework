@@ -7,16 +7,19 @@ Genera:
 <report_path>/<prefix>.xlsx        - Excel TRAIN + OOT
 <images_path>/<prefix>_*.jpeg      - graficos independientes
 
-Regla clave de negocio:
+Regla clave:
 - Usa default cerrado: filtra TRAIN y OOT con byvar <= def_cld.
+- Itera variables numericas y categoricas.
 ========================================================================= */
 %macro _monotonicidad_report(input_caslib=, train_table=, oot_table=, byvar=,
-    score_var=, target_var=, def_cld=0, groups=5, report_path=, images_path=,
-    file_prefix=);
+    target=, vars_num=, vars_cat=, def_cld=0, groups=5, report_path=,
+    images_path=, file_prefix=);
 
     %put NOTE: [monotonicidad_report] Generando reportes...;
-    %put NOTE: [monotonicidad_report] byvar=&byvar. score=&score_var.
-        target=&target_var. def_cld=&def_cld.;
+    %put NOTE: [monotonicidad_report] byvar=&byvar. target=&target.
+        def_cld=&def_cld.;
+    %put NOTE: [monotonicidad_report] vars_num=&vars_num.;
+    %put NOTE: [monotonicidad_report] vars_cat=&vars_cat.;
 
     /* ---- Copiar desde CAS a work (Pattern B) -------------------------- */
     data work._mono_train_raw;
@@ -53,10 +56,14 @@ Regla clave de negocio:
 
     /* ---- Crear directorios METOD7 si no existen ----------------------- */
     %local _dir_rc;
-    %let _dir_rc=%sysfunc(dcreate(METOD7, &report_path./../));
-    %let _dir_rc=%sysfunc(dcreate(., &report_path.));
-    %let _dir_rc=%sysfunc(dcreate(METOD7, &images_path./../));
-    %let _dir_rc=%sysfunc(dcreate(., &images_path.));
+    %if %index(%upcase(&report_path.), %str(EXPERIMENTS))=0 %then %do;
+        %let _dir_rc=%sysfunc(dcreate(METOD7, &report_path./../));
+        %let _dir_rc=%sysfunc(dcreate(., &report_path.));
+    %end;
+    %if %index(%upcase(&images_path.), %str(EXPERIMENTS))=0 %then %do;
+        %let _dir_rc=%sysfunc(dcreate(METOD7, &images_path./../));
+        %let _dir_rc=%sysfunc(dcreate(., &images_path.));
+    %end;
 
     /* ==================================================================
        TRAIN
@@ -71,11 +78,9 @@ Regla clave de negocio:
         embedded_titles="yes");
     ods graphics / imagename="&file_prefix._trn_mono" imagefmt=jpeg;
 
-    %_mono_build_report(tablain=work._mono_train, score_var=&score_var.,
-        target_var=&target_var., groups=&groups., use_existing_cuts=0,
-        cuts_table=work._mono_cortes, out_table=work._mono_report_train);
-    %_mono_plot_and_print(report_table=work._mono_report_train,
-        score_var=&score_var., target_var=&target_var., data_type=TRAIN);
+    %_mono_report_variables(data=work._mono_train, target=&target.,
+        vars_num=&vars_num., vars_cat=&vars_cat., groups=&groups.,
+        data_type=TRAIN, reuse_num_cuts=0, train_ref_data=work._mono_train);
 
     ods html5 close;
     ods graphics / reset=all;
@@ -89,11 +94,9 @@ Regla clave de negocio:
         embedded_titles="yes");
     ods graphics / imagename="&file_prefix._oot_mono" imagefmt=jpeg;
 
-    %_mono_build_report(tablain=work._mono_oot, score_var=&score_var.,
-        target_var=&target_var., groups=&groups., use_existing_cuts=1,
-        cuts_table=work._mono_cortes, out_table=work._mono_report_oot);
-    %_mono_plot_and_print(report_table=work._mono_report_oot,
-        score_var=&score_var., target_var=&target_var., data_type=OOT);
+    %_mono_report_variables(data=work._mono_oot, target=&target.,
+        vars_num=&vars_num., vars_cat=&vars_cat., groups=&groups.,
+        data_type=OOT, reuse_num_cuts=1, train_ref_data=work._mono_train);
 
     ods excel close;
     ods html5 close;
@@ -102,7 +105,7 @@ Regla clave de negocio:
 
     /* ---- Cleanup work -------------------------------------------------- */
     proc datasets library=work nolist nowarn;
-        delete _mono_:;
+        delete _mono_: cortes;
     quit;
 
     %put NOTE: [monotonicidad_report] HTML TRAIN=>
@@ -114,4 +117,3 @@ Regla clave de negocio:
     %put NOTE: [monotonicidad_report] Images=> &images_path./;
 
 %mend _monotonicidad_report;
-

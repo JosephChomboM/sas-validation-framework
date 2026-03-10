@@ -1,14 +1,18 @@
 /* =========================================================================
-monotonicidad_compute.sas - Core de calculo para Monotonicidad (METOD7)
+monotonicidad_compute.sas - Computo de monotonicidad (METOD7)
 
-Migra la logica legacy:
-- Cortes por rank en TRAIN
-- Reuso de cortes en OOT
-- Bucketizacion de score
-- Tabla por bucket: cuentas, pct_cuentas, mean(target)
+Contiene macros que discretizan variables numericas via PROC RANK,
+reusan los cortes de TRAIN en OOT, y calculan distribucion + mean(target)
+por bucket. Para categoricas, agrupa directamente.
 
-Pattern B (work staging):
-PROC RANK y joins iterativos se ejecutan en work.
+Macros:
+%_mono_calcular_cortes  - Calcula puntos de corte via PROC RANK
+%_mono_tendencia        - Aplica cortes/agrupacion y genera tabla + grafico
+%_mono_report_variables - Orquestador: itera vars num+cat por dataset
+
+Pattern B:
+- PROC RANK y la logica de bucketizacion corren en work.
+- TRAIN calcula cortes; OOT los reutiliza.
 ========================================================================= */
 
 /* =====================================================================
@@ -18,7 +22,7 @@ Output:
   rango, inicio, fin, flag_ini, flag_fin, ETIQUETA
 ===================================================================== */
 %macro _mono_calcular_cortes(tablain=, score_var=, groups=5,
-    out_cuts=work._mono_cortes);
+    out_cuts=work.cortes);
 
     %local _rnd _grp;
     %let _rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
@@ -98,100 +102,161 @@ Output:
 %mend _mono_calcular_cortes;
 
 /* =====================================================================
-%_mono_build_report - genera tabla por bucket
-
-Input:
-- tablain          : dataset de analisis (work)
-- score_var        : score/PD a granular
-- target_var       : variable default
-- groups           : numero de buckets rank
-- use_existing_cuts: 0 calcula cortes, 1 reusa cortes previos
-- cuts_table       : tabla de cortes (work)
-- out_table        : tabla resumen por etiqueta
+%_mono_tendencia - Aplica cortes a datos y genera tabla + grafico
+Para numericas (flg_continue=1): usa cortes de work.cortes.
+Para categoricas (flg_continue=0): agrupa directamente.
 ===================================================================== */
-%macro _mono_build_report(tablain=, score_var=, target_var=, groups=5,
-    use_existing_cuts=0, cuts_table=work._mono_cortes,
-    out_table=work._mono_report);
+%macro _mono_tendencia(tablain, var, target=, groups=5, flg_continue=1,
+    reuse_cuts=0, m_data_type=);
 
     %local _mono_total _rnd;
     %let _rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
 
-    %if &use_existing_cuts.=0 %then %do;
-        %_mono_calcular_cortes(tablain=&tablain., score_var=&score_var.,
-            groups=&groups., out_cuts=&cuts_table.);
-    %end;
+    data work._mono_t_&rnd._0;
+        set &tablain.;
+        %if &flg_continue.=1 %then %do;
+            if &var. in (., 1111111111, -1111111111, 2222222222, -2222222222,
+                3333333333, -3333333333, 4444444444, 5555555555, 6666666666,
+                7777777777, -999999999) then &var.=.;
+        %end;
+    run;
 
     %let _mono_total=0;
     proc sql noprint;
-        select count(*) into :_mono_total trimmed from &tablain.;
+        select count(*) into :_mono_total trimmed from work._mono_t_&rnd._0;
     quit;
 
     %if &_mono_total.=0 %then %do;
-        data &out_table.;
-            length ETIQUETA $200 Cuentas 8 Pct_cuentas 8 Mean_Default 8;
-            stop;
-        run;
         %return;
     %end;
 
-    proc sql noprint;
-        create table work._mono_tagged_&_rnd. as
-        select a.*,
-               coalesce(b.ETIQUETA, "00. Missing") as ETIQUETA length=200
-        from &tablain. a
-        left join &cuts_table. b
-          on (missing(a.&score_var.) and b.rango = 0)
-          or (
-               not missing(a.&score_var.)
-               and (
-                    (b.flag_ini = 1 and a.&score_var. <= b.fin)
-                 or (b.flag_fin = 1 and a.&score_var. > b.inicio)
-                 or (b.flag_ini = 0 and b.flag_fin = 0
-                     and a.&score_var. > b.inicio
-                     and a.&score_var. <= b.fin)
-               )
-             );
-    quit;
+    %if &flg_continue.=1 %then %do;
+        %if &reuse_cuts.=0 %then %do;
+            %_mono_calcular_cortes(tablain=work._mono_t_&rnd._0,
+                score_var=&var., groups=&groups., out_cuts=work.cortes);
+            proc sort data=work.cortes;
+                by rango;
+            run;
+        %end;
 
-    proc sql noprint;
-        create table &out_table. as
-        select ETIQUETA,
-               count(*) as Cuentas,
-               count(*) / &_mono_total. as Pct_cuentas format=percent8.2,
-               mean(&target_var.) as Mean_Default format=percent8.2
-        from work._mono_tagged_&_rnd.
-        group by ETIQUETA
-        order by ETIQUETA;
-    quit;
+        proc sql noprint;
+            create table work._mono_tagged_&_rnd. as
+            select a.*,
+                   coalesce(b.ETIQUETA, "00. Missing") as ETIQUETA length=200
+            from work._mono_t_&rnd._0 a
+            left join work.cortes b
+              on (missing(a.&var.) and b.rango = 0)
+              or (
+                   not missing(a.&var.)
+                   and (
+                        (b.flag_ini = 1 and a.&var. <= b.fin)
+                     or (b.flag_fin = 1 and a.&var. > b.inicio)
+                     or (b.flag_ini = 0 and b.flag_fin = 0
+                         and a.&var. > b.inicio
+                         and a.&var. <= b.fin)
+                   )
+                 );
+        quit;
 
-    proc datasets library=work nolist nowarn;
-        delete _mono_tagged_&_rnd.;
-    quit;
+        proc sql noprint;
+            create table work._mono_report as
+            select ETIQUETA as &var.,
+                   count(*) as Cuentas,
+                   count(*) / &_mono_total. as Pct_cuentas format=percent8.2,
+                   mean(&target.) as Mean_Default format=percent8.2
+            from work._mono_tagged_&_rnd.
+            group by ETIQUETA
+            order by ETIQUETA;
+        quit;
+    %end;
+    %else %do;
+        proc sql noprint;
+            create table work._mono_report as
+            select &var.,
+                   count(*) as Cuentas,
+                   count(*) / &_mono_total. as Pct_cuentas format=percent8.2,
+                   mean(&target.) as Mean_Default format=percent8.2
+            from work._mono_t_&rnd._0
+            group by &var.;
+        quit;
+    %end;
 
-%mend _mono_build_report;
+    title "Monotonicidad &var. - &m_data_type.";
 
-/* =====================================================================
-%_mono_plot_and_print - grafico + tabla de salida por dataset
-===================================================================== */
-%macro _mono_plot_and_print(report_table=, score_var=, target_var=,
-    data_type=);
-
-    title "Granulado Score &score_var. - &data_type.";
-
-    proc sgplot data=&report_table.;
+    proc sgplot data=work._mono_report subpixel noautolegend;
         keylegend / title=" " opaque;
-        vbar ETIQUETA / response=Pct_cuentas barwidth=0.4 nooutline;
-        vline ETIQUETA / response=Mean_Default markers
+        vbar &var. / response=Pct_cuentas barwidth=0.4 nooutline;
+        vline &var. / response=Mean_Default markers
             markerattrs=(symbol=circlefilled) y2axis;
         yaxis label="% Cuentas (bar)" discreteorder=data
             labelattrs=(size=8) valueattrs=(size=8);
-        y2axis min=0 label="Mean &target_var." labelattrs=(size=8);
-        xaxis label="Buckets &score_var." labelattrs=(size=8);
+        y2axis min=0 label="Mean &target." labelattrs=(size=8);
+        xaxis label="Buckets variable" labelattrs=(size=8);
     run;
     title;
 
-    proc print data=&report_table. noobs;
+    proc print data=work._mono_report noobs;
     run;
 
-%mend _mono_plot_and_print;
+    proc datasets library=work nolist nowarn;
+        delete _mono_t_&rnd._0 _mono_tagged_&_rnd. _mono_report;
+    quit;
 
+%mend _mono_tendencia;
+
+/* =====================================================================
+%_mono_report_variables - Orquestador: itera vars num+cat por dataset
+Para numericas:
+- TRAIN: reuse_num_cuts=0 calcula cortes
+- OOT:   reuse_num_cuts=1 reutiliza cortes previamente calculados
+Para categoricas:
+- agrupa directamente
+===================================================================== */
+%macro _mono_report_variables(data=, target=, vars_num=, vars_cat=, groups=5,
+    data_type=, reuse_num_cuts=0, train_ref_data=);
+
+    %local c v z v_cat;
+
+    %if %length(&vars_num.) > 0 %then %do;
+        %let c=1;
+        %let v=%scan(&vars_num., &c., %str( ));
+        %do %while(%length(&v.) > 0);
+            %put NOTE: [monotonicidad] Procesando variable numerica: &v.;
+
+            %if &reuse_num_cuts.=1 %then %do;
+                %_mono_calcular_cortes(tablain=&train_ref_data.,
+                    score_var=&v., groups=&groups., out_cuts=work.cortes);
+                proc sort data=work.cortes;
+                    by rango;
+                run;
+            %end;
+
+            %_mono_tendencia(&data., &v., target=&target.,
+                groups=&groups., flg_continue=1,
+                reuse_cuts=&reuse_num_cuts., m_data_type=&data_type.);
+
+            proc datasets library=work nolist nowarn;
+                delete cortes;
+            quit;
+
+            %let c=%eval(&c. + 1);
+            %let v=%scan(&vars_num., &c., %str( ));
+        %end;
+    %end;
+
+    %if %length(&vars_cat.) > 0 %then %do;
+        %let z=1;
+        %let v_cat=%scan(&vars_cat., &z., %str( ));
+        %do %while(%length(&v_cat.) > 0);
+            %put NOTE: [monotonicidad] Procesando variable categorica: &v_cat.;
+
+            %_mono_tendencia(&data., &v_cat., target=&target.,
+                groups=&groups., flg_continue=0, reuse_cuts=0,
+                m_data_type=&data_type.);
+
+            %let z=%eval(&z. + 1);
+            %let v_cat=%scan(&vars_cat., &z., %str( ));
+        %end;
+    %end;
+
+%mend _mono_report_variables;
