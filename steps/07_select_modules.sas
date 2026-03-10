@@ -22,6 +22,7 @@ Método 4.3: bivariado, correlación, gini
 /* %let run_fillrate    = 1; */
 /* %let run_missings    = 1; */
 %let run_psi=&_id_run_psi.;
+%let run_monotonicidad=%sysfunc(coalescec(%superq(_id_run_monotonicidad), 0));
 
 /* ========= Método 4.3 - Asociación / Discriminación =================== */
 *%let run_bivariado   = 1;
@@ -33,3 +34,4 @@ Método 4.3: bivariado, correlación, gini
   missings=&run_missings. psi=&run_psi.;
 %put NOTE: 4.3 → bivariado=&run_bivariado. correlacion=&run_correlacion.
   gini=&run_gini.;
+%put NOTE: 7.0 → monotonicidad=&run_monotonicidad.;

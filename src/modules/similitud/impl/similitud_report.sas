@@ -5,8 +5,8 @@ para Similitud de Muestras
 Genera:
 <report_path>/<prefix>.html          - HTML con bucket plots + similitud
 <report_path>/<prefix>.xlsx          - Excel multi-hoja:
-    Hoja 1: BUCKET_EVOLUTION (distribucion por buckets TRAIN+OOT)
-    Hoja 2: SIMILITUD (comparacion estadistica TRAIN vs OOT)
+Hoja 1: BUCKET_EVOLUTION (distribucion por buckets TRAIN+OOT)
+Hoja 2: SIMILITUD (comparacion estadistica TRAIN vs OOT)
 <images_path>/<prefix>_*.jpeg        - Graficos JPEG independientes
 
 Tablas temporales se copian a work para computo
@@ -34,10 +34,10 @@ no son CAS-compatibles).
 
     /* ---- Crear directorios si no existen ------------------------------- */
     %local _dir_rc;
-    %let _dir_rc = %sysfunc(dcreate(METOD4.2, &report_path./../));
-    %let _dir_rc = %sysfunc(dcreate(., &report_path.));
-    %let _dir_rc = %sysfunc(dcreate(METOD4.2, &images_path./../));
-    %let _dir_rc = %sysfunc(dcreate(., &images_path.));
+    %let _dir_rc=%sysfunc(dcreate(METOD6, &report_path./../));
+    %let _dir_rc=%sysfunc(dcreate(., &report_path.));
+    %let _dir_rc=%sysfunc(dcreate(METOD6, &images_path./../));
+    %let _dir_rc=%sysfunc(dcreate(., &images_path.));
 
     /* ==================================================================
     Seccion 1: BUCKET EVOLUTION (distribucion por buckets TRAIN+OOT)
@@ -54,14 +54,9 @@ no son CAS-compatibles).
 
     title "Analisis de Distribucion por Buckets - TRAIN vs OOT";
 
-    %_simil_bucket_variables(
-        train_data=work._simil_train,
-        oot_data=work._simil_oot,
-        byvar=&byvar.,
-        vars_num=&vars_num.,
-        vars_cat=&vars_cat.,
-        groups=&groups.
-    );
+    %_simil_bucket_variables( train_data=work._simil_train,
+        oot_data=work._simil_oot, byvar=&byvar., vars_num=&vars_num.,
+        vars_cat=&vars_cat., groups=&groups. );
 
     title;
 
@@ -73,20 +68,13 @@ no son CAS-compatibles).
     ods graphics / imagename="&file_prefix._sim" imagefmt=jpeg;
 
     /* Similitud numericas (mediana) */
-    %_simil_similitud_num(
-        train_data=work._simil_train,
-        oot_data=work._simil_oot,
-        vars_num=&vars_num.,
-        target=&target.
-    );
+    %_simil_similitud_num( train_data=work._simil_train,
+        oot_data=work._simil_oot, vars_num=&vars_num., target=&target. );
 
     /* Similitud categoricas (moda) */
     %if %length(&vars_cat.) > 0 %then %do;
-        %_simil_similitud_cat(
-            train_data=work._simil_train,
-            oot_data=work._simil_oot,
-            vars_cat=&vars_cat.
-        );
+        %_simil_similitud_cat( train_data=work._simil_train,
+            oot_data=work._simil_oot, vars_cat=&vars_cat. );
     %end;
 
     ods excel close;
