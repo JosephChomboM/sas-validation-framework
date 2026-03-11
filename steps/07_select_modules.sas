@@ -13,6 +13,7 @@ Agrupación por sub-método (para organización de outputs):
 Método 1.1: universe (describe universo)
 Método 4.2: estabilidad, fillrate, missings, psi
 Método 4.3: bivariado, correlación, gini
+Método 5.2.1: replica
 ========================================================================= */
 /* ========= Método 1.1 - Describe Universo ============================== */
 %let run_universe=&_id_run_universe.;
@@ -28,10 +29,15 @@ Método 4.3: bivariado, correlación, gini
 *%let run_bivariado   = 1;
 %let run_correlacion=&_id_run_corr;
 *%let run_gini        = 1;
+
+/* ========= Método 5.2.1 - Replica ===================================== */
+%let run_replica=%sysfunc(coalescec(%superq(_id_run_replica), 0));
+
 %put NOTE: [select_modules] Módulos habilitados:;
 %put NOTE: 1.1 → universe=&run_universe.;
 %put NOTE: 4.2 → estabilidad=&run_estabilidad. fillrate=&run_fillrate.
   missings=&run_missings. psi=&run_psi.;
 %put NOTE: 4.3 → bivariado=&run_bivariado. correlacion=&run_correlacion.
   gini=&run_gini.;
+%put NOTE: 5.2.1 → replica=&run_replica.;
 %put NOTE: 7.0 → monotonicidad=&run_monotonicidad.;

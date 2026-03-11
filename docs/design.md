@@ -19,7 +19,6 @@ Este documento describe:
 1) **Steps (Frontend)**
 - Archivos `steps/*.sas` que actúan como formularios de configuración.
 - El usuario edita estos archivos para definir parámetros del run.
-- Se ejecutan secuencialmente al inicio de `runner/main.sas`.
 - Flujo de steps:
   - `01_setup_project.sas` ? rutas del proyecto
   - `02_load_config.sas` ? carga/validación de `config.sas`, promote tablas config
@@ -30,12 +29,12 @@ Este documento describe:
     - `context_and_modules.sas` ? seleccionar scope (UNIVERSO|SEGMENTO), troncal, split, segmento, y módulos a ejecutar
     - `methods/metod_N/step_<modulo>.sas` ? ejecución (lee `ctx_scope` para iterar base o segmentos)
 
-2) **Configuración**
+1) **Configuración**
 - Fuente: `config.sas` (generado desde HTML).
 - Contiene DATA steps que crean `casuser.cfg_troncales` y `casuser.cfg_segmentos`.
 - Los parámetros de usuario (rutas, ADLS, métodos) viven en `steps/*.sas`, no en config.
 
-3) **Common**
+1) **Common**
 - Utilidades reutilizables:
   - paths
   - logging
@@ -43,11 +42,11 @@ Este documento describe:
   - utilidades CAS (existence, nobs, load/save)
   - preparación de data raw ? processed
 
-4) **Dispatch**
+1) **Dispatch**
 - Orquestación de ejecución:
   - `run_module.sas`: ejecuta un módulo en un contexto dado (troncal/split/segmento). Resuelve path, promueve input, llama al módulo, limpia.
 
-5) **Modules**
+1) **Modules**
 - Implementación por control:
   - API pública (`*_run.sas`)
   - Validaciones (`*_contract.sas`)
@@ -55,8 +54,7 @@ Este documento describe:
 - Módulos implementados: `correlacion` (referencia), `psi`, `universe`, `target`. Pendientes: `gini`.
 - `run_module.sas` incluye dinámicamente `<modulo>_run.sas` y ejecuta `%<modulo>_run(...)`.
 
-6) **Runner**
-- `runner/main.sas`: entrypoint único, reemplaza `.flw`.
+1) **Runner**
 - Ejecuta:
   - **Frontend**: incluye steps de setup, data prep, promoción de contexto y configuración de métodos.
   - **Backend**: CAS init ? prepare/promote por contexto ? ejecutar subflow de módulos ? cleanup.
@@ -125,7 +123,7 @@ Se recomienda declarar, por troncal:
   - train_min_mes, train_max_mes
   - oot_min_mes, oot_max_mes
 - Fecha de cierre para controles con target:
-  - def_cld - fecha maxima (YYYYMM) para controles que usan target, PD o XB (ratio de default). Para controles que solo analizan variables (ej. correlacion, PSI), usar `oot_max_mes` en su lugar.
+  - def_cld - fecha maxima (YYYYMM) para controles que usan target, PD o XB. Para controles que solo analizan variables (ej. correlacion, PSI), usar `oot_max_mes` en su lugar.
 - Listas de variables:
   - var_num_list, var_cat_list
   - drv_num_list, drv_cat_list
@@ -154,7 +152,6 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework: son el pu
 En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utilizan `.step`, los archivos `steps/*.sas` simulan esa experiencia:
 - Cada archivo es un **formulario editable** con variables `_id_*` documentadas.
 - El usuario modifica los valores `%let` según su caso de uso.
-- Al ejecutar `runner/main.sas`, los steps se incluyen secuencialmente y setean las macro variables.
 - Algunos steps ejecutan acciones automáticas (ej. Step 03 crea carpetas).
 - El contexto de ejecución se define antes de seleccionar módulos.
 
@@ -202,7 +199,7 @@ Ejemplos:
 ### 5.4 Relación entre steps y config.sas
 - **Steps**: parámetros simples (rutas, flags, listas). El usuario los edita como un formulario.
 - **config.sas**: configuración compleja (DATA steps que generan tablas CAS por troncal/segmento). Generado desde HTML o editado manualmente.
-- Ambos se cargan por `runner/main.sas`; la ejecución de módulos depende del contexto promovido por los steps de contexto.
+- Ambos se cargan; la ejecución de módulos depende del contexto promovido por los steps de contexto.
 
 ### 5.5 Contrato de Métodos (agrupación lógica)
 - Cada Método (`Metodo 1..4`) es una agrupación lógica de módulos.
