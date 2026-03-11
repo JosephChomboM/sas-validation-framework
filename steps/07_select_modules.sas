@@ -14,6 +14,7 @@ Método 1.1: universe (describe universo)
 Método 4.2: estabilidad, fillrate, missings, psi
 Método 4.3: bivariado, correlación, gini
 Método 5.2.1: replica
+Método 6: precision
 ========================================================================= */
 /* ========= Método 1.1 - Describe Universo ============================== */
 %let run_universe=&_id_run_universe.;
@@ -33,6 +34,9 @@ Método 5.2.1: replica
 /* ========= Método 5.2.1 - Replica ===================================== */
 %let run_replica=%sysfunc(coalescec(%superq(_id_run_replica), 0));
 
+/* ========= Método 6 - Precision ======================================= */
+%let run_precision=%sysfunc(coalescec(%superq(_id_run_precision), 0));
+
 %put NOTE: [select_modules] Módulos habilitados:;
 %put NOTE: 1.1 → universe=&run_universe.;
 %put NOTE: 4.2 → estabilidad=&run_estabilidad. fillrate=&run_fillrate.
@@ -40,4 +44,5 @@ Método 5.2.1: replica
 %put NOTE: 4.3 → bivariado=&run_bivariado. correlacion=&run_correlacion.
   gini=&run_gini.;
 %put NOTE: 5.2.1 → replica=&run_replica.;
+%put NOTE: 6.0 → precision=&run_precision.;
 %put NOTE: 7.0 → monotonicidad=&run_monotonicidad.;
