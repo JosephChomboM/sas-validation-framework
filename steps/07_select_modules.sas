@@ -29,7 +29,7 @@ Método 6: precision
 /* ========= Método 4.3 - Asociación / Discriminación =================== */
 *%let run_bivariado   = 1;
 %let run_correlacion=&_id_run_corr;
-*%let run_gini        = 1;
+%let run_gini=%sysfunc(coalescec(%superq(_id_run_gini), 0));
 
 /* ========= Método 5.2.1 - Replica ===================================== */
 %let run_replica=%sysfunc(coalescec(%superq(_id_run_replica), 0));

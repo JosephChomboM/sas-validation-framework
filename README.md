@@ -114,7 +114,7 @@ project_root/
       metod_3/                       # Método 3: segmentación (futuro)
       metod_4/                       # Método 4: análisis de variables
         step_correlacion.sas         # correlación (4.3)
-        step_gini.sas                # gini (4.3, futuro)
+        step_gini.sas                # gini (4.3)
         step_bivariado.sas           # bivariado (4.3, futuro)
         step_estabilidad.sas         # estabilidad (4.2, futuro)
         step_fillrate.sas            # fillrate (4.2, futuro)

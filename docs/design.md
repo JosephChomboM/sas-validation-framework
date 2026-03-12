@@ -51,7 +51,7 @@ Este documento describe:
   - API pública (`*_run.sas`)
   - Validaciones (`*_contract.sas`)
   - Implementación interna (`impl/`)
-- Módulos implementados: `correlacion` (referencia), `psi`, `universe`, `target`. Pendientes: `gini`.
+- Módulos implementados: `correlacion` (referencia), `psi`, `universe`, `target`, `gini`.
 - `run_module.sas` incluye dinámicamente `<modulo>_run.sas` y ejecuta `%<modulo>_run(...)`.
 
 1) **Runner**
@@ -178,7 +178,7 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | -    | `steps/methods/metod_4/step_psi.sas`         | Config + ejecución PSI                                                      | `&psi_mode`, `&psi_n_buckets`, `&psi_mensual`                                                                                                                                                                         |
 | -    | `steps/methods/metod_4/step_similitud.sas`   | Config + ejecución similitud                                                | `&simil_mode`, `&simil_n_groups`                                                                                                                                                                                       |
 | -    | `steps/methods/metod_4/step_bootstrap.sas`   | Config + ejecución bootstrap                                               | `&boot_mode`, `&boot_nrounds`, `&boot_seed`, `&boot_samprate`, `&boot_ponderada`                                                                                                                                      |
-| -    | `steps/methods/metod_4/step_gini.sas`        | Config + ejecución gini (futuro)                                            | -                                                                                                                                                                                                                     |
+| -    | `steps/methods/metod_4/step_gini.sas`        | Config + ejecución gini                                                     | `&gini_mode`, `&gini_score_source`, `&gini_with_missing`, `&gini_model_type`                                                                                                                                         |
 
 **Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`). Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) dentro de `reports/`, `images/` y `tables/` se crean dinámicamente por cada módulo cuando genera archivos.
 
@@ -277,8 +277,8 @@ Aplicación por fase:
 | Ejecución - módulo (step_*.sas)   | PROC, OUT      | inicio del step de módulo | final del step de módulo           |
 
 **Regla de promote en ejecucion:** `run_module.sas` soporta dos modos:
-- `dual_input=0` (default): promueve un solo input como `_active_input`. El modulo recibe `input_table=_active_input` + `split=<train|oot>`. Para correlacion, gini, etc.
-- `dual_input=1`: promueve train + oot como `_train_input` y `_oot_input`. El modulo recibe `train_table=_train_input` + `oot_table=_oot_input`. Para PSI y futuros modulos que comparen ambos splits. El parametro `split=` se ignora.
+- `dual_input=0` (default): promueve un solo input como `_active_input`. El modulo recibe `input_table=_active_input` + `split=<train|oot>`. Para correlacion y modulos single-input equivalentes.
+- `dual_input=1`: promueve train + oot como `_train_input` y `_oot_input`. El modulo recibe `train_table=_train_input` + `oot_table=_oot_input`. Para PSI, Gini y modulos que comparan ambos splits. El parametro `split=` se ignora.
 
 En ambos modos, `run_module` dropea las tablas promovidas al finalizar.
 

@@ -328,35 +328,75 @@ con `dual_input=1`.
 
 ## 3) Modulo: Gini
 
-**Fecha de corte:** Gini usa target/PD/XB, por lo que la fecha maxima de análisis es `def_cld`.
+**Fecha de corte:** Gini usa `target` + score del modelo (`pd` o `xb`) y por eso
+la fecha maxima de analisis es `def_cld`.
 
 **Ruta**
 - `src/modules/gini/`
 
-**API pública**
+**API publica**
 - `%gini_run(...)`
-- Parámetros de entrada incluyen:
-  - `input_caslib=PROC` - CASLIB de entrada
-  - `input_table=_active_input` - tabla promovida por `run_module`
-  - `output_caslib=OUT` - CASLIB de salida
-  - `troncal_id`, `split`, `scope`, `run_id` - contexto
+- Parametros de entrada:
+  - `input_caslib=PROC`
+  - `train_table=_train_input`
+  - `oot_table=_oot_input`
+  - `output_caslib=OUT`
+  - `troncal_id`, `scope`, `run_id`
 
-**Inputs típicos**
-- Dataset input (universe o segmento) con:
-  - `target` (binario o según definición del control)
-  - `pd` o `xb` o score equivalente (según configuración)
-  - (Opcional) `monto` si el control requiere ponderación
-  - (Opcional) variables de partición (por ejemplo `mes`)
+**Nota arquitectonica:** Gini compara TRAIN vs OOT. Usa `run_module.sas` con
+`dual_input=1`.
 
-**Validaciones (contract)**
-- Existencia del input.
-- Presencia de columnas requeridas (al menos `target` y score).
-- No vacío (nobs > 0).
+**Cobertura funcional**
+- Gini del modelo:
+  - general
+  - mensual
+- Gini de variables:
+  - general
+  - mensual
+- comparativo TRAIN vs OOT
+- resumen de tendencia por variable
+
+**Inputs tipicos**
+- Dos datasets promovidos: TRAIN y OOT.
+- Variables resueltas desde `config.sas`:
+  - `target`
+  - `pd` y `xb`
+  - `byvar`
+  - `def_cld`
+  - `num_list` / `num_unv`
+
+**Modos de ejecucion**
+- `AUTO`
+  - score del modelo desde `pd` o `xb`
+  - variables desde `cfg_segmentos.num_list` con fallback a
+    `cfg_troncales.num_unv`
+  - `target`, `byvar`, `def_cld` desde `cfg_troncales`
+- `CUSTOM`
+  - `gini_custom_vars_num`
+  - `gini_custom_target`
+  - `gini_custom_score_var`
+  - `gini_custom_def_cld`
+  - los umbrales de Gini se parametrizan en el step
+
+**Parametros relevantes del step**
+- `gini_score_source=AUTO|PD|XB|CUSTOM`
+- `gini_with_missing=1|0`
+  - `1` = incluir missings
+  - `0` = excluir missings
+  - default recomendado del modulo: `1`
+- `gini_model_type=APP|BHV`
+- `gini_threshold_model_low/high`
+- `gini_threshold_var_low/high`
+- `gini_min_n_valid`
+- `gini_delta_warn`
+- `gini_trend_delta`
+- `gini_plot_top_n`
 
 **Calculo CAS recomendado (`_SMDCR_`)**
-- Cuando el Gini se calcule directamente sobre una tabla en CASLIB, la via recomendada es `PROC FREQTAB ... / measures;` con `output ... smdcr;`.
-- El estadistico de interes queda en la variable `_SMDCR_` de la tabla de salida.
-- Deben contemplarse dos variantes funcionales, porque incluir o excluir missings cambia la poblacion evaluada y por tanto el valor final de `_SMDCR_`.
+- El calculo base usa `PROC FREQTAB` sobre tablas en CAS/CASLIB.
+- El estadistico de interes queda en `_SMDCR_`.
+- El reporte expone `Gini=abs(_SMDCR_)`.
+- El modulo soporta ambas variantes funcionales:
 
 Con missings:
 ```sas
@@ -374,31 +414,39 @@ proc freqtab data=&caslib_input..&data. noprint;
 run;
 ```
 
-Evolutivo por tiempo con missings:
+Evolutivo por tiempo:
 ```sas
-proc freqtab data=&libname_input..t_&rnd._0 noprint missing;
+proc freqtab data=&caslib_input..&data. noprint missing;
     by &time;
-    tables &target_input. * &var / measures;
-    output out=gini_&rnd._1 smdcr;
+    tables &target. * &score_var. / measures;
+    output out=gini_freqtab_m smdcr;
 run;
 ```
 
-Evolutivo por tiempo sin missings:
-```sas
-proc freqtab data=&libname_input..t_&rnd._0 noprint;
-    by &time;
-    tables &target_input. * &var / measures;
-    output out=gini_&rnd._1 smdcr;
-run;
-```
-
-- Recomendacion de framework: parametrizar explicitamente si el modulo corre `with_missing=1|0`, para evitar que el resultado quede implicito en la implementacion.
+**Validaciones (contract)**
+- TRAIN y OOT accesibles y no vacios
+- `target`, `score`, `byvar` y `def_cld` definidos
+- `target`, `score` y `byvar` presentes en TRAIN/OOT
+- observaciones disponibles luego del filtro `byvar <= def_cld`
 
 **Outputs esperados**
-- `outputs/runs/<run_id>/tables/gini_*.sas7bdat` (tabla resumen y/o detalle)
-- `outputs/runs/<run_id>/reports/gini_*.xlsx` o HTML (si aplica)
-- `outputs/runs/<run_id>/images/gini_*.png` (si aplica)
-- Logs en `outputs/runs/<run_id>/logs/`
+
+*Modo AUTO (validacion estandar):*
+- `outputs/runs/<run_id>/reports/METOD4.3/gini_troncal_X_<scope>.html`
+- `outputs/runs/<run_id>/reports/METOD4.3/gini_troncal_X_<scope>.xlsx`
+- `outputs/runs/<run_id>/tables/METOD4.3/gini_tX_<scope>_mdlg.sas7bdat`
+- `outputs/runs/<run_id>/tables/METOD4.3/gini_tX_<scope>_mdlm.sas7bdat`
+- `outputs/runs/<run_id>/tables/METOD4.3/gini_tX_<scope>_varg.sas7bdat`
+- `outputs/runs/<run_id>/tables/METOD4.3/gini_tX_<scope>_vcmp.sas7bdat`
+- `outputs/runs/<run_id>/tables/METOD4.3/gini_tX_<scope>_vsum.sas7bdat`
+- `outputs/runs/<run_id>/tables/METOD4.3/gini_tX_<scope>_vdet.sas7bdat`
+- `outputs/runs/<run_id>/images/METOD4.3/gini_troncal_X_<scope>_*.jpeg`
+
+*Modo CUSTOM (analisis exploratorio):*
+- `outputs/runs/<run_id>/experiments/custom_gini_troncal_X_<scope>.*`
+- `outputs/runs/<run_id>/experiments/cx_gini_tX_<scope>_*.sas7bdat`
+
+**Compatibilidad de contexto**: segmento y universo.
 
 ---
 
