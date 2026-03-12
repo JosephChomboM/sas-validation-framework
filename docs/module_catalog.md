@@ -247,6 +247,85 @@ Formato de imagen: JPEG. HTML usa `bitmap_mode=inline`.
 
 ---
 
+## 2.6) Modulo: Fillrate (Metodo 4.2)
+
+**Fecha de corte:** Fillrate usa `def_cld` porque el componente de Gini se
+calcula contra `target`, por lo que el analisis se limita a `byvar <= def_cld`.
+
+**Ruta**
+- `src/modules/fillrate/`
+
+**API publica**
+- `%fillrate_run(...)`
+- Parametros de entrada:
+  - `input_caslib=PROC`
+  - `train_table=_train_input`
+  - `oot_table=_oot_input`
+  - `output_caslib=OUT`
+  - `troncal_id`, `scope`, `run_id`
+
+**Nota arquitectonica:** Fillrate compara TRAIN vs OOT. Usa `run_module.sas`
+con `dual_input=1`.
+
+**Inputs tipicos**
+- Dos datasets promovidos: TRAIN y OOT.
+- Variables resueltas desde `config.sas`:
+  - `byvar` - variable temporal
+  - `target` - requerida para el Gini de variables numericas
+  - `def_cld` - fecha maxima de default cerrado
+  - `num_list` / `num_unv`
+  - `cat_list` / `cat_unv`
+
+**Modos de ejecucion**
+- `AUTO`
+  - Segmento: `cfg_segmentos.num_list/cat_list` con fallback a
+    `cfg_troncales.num_unv/cat_unv`
+  - Universo: `cfg_troncales.num_unv/cat_unv`
+  - `target`, `byvar` y `def_cld` salen de `cfg_troncales`
+- `CUSTOM`
+  - `fill_custom_vars_num`
+  - `fill_custom_vars_cat`
+  - `fill_custom_target` (opcional)
+  - `fill_custom_def_cld` (opcional)
+  - `byvar` se mantiene desde `config.sas`
+
+**Calculo**
+- Fillrate general para variables numericas:
+  - `% llenado = N validos / N total`
+  - Los valores dummy numericos se consideran no llenados
+- Fillrate mensual:
+  - numericas y categoricas por `byvar`
+- Gini:
+  - se calcula con `PROC FREQTAB` sobre CASLIB y sin `missing`
+  - la salida relevante es `_SMDCR_`
+  - el reporte expone `Gini=abs(_SMDCR_)`
+
+**Validaciones (contract)**
+- Al menos una lista de variables (`num` o `cat`) no vacia
+- `byvar` definido y presente en TRAIN/OOT
+- `def_cld` definido
+- `target` definido y presente en TRAIN/OOT si hay variables numericas
+- TRAIN y OOT con observaciones despues del filtro `byvar <= def_cld`
+
+**Outputs esperados**
+
+*Modo AUTO (validacion estandar):*
+- `outputs/runs/<run_id>/reports/METOD4.2/fillrate_troncal_X_<scope>_train.html`
+- `outputs/runs/<run_id>/reports/METOD4.2/fillrate_troncal_X_<scope>_oot.html`
+- `outputs/runs/<run_id>/reports/METOD4.2/fillrate_troncal_X_<scope>.xlsx`
+- `outputs/runs/<run_id>/tables/METOD4.2/fill_tX_<scope>_gnrl.sas7bdat`
+- `outputs/runs/<run_id>/tables/METOD4.2/fill_tX_<scope>_mnth.sas7bdat`
+- `outputs/runs/<run_id>/images/METOD4.2/fillrate_troncal_X_<scope>_*.jpeg`
+
+*Modo CUSTOM (analisis exploratorio):*
+- `outputs/runs/<run_id>/experiments/custom_fill_troncal_X_<scope>.*`
+- `outputs/runs/<run_id>/experiments/cx_fill_tX_<scope>_gnrl.sas7bdat`
+- `outputs/runs/<run_id>/experiments/cx_fill_tX_<scope>_mnth.sas7bdat`
+
+**Compatibilidad de contexto**: segmento y universo.
+
+---
+
 ## 3) Modulo: Gini
 
 **Fecha de corte:** Gini usa target/PD/XB, por lo que la fecha maxima de análisis es `def_cld`.
@@ -273,6 +352,47 @@ Formato de imagen: JPEG. HTML usa `bitmap_mode=inline`.
 - Existencia del input.
 - Presencia de columnas requeridas (al menos `target` y score).
 - No vacío (nobs > 0).
+
+**Calculo CAS recomendado (`_SMDCR_`)**
+- Cuando el Gini se calcule directamente sobre una tabla en CASLIB, la via recomendada es `PROC FREQTAB ... / measures;` con `output ... smdcr;`.
+- El estadistico de interes queda en la variable `_SMDCR_` de la tabla de salida.
+- Deben contemplarse dos variantes funcionales, porque incluir o excluir missings cambia la poblacion evaluada y por tanto el valor final de `_SMDCR_`.
+
+Con missings:
+```sas
+proc freqtab data=&caslib_input..&data. noprint missing;
+    tables &target. * &score_var. / measures;
+    output out=gini_freqtab smdcr;
+run;
+```
+
+Sin missings:
+```sas
+proc freqtab data=&caslib_input..&data. noprint;
+    tables &target. * &score_var. / measures;
+    output out=gini_freqtab smdcr;
+run;
+```
+
+Evolutivo por tiempo con missings:
+```sas
+proc freqtab data=&libname_input..t_&rnd._0 noprint missing;
+    by &time;
+    tables &target_input. * &var / measures;
+    output out=gini_&rnd._1 smdcr;
+run;
+```
+
+Evolutivo por tiempo sin missings:
+```sas
+proc freqtab data=&libname_input..t_&rnd._0 noprint;
+    by &time;
+    tables &target_input. * &var / measures;
+    output out=gini_&rnd._1 smdcr;
+run;
+```
+
+- Recomendacion de framework: parametrizar explicitamente si el modulo corre `with_missing=1|0`, para evitar que el resultado quede implicito en la implementacion.
 
 **Outputs esperados**
 - `outputs/runs/<run_id>/tables/gini_*.sas7bdat` (tabla resumen y/o detalle)

@@ -473,6 +473,7 @@ Usado por: `psi` (cubo se acumula via INSERT INTO en work).
 - `PROC SGPLOT data=casuser.x;` (lectura)
 - `PROC PRINT data=casuser.x;` (lectura)
 - `PROC CORR data=casuser.x outp=casuser.y;` (lectura + output)
+- `PROC FREQTAB data=<caslib>.<tabla>; tables <target>*<score> / measures; output out=<tabla> smdcr;` para calcular Gini/Somers' D directo en CASLIB, tanto con `missing` como sin `missing`.
+- `PROC FREQTAB ...; by <time>; ... output out=<tabla> smdcr;` para versiones evolutivas por tiempo sobre datos ya disponibles en CAS/work segun el flujo del modulo.
 - `DATA work.x; SET casuser.y;` (CAS → work, unidireccional)
 - `DATA casuser.x; SET work.y;` (work → CAS, unidireccional)
-

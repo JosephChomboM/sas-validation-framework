@@ -21,7 +21,7 @@ Método 6: precision
 
 /* ========= Método 4.2 - Estabilidad / Distribución ==================== */
 /* %let run_estabilidad = 1; */
-/* %let run_fillrate    = 1; */
+%let run_fillrate=%sysfunc(coalescec(%superq(_id_run_fillrate), 0));
 /* %let run_missings    = 1; */
 %let run_psi=&_id_run_psi.;
 %let run_monotonicidad=%sysfunc(coalescec(%superq(_id_run_monotonicidad), 0));
