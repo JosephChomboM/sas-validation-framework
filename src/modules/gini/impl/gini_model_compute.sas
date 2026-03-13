@@ -94,56 +94,75 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
 %macro _gini_model_monthly_split(data=, split=, target=, score=, byvar=,
     with_missing=1, model_low=, model_high=, out=work._gini_model_month_split);
 
-    proc sql noprint;
-        create table work._gini_model_cnt as
-        select "&split." as Split length=5,
-            &byvar. as Periodo,
-            count(*) as N_Total,
-            sum(&target.) as N_Default,
-            sum(1-&target.) as N_No_Default,
-            calculated N_Default / calculated N_Total as Tasa_Default
-                format=percent8.2
-        from &data.
-        group by &byvar.;
-    quit;
-
-    %_gini_count_rows_by(data=&data., target=&target., score=&score.,
-        byvar=&byvar., with_missing=&with_missing., out=work._gini_model_ng);
-
-    %_gini_freqtab_by(data=&data., target=&target., score=&score.,
-        byvar=&byvar., with_missing=&with_missing., out=work._gini_model_ftb);
-
-    proc sql noprint;
-        create table &out. as
-        select c.Split,
-            c.Periodo,
-            c.N_Total,
-            c.N_Default,
-            c.N_No_Default,
-            c.Tasa_Default,
-            n.N_Gini,
-            f._SMDCR_ as Smdcr_Raw format=8.4,
-            abs(f._SMDCR_) as Gini format=8.4
-        from work._gini_model_cnt c
-        left join work._gini_model_ng n
-            on c.Periodo=n.&byvar.
-        left join work._gini_model_ftb f
-            on c.Periodo=f.&byvar.
-        order by c.Periodo;
-    quit;
-
     data &out.;
-        set &out.;
-        length Evaluacion $15;
-        if missing(Gini) then Evaluacion="SIN DATOS";
-        else if Gini >= &model_high. then Evaluacion="SATISFACTORIO";
-        else if Gini >= &model_low. then Evaluacion="ACEPTABLE";
-        else Evaluacion="BAJO";
+        length Split $5 Periodo 8 N_Total N_Default N_No_Default N_Gini 8
+            Tasa_Default Gini Smdcr_Raw 8 Evaluacion $15;
+        format Tasa_Default percent8.2 Gini Smdcr_Raw 8.4;
+        stop;
     run;
 
-    proc datasets library=work nolist nowarn;
-        delete _gini_model_cnt _gini_model_ng _gini_model_ftb;
+    %local _n_periods _i _period _n_gini _smdcr;
+    proc sql noprint;
+        select distinct &byvar. into :_gini_prd1- from &data. order by &byvar.;
+        %let _n_periods=&sqlobs.;
     quit;
+
+    %do _i=1 %to &_n_periods.;
+        %let _period=&&_gini_prd&_i.;
+        %_gini_count_rows(data=&data.(where=(&byvar.=&_period.)),
+            target=&target., score=&score., with_missing=&with_missing.,
+            outvar=_n_gini);
+        %let _smdcr=.;
+
+        %if %sysfunc(inputn(&_n_gini., best32.)) > 0 %then %do;
+            %_gini_freqtab_general(data=&data.(where=(&byvar.=&_period.)),
+                target=&target., score=&score., with_missing=&with_missing.,
+                out=work._gini_model_ftb);
+            %if %sysfunc(exist(work._gini_model_ftb)) %then %do;
+                proc sql noprint;
+                    select max(_SMDCR_) into :_smdcr trimmed from
+                        work._gini_model_ftb;
+                quit;
+            %end;
+        %end;
+
+        proc sql noprint;
+            create table work._gini_model_row as
+            select "&split." as Split length=5,
+                &_period. as Periodo,
+                count(*) as N_Total,
+                sum(&target.) as N_Default,
+                sum(1-&target.) as N_No_Default,
+                calculated N_Default / calculated N_Total as Tasa_Default
+                    format=percent8.2
+            from &data.
+            where &byvar.=&_period.;
+        quit;
+
+        data work._gini_model_row;
+            set work._gini_model_row;
+            length Evaluacion $15;
+            N_Gini=input(symget('_n_gini'), best32.);
+            Smdcr_Raw=input(symget('_smdcr'), best32.);
+            Gini=abs(Smdcr_Raw);
+            if missing(Gini) then Evaluacion="SIN DATOS";
+            else if Gini >= &model_high. then Evaluacion="SATISFACTORIO";
+            else if Gini >= &model_low. then Evaluacion="ACEPTABLE";
+            else Evaluacion="BAJO";
+            format Gini Smdcr_Raw 8.4;
+        run;
+
+        proc append base=&out. data=work._gini_model_row force;
+        run;
+
+        proc datasets library=work nolist nowarn;
+            delete _gini_model_ftb _gini_model_row;
+        quit;
+    %end;
+
+    proc sort data=&out.;
+        by Periodo;
+    run;
 
 %mend _gini_model_monthly_split;
 

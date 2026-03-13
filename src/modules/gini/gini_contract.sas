@@ -6,6 +6,7 @@ Verifica:
 - target, score, byvar y def_cld definidos
 - target, score y byvar existen en ambas tablas
 - hay observaciones luego del filtro byvar <= def_cld
+- target tiene al menos dos clases luego del filtro
 ========================================================================= */
 %macro gini_contract(input_caslib=, train_table=, oot_table=, target=, score=,
     byvar=, def_cld=);
@@ -13,7 +14,7 @@ Verifica:
     %let _gini_rc=0;
 
     %local _gini_nobs_trn _gini_nobs_oot _gini_has_col _gini_filt_trn
-        _gini_filt_oot;
+        _gini_filt_oot _gini_levels_trn _gini_levels_oot;
 
     %if %length(%superq(target))=0 %then %do;
         %put ERROR: [gini_contract] target no definido.;
@@ -89,10 +90,16 @@ Verifica:
     proc sql noprint;
         select count(*) into :_gini_filt_trn trimmed from
             &input_caslib..&train_table.
-            where &byvar. <= &def_cld.;
+            where &byvar. <= &def_cld. and not missing(&target.);
         select count(*) into :_gini_filt_oot trimmed from
             &input_caslib..&oot_table.
-            where &byvar. <= &def_cld.;
+            where &byvar. <= &def_cld. and not missing(&target.);
+        select count(distinct &target.) into :_gini_levels_trn trimmed from
+            &input_caslib..&train_table.
+            where &byvar. <= &def_cld. and not missing(&target.);
+        select count(distinct &target.) into :_gini_levels_oot trimmed from
+            &input_caslib..&oot_table.
+            where &byvar. <= &def_cld. and not missing(&target.);
     quit;
 
     %if &_gini_filt_trn.=0 %then %do;
@@ -105,6 +112,20 @@ Verifica:
     %if &_gini_filt_oot.=0 %then %do;
         %put ERROR: [gini_contract] OOT sin observaciones con &byvar. <=
             &def_cld.;
+        %let _gini_rc=1;
+        %return;
+    %end;
+
+    %if &_gini_levels_trn. < 2 %then %do;
+        %put ERROR: [gini_contract] TRAIN no tiene al menos dos clases de
+            target luego del filtro temporal.;
+        %let _gini_rc=1;
+        %return;
+    %end;
+
+    %if &_gini_levels_oot. < 2 %then %do;
+        %put ERROR: [gini_contract] OOT no tiene al menos dos clases de
+            target luego del filtro temporal.;
         %let _gini_rc=1;
         %return;
     %end;

@@ -26,20 +26,20 @@ CUSTOM -> permite override de vars, target, score y def_cld.
 Default requerido: 1 */
 %let gini_with_missing=1;
 
-/* Overrides opcionales de umbrales                                        */
+/* Overrides opcionales de umbrales                                       */
 %let gini_threshold_model_low=;
 %let gini_threshold_model_high=;
 %let gini_threshold_var_low=0.05;
 %let gini_threshold_var_high=0.15;
 
-/* Reglas complementarias                                                  */
+/* Reglas complementarias                                                 */
 %let gini_min_n_valid=30;
 %let gini_delta_warn=0.05;
 %let gini_trend_delta=0.03;
 %let gini_plot_top_n=10;
 
-/* Overrides CUSTOM                                                        */
-%let gini_custom_vars_num=;
+/* Overrides CUSTOM                                                       */
+%let gini_custom_vars_num=%superq(_id_custom_vars_num);
 %let gini_custom_target=;
 %let gini_custom_score_var=;
 %let gini_custom_def_cld=;

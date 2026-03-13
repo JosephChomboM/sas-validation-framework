@@ -213,6 +213,7 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
 
     ods excel close;
     ods html5 close;
+    ods graphics / reset=all;
     ods graphics off;
 
 %mend _gini_report;

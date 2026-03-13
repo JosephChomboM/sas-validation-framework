@@ -40,7 +40,7 @@ gini_common.sas - Utilidades reutilizables para Gini con PROC FREQTAB
                 ni en OOT y sera omitida.;
         %end;
         %else %if &_exists_train.=0 %then %do;
-            %put WARNING: [gini_variables] Variable &_var. no existe en TRAIN;
+            %put WARNING: [gini_variables] Variable &_var. no existe en TRAIN.;
             %put WARNING: [gini_variables] Variable &_var. se calculara solo
                 en OOT.;
         %end;
@@ -76,24 +76,6 @@ gini_common.sas - Utilidades reutilizables para Gini con PROC FREQTAB
     %end;
 %mend _gini_freqtab_general;
 
-%macro _gini_freqtab_by(data=, target=, score=, byvar=, with_missing=1,
-    out=work._gini_freqtab_by);
-    %if &with_missing.=1 %then %do;
-        proc freqtab data=&data. noprint missing;
-            by &byvar.;
-            tables &target. * &score. / measures;
-            output out=&out. smdcr;
-        run;
-    %end;
-    %else %do;
-        proc freqtab data=&data. noprint;
-            by &byvar.;
-            tables &target. * &score. / measures;
-            output out=&out. smdcr;
-        run;
-    %end;
-%mend _gini_freqtab_by;
-
 %macro _gini_count_rows(data=, target=, score=, with_missing=1,
     outvar=_gini_n);
     %if &with_missing.=1 %then %do;
@@ -109,25 +91,3 @@ gini_common.sas - Utilidades reutilizables para Gini con PROC FREQTAB
         quit;
     %end;
 %mend _gini_count_rows;
-
-%macro _gini_count_rows_by(data=, target=, score=, byvar=, with_missing=1,
-    out=work._gini_n_by);
-    %if &with_missing.=1 %then %do;
-        proc sql noprint;
-            create table &out. as
-            select &byvar., count(*) as N_Gini
-            from &data.
-            where not missing(&target.)
-            group by &byvar.;
-        quit;
-    %end;
-    %else %do;
-        proc sql noprint;
-            create table &out. as
-            select &byvar., count(*) as N_Gini
-            from &data.
-            where not missing(&target.) and not missing(&score.)
-            group by &byvar.;
-        quit;
-    %end;
-%mend _gini_count_rows_by;

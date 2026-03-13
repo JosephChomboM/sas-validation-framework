@@ -88,38 +88,48 @@ gini_plot.sas - Graficos para Gini del modelo y variables
 %macro _gini_plot_var_trends(detail=, summary=, split=TRAIN, top_n=10,
     var_low=, var_high=);
 
-    %local _nvars _i _var;
-
-    proc sql noprint outobs=&top_n.;
-        select Variable into :_gini_plot_v1-
+    proc sql outobs=&top_n.;
+        create table work._gini_top_vars as
+        select Variable
         from &summary.
         where Split="&split." and not missing(Gini_Promedio)
         order by Gini_Promedio desc;
-        %let _nvars=&sqlobs.;
     quit;
 
-    %do _i=1 %to &_nvars.;
-        %let _var=&&_gini_plot_v&_i.;
-        proc sgplot data=&detail.(where=(Split="&split." and Variable="&_var." and not missing(Gini)));
-            title "GINI Variable - &split.: &_var.";
-            vbar Periodo / response=N_Total transparency=0.7 barwidth=0.5
-                fillattrs=(color=gray) name='bar' legendlabel='Cuentas';
-            vline Periodo / response=Gini markers
-                markerattrs=(symbol=circlefilled color=black size=10px)
-                lineattrs=(thickness=0 color=black)
-                y2axis name='line' legendlabel='Gini';
-            refline &var_low. / axis=y2
-                lineattrs=(color=orange pattern=2 thickness=2)
-                name='acep' legendlabel='Aceptable';
-            refline &var_high. / axis=y2
-                lineattrs=(color=limegreen pattern=2 thickness=2)
-                name='sat' legendlabel='Satisfactorio';
-            yaxis label='Cuentas' min=0;
-            y2axis label='Gini' min=0 max=1;
-            xaxis label='Periodo' type=discrete;
-            keylegend 'bar' 'line' 'acep' 'sat' / position=bottom noborder;
+    proc sql noprint;
+        create table work._gini_panel_plot as
+        select d.Variable, d.Periodo, d.Gini
+        from &detail. d
+        inner join work._gini_top_vars t
+            on d.Variable=t.Variable
+        where d.Split="&split." and not missing(d.Gini)
+        order by d.Variable, d.Periodo;
+    quit;
+
+    %local _panel_n;
+    %let _panel_n=0;
+    proc sql noprint;
+        select count(*) into :_panel_n trimmed from work._gini_panel_plot;
+    quit;
+
+    %if &_panel_n. > 0 %then %do;
+        proc sgpanel data=work._gini_panel_plot;
+            title "Tendencia GINI Variables - &split.";
+            panelby Variable / columns=2 novarname;
+            series x=Periodo y=Gini / markers
+                lineattrs=(thickness=2 color=black);
+            refline &var_low. / axis=y
+                lineattrs=(color=orange pattern=2 thickness=2);
+            refline &var_high. / axis=y
+                lineattrs=(color=limegreen pattern=2 thickness=2);
+            colaxis label='Periodo' type=discrete;
+            rowaxis label='Gini' min=0 max=1;
         run;
         title;
     %end;
+
+    proc datasets library=work nolist nowarn;
+        delete _gini_top_vars _gini_panel_plot;
+    quit;
 
 %mend _gini_plot_var_trends;

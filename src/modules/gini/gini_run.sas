@@ -94,13 +94,17 @@ Implementacion:
 
     %if %upcase(&gini_mode.)=CUSTOM %then %do;
         %let _gini_is_custom=1;
-
         %if %length(%superq(gini_custom_vars_num)) > 0 %then
             %let _gini_vars_num=&gini_custom_vars_num.;
         %if %length(%superq(gini_custom_target)) > 0 %then
             %let _gini_target=&gini_custom_target.;
         %if %length(%superq(gini_custom_def_cld)) > 0 %then
             %let _gini_def_cld=&gini_custom_def_cld.;
+    %end;
+
+    %if %upcase(&gini_score_source.)=CUSTOM and
+        %length(%superq(gini_custom_score_var)) > 0 %then %do;
+        %let _gini_is_custom=1;
     %end;
 
     %if %length(%superq(_gini_vars_num))=0 %then %do;
@@ -204,13 +208,15 @@ Implementacion:
     proc fedsql sessref=conn;
         create table casuser._gini_train {options replace=true} as
             select * from &input_caslib..&train_table.
-            where &_gini_byvar. <= &_gini_def_cld.;
+            where &_gini_byvar. <= &_gini_def_cld. and
+                &_gini_target. is not null;
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._gini_oot {options replace=true} as
             select * from &input_caslib..&oot_table.
-            where &_gini_byvar. <= &_gini_def_cld.;
+            where &_gini_byvar. <= &_gini_def_cld. and
+                &_gini_target. is not null;
     quit;
 
     %_gini_partition_vars(train_data=casuser._gini_train,
