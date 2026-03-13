@@ -134,12 +134,11 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
 
     data &out.;
         set &out.;
-        length Evaluacion $15 Tendencia $15;
+        length Evaluacion $15;
         if missing(Gini) then Evaluacion="SIN DATOS";
         else if Gini >= &model_high. then Evaluacion="SATISFACTORIO";
         else if Gini >= &model_low. then Evaluacion="ACEPTABLE";
         else Evaluacion="BAJO";
-        Tendencia="";
     run;
 
     proc datasets library=work nolist nowarn;

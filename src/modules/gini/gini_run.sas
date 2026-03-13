@@ -28,7 +28,9 @@ Implementacion:
     %local _gini_vars_num _gini_target _gini_score _gini_pd _gini_xb
         _gini_byvar _gini_def_cld _gini_is_custom _scope_abbr _report_path
         _images_path _tables_path _file_prefix _tbl_prefix _seg_num _dir_rc
-        _gini_model_low _gini_model_high _gini_var_low _gini_var_high;
+        _gini_model_low _gini_model_high _gini_var_low _gini_var_high
+        _gini_model_type _gini_vars_train _gini_vars_oot _gini_vars_shared
+        _gini_has_model_type_col;
 
     %put NOTE:======================================================;
     %put NOTE: [gini_run] INICIO;
@@ -47,6 +49,10 @@ Implementacion:
     %let _gini_byvar=;
     %let _gini_def_cld=;
     %let _gini_is_custom=0;
+    %let _gini_model_type=BHV;
+    %let _gini_vars_train=;
+    %let _gini_vars_oot=;
+    %let _gini_vars_shared=;
 
     proc sql noprint;
         select strip(target) into :_gini_target trimmed from
@@ -60,6 +66,31 @@ Implementacion:
         select strip(put(def_cld, best.)) into :_gini_def_cld trimmed from
             casuser.cfg_troncales where troncal_id=&troncal_id.;
     quit;
+
+    %let _gini_has_model_type_col=0;
+    proc sql noprint;
+        select count(*) into :_gini_has_model_type_col trimmed
+        from dictionary.columns
+        where upcase(libname)='CASUSER' and upcase(memname)='CFG_TRONCALES' and
+            upcase(name)='MODEL_TYPE';
+    quit;
+
+    %if &_gini_has_model_type_col. > 0 %then %do;
+        proc sql noprint;
+            select strip(model_type) into :_gini_model_type trimmed from
+                casuser.cfg_troncales where troncal_id=&troncal_id.;
+        quit;
+    %end;
+    %else %do;
+        %put WARNING: [gini_run] cfg_troncales no tiene columna
+            model_type. Se usa fallback BHV.;
+    %end;
+
+    %if %length(%superq(_gini_model_type))=0 %then %do;
+        %let _gini_model_type=BHV;
+        %put WARNING: [gini_run] model_type vacio para troncal
+            &troncal_id.. Se usa fallback BHV.;
+    %end;
 
     %if %upcase(&gini_mode.)=CUSTOM %then %do;
         %let _gini_is_custom=1;
@@ -106,7 +137,7 @@ Implementacion:
         %else %let _gini_score=&_gini_xb.;
     %end;
 
-    %if %upcase(&gini_model_type.)=BHV %then %do;
+    %if %upcase(&_gini_model_type.)=BHV %then %do;
         %let _gini_model_low=0.50;
         %let _gini_model_high=0.60;
     %end;
@@ -130,6 +161,7 @@ Implementacion:
 
     %put NOTE: [gini_run] target=&_gini_target. score=&_gini_score.
         byvar=&_gini_byvar. def_cld=&_gini_def_cld.;
+    %put NOTE: [gini_run] model_type=&_gini_model_type.;
     %put NOTE: [gini_run] vars_num=&_gini_vars_num.;
     %put NOTE: [gini_run] threshold_model=&_gini_model_low./&_gini_model_high.;
     %put NOTE: [gini_run] threshold_var=&_gini_var_low./&_gini_var_high.;
@@ -181,6 +213,11 @@ Implementacion:
             where &_gini_byvar. <= &_gini_def_cld.;
     quit;
 
+    %_gini_partition_vars(train_data=casuser._gini_train,
+        oot_data=casuser._gini_oot, vars_num=&_gini_vars_num.,
+        out_train=_gini_vars_train, out_oot=_gini_vars_oot,
+        out_shared=_gini_vars_shared);
+
     %_gini_model_general(train_data=casuser._gini_train,
         oot_data=casuser._gini_oot, target=&_gini_target.,
         score=&_gini_score., with_missing=&gini_with_missing.,
@@ -196,7 +233,8 @@ Implementacion:
 
     %_gini_variables_general(train_data=casuser._gini_train,
         oot_data=casuser._gini_oot, target=&_gini_target.,
-        vars_num=&_gini_vars_num., with_missing=&gini_with_missing.,
+        vars_num_train=&_gini_vars_train., vars_num_oot=&_gini_vars_oot.,
+        with_missing=&gini_with_missing.,
         min_n_valid=&gini_min_n_valid., var_low=&_gini_var_low.,
         var_high=&_gini_var_high., out=casuser._gini_vars_general);
 
@@ -205,7 +243,8 @@ Implementacion:
 
     %_gini_variables_monthly(train_data=casuser._gini_train,
         oot_data=casuser._gini_oot, target=&_gini_target.,
-        vars_num=&_gini_vars_num., byvar=&_gini_byvar.,
+        vars_num_train=&_gini_vars_train., vars_num_oot=&_gini_vars_oot.,
+        byvar=&_gini_byvar.,
         with_missing=&gini_with_missing., min_n_valid=&gini_min_n_valid.,
         var_low=&_gini_var_low., var_high=&_gini_var_high.,
         out=casuser._gini_vars_detail);

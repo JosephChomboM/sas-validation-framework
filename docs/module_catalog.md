@@ -363,6 +363,7 @@ la fecha maxima de analisis es `def_cld`.
   - `pd` y `xb`
   - `byvar`
   - `def_cld`
+  - `model_type`
   - `num_list` / `num_unv`
 
 **Modos de ejecucion**
@@ -384,7 +385,6 @@ la fecha maxima de analisis es `def_cld`.
   - `1` = incluir missings
   - `0` = excluir missings
   - default recomendado del modulo: `1`
-- `gini_model_type=APP|BHV`
 - `gini_threshold_model_low/high`
 - `gini_threshold_var_low/high`
 - `gini_min_n_valid`

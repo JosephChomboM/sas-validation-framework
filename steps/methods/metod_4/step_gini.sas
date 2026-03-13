@@ -26,9 +26,6 @@ CUSTOM -> permite override de vars, target, score y def_cld.
 Default requerido: 1 */
 %let gini_with_missing=1;
 
-/* Perfil de umbrales del modelo: APP | BHV                               */
-%let gini_model_type=BHV;
-
 /* Overrides opcionales de umbrales                                        */
 %let gini_threshold_model_low=;
 %let gini_threshold_model_high=;

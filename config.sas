@@ -24,6 +24,7 @@ data casuser.cfg_troncales;
 	xb              $64
 	monto           $64
 	byvar           $64
+	model_type      $8
 	train_min_mes   8
 	train_max_mes   8
 	oot_min_mes     8
@@ -45,6 +46,7 @@ data casuser.cfg_troncales;
 	xb              = "PD_MOD_CLI_DEP_2Q24";
 	monto           = "Monto_dummy";
 	byvar           = "CODMES";
+	model_type      = "BHV";
 
 	train_min_mes   = 202301;
 	train_max_mes   = 202310;
@@ -70,6 +72,7 @@ data casuser.cfg_troncales;
 	xb              = "PD_MOD_CLI_DEP_2Q24";
 	monto           = "Monto_dummy";
 	byvar           = "CODMES";
+	model_type      = "BHV";
 
 	train_min_mes   = 202301;
 	train_max_mes   = 202308;
