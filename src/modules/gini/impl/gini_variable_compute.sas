@@ -164,7 +164,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         from (select * from work._gini_vars_general_w where Split="TRAIN") t
         full join (select * from work._gini_vars_general_w where Split="OOT") o
             on t.Variable=o.Variable
-        order by Rank_Train, Variable;
+        order by Variable;
     quit;
 
     data &out.;
@@ -190,82 +190,120 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 
     %if %length(%superq(vars_num))=0 %then %return;
 
-    %local _i _var _n_periods _j _period _n_gini _smdcr;
+    data work._gini_var_src;
+        set &data.;
+    run;
+
+    proc sort data=work._gini_var_src;
+        by &byvar.;
+    run;
+
+    %local _i _var;
     %let _i=1;
     %let _var=%scan(&vars_num., &_i., %str( ));
 
     %do %while(%length(&_var.) > 0);
         proc sql noprint;
-            select distinct &byvar. into :_gini_vprd1- from &data.
-                order by &byvar.;
-            %let _n_periods=&sqlobs.;
+            create table work._gini_var_cnt as
+            select "%upcase(&_var.)" as Variable length=64,
+                "&split." as Split length=5,
+                &byvar. as Periodo,
+                count(*) as N_Total,
+                sum(case when not missing(&_var.) then 1 else 0 end)
+                    as N_Valid,
+                sum(&target.) as N_Default
+            from work._gini_var_src
+            group by &byvar.
+            order by &byvar.;
         quit;
 
-        %do _j=1 %to &_n_periods.;
-            %let _period=&&_gini_vprd&_j.;
-            %_gini_count_rows(data=&data.(where=(&byvar.=&_period.)),
-                target=&target., score=&_var., with_missing=&with_missing.,
-                outvar=_n_gini);
-            %let _smdcr=.;
-
-            %if %sysfunc(inputn(&_n_gini., best32.)) >= &min_n_valid. %then %do;
-                %_gini_freqtab_general(data=&data.(where=(&byvar.=&_period.)),
-                    target=&target., score=&_var.,
-                    with_missing=&with_missing., out=work._gini_var_ftb);
-                %if %sysfunc(exist(work._gini_var_ftb)) %then %do;
-                    proc sql noprint;
-                        select max(_SMDCR_) into :_smdcr trimmed from
-                            work._gini_var_ftb;
-                    quit;
-                %end;
-            %end;
-
+        %if &with_missing.=1 %then %do;
             proc sql noprint;
-                create table work._gini_var_row as
-                select "%upcase(&_var.)" as Variable length=64,
-                    "&split." as Split length=5,
-                    &_period. as Periodo,
-                    count(*) as N_Total,
-                    sum(case when not missing(&_var.) then 1 else 0 end)
-                        as N_Valid,
-                    sum(&target.) as N_Default
-                from &data.
-                where &byvar.=&_period.;
+                create table work._gini_var_ng as
+                select &byvar. as Periodo,
+                    count(*) as N_Gini
+                from work._gini_var_src
+                where not missing(&target.)
+                group by &byvar.
+                order by &byvar.;
             quit;
 
-            data work._gini_var_row;
-                set work._gini_var_row;
-                length Evaluacion $15;
-                N_Gini=input(symget('_n_gini'), best32.);
-                Smdcr_Raw=input(symget('_smdcr'), best32.);
-                Gini=abs(Smdcr_Raw);
-                if N_Gini < &min_n_valid. then do;
-                    Smdcr_Raw=.;
-                    Gini=.;
-                    Evaluacion="MIN DATOS";
-                end;
-                else if missing(Gini) then Evaluacion="SIN DATOS";
-                else if Gini >= &var_high. then Evaluacion="SATISFACTORIO";
-                else if Gini >= &var_low. then Evaluacion="ACEPTABLE";
-                else Evaluacion="BAJO";
-                format Gini Smdcr_Raw 8.4;
+            proc freqtab data=work._gini_var_src noprint missing;
+                by &byvar.;
+                tables &target. * &_var. / measures;
+                output out=work._gini_var_ftb smdcr;
             run;
-
-            proc append base=&out. data=work._gini_var_row force;
-            run;
-
-            proc datasets library=work nolist nowarn;
-                delete _gini_var_ftb _gini_var_row;
-            quit;
         %end;
+        %else %do;
+            proc sql noprint;
+                create table work._gini_var_ng as
+                select &byvar. as Periodo,
+                    count(*) as N_Gini
+                from work._gini_var_src
+                where not missing(&target.) and not missing(&_var.)
+                group by &byvar.
+                order by &byvar.;
+            quit;
+
+            proc freqtab data=work._gini_var_src noprint;
+                by &byvar.;
+                tables &target. * &_var. / measures;
+                output out=work._gini_var_ftb smdcr;
+            run;
+        %end;
+
+        proc sql noprint;
+            create table work._gini_var_row as
+            select c.Variable,
+                c.Split,
+                c.Periodo,
+                c.N_Total,
+                c.N_Valid,
+                c.N_Default,
+                n.N_Gini,
+                f._SMDCR_ as Smdcr_Raw format=8.4,
+                abs(f._SMDCR_) as Gini format=8.4
+            from work._gini_var_cnt c
+            left join work._gini_var_ng n
+                on c.Periodo=n.Periodo
+            left join work._gini_var_ftb f
+                on c.Periodo=f.&byvar.
+            order by c.Periodo;
+        quit;
+
+        data work._gini_var_row;
+            set work._gini_var_row;
+            length Evaluacion $15;
+            if N_Gini < &min_n_valid. then do;
+                Smdcr_Raw=.;
+                Gini=.;
+                Evaluacion="MIN DATOS";
+            end;
+            else if missing(Gini) then Evaluacion="SIN DATOS";
+            else if Gini >= &var_high. then Evaluacion="SATISFACTORIO";
+            else if Gini >= &var_low. then Evaluacion="ACEPTABLE";
+            else Evaluacion="BAJO";
+            format Gini Smdcr_Raw 8.4;
+        run;
+
+        proc append base=&out. data=work._gini_var_row force;
+        run;
+
+        proc datasets library=work nolist nowarn;
+            delete _gini_var_cnt _gini_var_ng _gini_var_ftb _gini_var_row;
+        quit;
 
         %let _i=%eval(&_i. + 1);
         %let _var=%scan(&vars_num., &_i., %str( ));
     %end;
 
     proc sort data=&out.;
-        by Split Variable Periodo;
+        by Variable Periodo;
     run;
+
+    proc datasets library=work nolist nowarn;
+        delete _gini_var_src;
+    quit;
 
 %mend _gini_variables_monthly_split;
 
@@ -359,7 +397,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         left join work._gini_vars_detail_w l
             on a.Variable=l.Variable and a.Split=l.Split and
             a.Last_Period=l.Periodo
-        order by a.Split, a.Gini_Promedio desc, a.Variable;
+        order by a.Variable;
     quit;
 
     data &out.;
