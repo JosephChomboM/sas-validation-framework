@@ -1,0 +1,2673 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>WF Scoring VI</title>
+	<!-- TailwindCSS -->
+	<script src="https://cdn.tailwindcss.com"></script>
+	<!-- Font Awesome (opcional) -->
+	<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
+
+	<style>
+		/* Custom scrollbar */
+		::-webkit-scrollbar {
+			width: 6px;
+			height: 6px;
+		}
+
+		::-webkit-scrollbar-track {
+			background: #f1f1f1;
+			border-radius: 10px;
+		}
+
+		::-webkit-scrollbar-thumb {
+			background: #888;
+			border-radius: 10px;
+		}
+
+		::-webkit-scrollbar-thumb:hover {
+			background: #555;
+		}
+
+		/* Panel heights */
+		.sidebar-panel {
+			max-height: calc(100vh - 200px);
+			overflow-y: auto;
+		}
+
+		/* Toast notifications */
+		.toast {
+			animation: toast-in-right 0.7s, toast-out-right 0.7s 2.3s forwards;
+		}
+
+		@keyframes toast-in-right {
+			from {
+				transform: translateX(100%);
+				opacity: 0;
+			}
+
+			to {
+				transform: translateX(0);
+				opacity: 1;
+			}
+		}
+
+		@keyframes toast-out-right {
+			from {
+				transform: translateX(0);
+				opacity: 1;
+			}
+
+			to {
+				transform: translateX(100%);
+				opacity: 0;
+			}
+		}
+	</style>
+</head>
+
+<body class="bg-gray-100 font-sans text-gray-800">
+	<!-- Header -->
+	<header class="bg-gradient-to-r from-blue-700 to-blue-900 shadow-lg">
+		<div class="container mx-auto px-4 py-4 flex flex-col gap-4 lg:flex-row lg:justify-between lg:items-center">
+			<!-- Título -->
+			<div class="flex items-center space-x-4">
+				<div class="bg-white bg-opacity-10 rounded-full p-2">
+					<i class="fas fa-chart-line text-white text-xl"></i>
+				</div>
+				<h1 class="text-2xl font-bold text-white">
+					WF Scoring VI Configurator
+				</h1>
+			</div>
+			<!-- Botones principales -->
+			<div class="flex flex-wrap items-center gap-3 lg:justify-end">
+				<!-- Botón para cargar config (JSON) -->
+				<button id="btnLoadConfig"
+					class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg transition duration-200 flex items-center min-h-[44px]">
+					<i class="fas fa-folder-open mr-2"></i> Cargar Config
+				</button>
+				<!-- Botón para agregar troncales -->
+				<button onclick="abrirAddTroncalModal()"
+					class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg transition duration-200 flex items-center min-h-[44px]">
+					<i class="fas fa-plus mr-2"></i> Agregar Troncal
+				</button>
+				<!-- Botón para mostrar modal con Código SAS -->
+				<button onclick="abrirSASModal()"
+					class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg transition duration-200 flex items-center min-h-[44px]">
+					<i class="fas fa-download mr-2"></i> Descargar Config & SAS
+				</button>
+			</div>
+		</div>
+	</header>
+
+	<!-- Modal Agregar Troncal(es) -->
+	<div id="addTroncalModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+		<div class="bg-white rounded-xl p-6 max-w-sm mx-4 shadow-2xl">
+			<h3 class="text-lg font-bold text-gray-900 mb-3">
+				Agregar Troncal(es)
+			</h3>
+			<label class="block text-sm font-medium text-gray-700 mb-1">
+				¿Cuántas troncales deseas agregar?
+			</label>
+			<input type="number" id="n_troncales_modal" value="1" min="1"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+			<div class="flex justify-end gap-3 mt-4">
+				<button onclick="cerrarAddTroncalModal()"
+					class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-800">
+					Cancelar
+				</button>
+				<button onclick="confirmarAgregarTroncal()"
+					class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white">
+					Agregar
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Confirmation Modal (para eliminar troncal) -->
+	<div id="confirmation-modal"
+		class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+		<div class="bg-white rounded-xl p-6 max-w-md mx-4 shadow-2xl">
+			<h3 class="text-lg font-bold text-gray-900 mb-3">Confirmar acción</h3>
+			<p id="modal-message" class="text-gray-700 mb-6">
+				¿Está seguro de realizar esta acción?
+			</p>
+			<div class="flex justify-end gap-3">
+				<button id="modal-cancel" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-800">
+					Cancelar
+				</button>
+				<button id="modal-confirm" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white">
+					Confirmar
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<div id="segment-edit-modal"
+		class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+		<div class="bg-white rounded-xl p-6 max-w-3xl mx-4 shadow-2xl w-full">
+			<div class="flex items-start justify-between gap-4 mb-4">
+				<div>
+					<h3 id="segment-edit-modal-title" class="text-lg font-bold text-gray-900">
+						Editar Segmento
+					</h3>
+					<p class="text-sm text-gray-500 mt-1">
+						Estos campos alimentan la tabla <span class="font-mono">casuser.cfg_segmentos</span>.
+					</p>
+				</div>
+				<button onclick="closeSegmentEditModal()" class="text-gray-400 hover:text-gray-600 min-h-[44px] min-w-[44px]">
+					<i class="fas fa-xmark text-lg"></i>
+				</button>
+			</div>
+
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-1">Variables Numéricas</label>
+					<textarea id="segment-edit-num" rows="6"
+						class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+						placeholder="Ej: VAR1 VAR2 VAR3"></textarea>
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-1">Variables Categóricas</label>
+					<textarea id="segment-edit-cat" rows="6"
+						class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+						placeholder="Ej: SEGMENTO REGION"></textarea>
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-1">Drivers Numéricos</label>
+					<textarea id="segment-edit-dri-num" rows="6"
+						class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+						placeholder="Ej: DRIVER_NUM_1 DRIVER_NUM_2"></textarea>
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-1">Drivers Categóricos</label>
+					<textarea id="segment-edit-dri-cat" rows="6"
+						class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+						placeholder="Ej: DRIVER_CAT_1 DRIVER_CAT_2"></textarea>
+				</div>
+			</div>
+
+			<div class="flex justify-end gap-3 mt-6">
+				<button onclick="closeSegmentEditModal()"
+					class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-800 min-h-[44px]">
+					Cancelar
+				</button>
+				<button onclick="saveSegmentEdit()"
+					class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-white min-h-[44px]">
+					Guardar
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Modal para ver el Código SAS y descargar ambos archivos -->
+	<div id="sasModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+		<div class="bg-white rounded-xl p-6 max-w-2xl mx-4 shadow-2xl w-full">
+			<h3 class="text-xl font-semibold mb-4">Código SAS (Auto-Generado)</h3>
+			<textarea id="output" rows="20"
+				class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				readonly></textarea>
+			<div class="flex justify-end gap-3 mt-4">
+				<button onclick="cerrarSASModal()"
+					class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-800">
+					Volver
+				</button>
+				<button onclick="descargarAmbos()"
+					class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-white">
+					Descargar
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Main Container -->
+	<div class="container mx-auto px-4 py-6">
+		<div class="bg-white rounded-xl shadow-md p-4 mb-6">
+			<div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+				<div class="max-w-3xl">
+					<h2 class="text-lg font-medium text-gray-700 mb-1">
+						Configuración General
+					</h2>
+					<p class="text-sm text-gray-500 leading-6">
+						El formulario genera únicamente la estructura de <span class="font-mono">config.sas</span>:
+						<span class="font-mono">casuser.cfg_troncales</span> y <span class="font-mono">casuser.cfg_segmentos</span>.
+					</p>
+				</div>
+				<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+					<div class="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 min-w-[120px]">
+						<div class="text-xs uppercase tracking-wide text-blue-700 font-semibold">Troncales</div>
+						<div id="summary-troncales" class="text-2xl font-bold text-blue-900">0</div>
+					</div>
+					<div class="rounded-xl bg-indigo-50 border border-indigo-100 px-4 py-3 min-w-[120px]">
+						<div class="text-xs uppercase tracking-wide text-indigo-700 font-semibold">Segmentos</div>
+						<div id="summary-segmentos" class="text-2xl font-bold text-indigo-900">0</div>
+					</div>
+					<div class="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 min-w-[120px]">
+						<div class="text-xs uppercase tracking-wide text-emerald-700 font-semibold">Cfg SAS</div>
+						<div id="summary-estructura" class="text-sm font-semibold text-emerald-900 mt-1">Lista</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+			<!-- Sidebar/Navigator -->
+			<div class="lg:col-span-1">
+				<div class="bg-white rounded-xl shadow-md overflow-hidden">
+					<div class="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
+						<h2 class="text-lg font-medium text-white flex items-center">
+							<i class="fas fa-sitemap mr-3"></i> Estructura
+						</h2>
+					</div>
+					<div class="sidebar-panel p-4">
+						<div id="structure-tree">
+							<div class="text-center py-8 text-gray-500">
+								<i class="fas fa-diagram-project text-4xl mb-2 opacity-30"></i>
+								<p>No hay troncales configuradas aún.</p>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Main Content: Troncal detail -->
+			<div class="lg:col-span-3">
+				<div id="main-content" class="bg-white rounded-xl shadow-md p-6">
+					<div id="troncal-detail">
+						<div class="text-center py-8 text-gray-500">
+							<i class="fas fa-info-circle text-4xl mb-2 opacity-30"></i>
+							<p>Seleccione o agregue una Troncal para configurarla.</p>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Toast Container -->
+	<div id="toast-container" class="fixed top-4 right-4 z-50"></div>
+
+	<script>
+function hydrateFromLegacyConfig(rawConfig) {
+	if (!Array.isArray(rawConfig.troncales)) {
+		return null;
+	}
+
+	return rawConfig.troncales.map((troncal, index) => ({
+		troncal_id: index + 1,
+		id_var_id: normalizeText(troncal.id_var_id || troncal.cod),
+		target: normalizeText(troncal.target),
+		pd: normalizeText(troncal.pd),
+		xb: normalizeText(troncal.xb),
+		monto: normalizeText(troncal.monto),
+		byvar: normalizeText(troncal.byvar),
+		model_type: normalizeText(troncal.model_type || troncal.tipo_modelo),
+		tipo_producto: normalizeText(troncal.tipo_producto),
+		train_min_mes: normalizeText(troncal.train_min_mes || troncal.trainMinMes),
+		train_max_mes: normalizeText(troncal.train_max_mes || troncal.trainMaxMes),
+		oot_min_mes: normalizeText(troncal.oot_min_mes || troncal.ootMinMes),
+		oot_max_mes: normalizeText(troncal.oot_max_mes || troncal.ootMaxMes),
+		def_cld: normalizeText(troncal.def_cld || troncal.defCld),
+		num_unv: parseVariables(troncal.num_unv || troncal.universeNum),
+		cat_unv: parseVariables(troncal.cat_unv || troncal.universeCat),
+		dri_num_unv: parseVariables(troncal.dri_num_unv || troncal.universeDriNum),
+		dri_cat_unv: parseVariables(troncal.dri_cat_unv || troncal.universeDriCat),
+		var_seg: normalizeText(troncal.var_seg || troncal.varSegmentadora),
+		segmentos: Array.isArray(troncal.segmentos)
+			? troncal.segmentos.map((segmento, segIndex) => ({
+					seg_id: segIndex + 1,
+					num_list: parseVariables(segmento.num_list || segmento.variablesNum),
+					cat_list: parseVariables(segmento.cat_list || segmento.variablesCat),
+					dri_num_list: parseVariables(segmento.dri_num_list || segmento.driversNum),
+					dri_cat_list: parseVariables(segmento.dri_cat_list || segmento.driversCat),
+			  }))
+			: [],
+	}));
+}
+
+function cargarConfiguracion(event) {
+	const file = event.target.files?.[0];
+	if (!file) {
+		return;
+	}
+
+	const reader = new FileReader();
+	reader.onload = function (loadEvent) {
+		try {
+			const rawConfig = JSON.parse(loadEvent.target.result);
+			const structuredConfig =
+				hydrateFromStructuredConfig(rawConfig) ?? hydrateFromLegacyConfig(rawConfig);
+			if (!structuredConfig) {
+				throw new Error("Formato no soportado");
+			}
+
+			configData = { troncales: structuredConfig };
+			activeTab = configData.troncales.length ? "troncal-1" : null;
+			renderApp();
+			showToast("Configuración cargada correctamente.", "success");
+		} catch (error) {
+			showToast("No se pudo cargar la configuración. Verifique el formato del JSON.", "error");
+		}
+	};
+	reader.readAsText(file);
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+	document.getElementById("btnLoadConfig").onclick = function () {
+		const input = document.createElement("input");
+		input.type = "file";
+		input.accept = "application/json";
+		input.onchange = cargarConfiguracion;
+		input.click();
+	};
+
+	document.getElementById("modal-cancel").onclick = () => {
+		document.getElementById("confirmation-modal").classList.add("hidden");
+	};
+
+	renderApp();
+});
+	</script>
+	<script>
+function escapeSasString(value) {
+	return String(value ?? "").replace(/"/g, '""');
+}
+
+function quoteSasString(value) {
+	return `"${escapeSasString(value)}"`;
+}
+
+function formatSasNumber(value) {
+	return value === null || value === undefined || value === "" ? "." : String(value);
+}
+
+function generateEmptyDataStep(name, lengthDefinition) {
+	return [
+		`data casuser.${name};`,
+		`	length ${lengthDefinition};`,
+		"	stop;",
+		"run;",
+	].join("\n");
+}
+
+function generarSAS() {
+	const exportConfig = buildExportConfig();
+	const troncalLength =
+		"troncal_id 8 id_var_id $64 target $64 pd $64 xb $64 monto $64 byvar $64 model_type $8 tipo_producto $32 train_min_mes 8 train_max_mes 8 oot_min_mes 8 oot_max_mes 8 def_cld 8 num_unv $4000 cat_unv $4000 dri_num_unv $4000 dri_cat_unv $4000 var_seg $64 n_segments 8";
+	const segmentoLength =
+		"troncal_id 8 seg_id 8 num_list $4000 cat_list $4000 dri_num_list $4000 dri_cat_list $4000";
+
+	let sas = "/* ======================= CONFIG.SAS =======================\n";
+	sas += "Generado desde frontend.html.\n";
+	sas += "Construye casuser.cfg_troncales y casuser.cfg_segmentos.\n";
+	sas += "================================================================ */\n\n";
+	sas += "/* ---------- casuser.cfg_troncales ---------- */\n";
+
+	if (exportConfig.cfg_troncales.length === 0) {
+		sas += `${generateEmptyDataStep("cfg_troncales", troncalLength)}\n\n`;
+	} else {
+		sas += "data casuser.cfg_troncales;\n";
+		sas += `	length ${troncalLength};\n\n`;
+		exportConfig.cfg_troncales.forEach((troncal) => {
+			sas += `	/* ---------------- Troncal ${troncal.troncal_id} ---------------- */\n`;
+			sas += `	troncal_id=${troncal.troncal_id};\n`;
+			sas += `	id_var_id=${quoteSasString(troncal.id_var_id)};\n`;
+			sas += `	target=${quoteSasString(troncal.target)};\n`;
+			sas += `	pd=${quoteSasString(troncal.pd)};\n`;
+			sas += `	xb=${quoteSasString(troncal.xb)};\n`;
+			sas += `	monto=${quoteSasString(troncal.monto)};\n`;
+			sas += `	byvar=${quoteSasString(troncal.byvar)};\n`;
+			sas += `	model_type=${quoteSasString(troncal.model_type)};\n`;
+			sas += `	tipo_producto=${quoteSasString(troncal.tipo_producto)};\n\n`;
+			sas += `	train_min_mes=${formatSasNumber(troncal.train_min_mes)};\n`;
+			sas += `	train_max_mes=${formatSasNumber(troncal.train_max_mes)};\n`;
+			sas += `	oot_min_mes=${formatSasNumber(troncal.oot_min_mes)};\n`;
+			sas += `	oot_max_mes=${formatSasNumber(troncal.oot_max_mes)};\n`;
+			sas += `	def_cld=${formatSasNumber(troncal.def_cld)};\n\n`;
+			sas += `	num_unv=${quoteSasString(troncal.num_unv)};\n`;
+			sas += `	cat_unv=${quoteSasString(troncal.cat_unv)};\n`;
+			sas += `	dri_num_unv=${quoteSasString(troncal.dri_num_unv)};\n`;
+			sas += `	dri_cat_unv=${quoteSasString(troncal.dri_cat_unv)};\n\n`;
+			sas += `	var_seg=${quoteSasString(troncal.var_seg)};\n`;
+			sas += `	n_segments=${troncal.n_segments};\n\n`;
+			sas += "	output;\n\n";
+		});
+		sas += "run;\n\n";
+	}
+
+	sas += "/* ---------- casuser.cfg_segmentos ---------- */\n";
+	if (exportConfig.cfg_segmentos.length === 0) {
+		sas += generateEmptyDataStep("cfg_segmentos", segmentoLength);
+	} else {
+		sas += "data casuser.cfg_segmentos;\n";
+		sas += `	length ${segmentoLength};\n\n`;
+		exportConfig.cfg_segmentos.forEach((segmento) => {
+			sas += `	/* Troncal ${segmento.troncal_id}, seg ${segmento.seg_id} */\n`;
+			sas += `	troncal_id=${segmento.troncal_id};\n`;
+			sas += `	seg_id=${segmento.seg_id};\n`;
+			sas += `	num_list=${quoteSasString(segmento.num_list)};\n`;
+			sas += `	cat_list=${quoteSasString(segmento.cat_list)};\n`;
+			sas += `	dri_num_list=${quoteSasString(segmento.dri_num_list)};\n`;
+			sas += `	dri_cat_list=${quoteSasString(segmento.dri_cat_list)};\n`;
+			sas += "	output;\n\n";
+		});
+		sas += "run;";
+	}
+
+	document.getElementById("output").value = sas;
+	return sas;
+}
+
+function autoGenerateSAS() {
+	generarSAS();
+}
+
+function abrirSASModal() {
+	generarSAS();
+	document.getElementById("sasModal").classList.remove("hidden");
+}
+
+function cerrarSASModal() {
+	document.getElementById("sasModal").classList.add("hidden");
+}
+
+function downloadFile(filename, content, mimeType) {
+	const blob = new Blob([content], { type: mimeType });
+	const url = window.URL.createObjectURL(blob);
+	const anchor = document.createElement("a");
+	anchor.href = url;
+	anchor.download = filename;
+	anchor.click();
+	window.URL.revokeObjectURL(url);
+}
+
+function descargarAmbos() {
+	const sasContent = generarSAS();
+	const jsonContent = JSON.stringify(buildExportConfig(), null, 2);
+	downloadFile("config.sas", sasContent, "text/plain;charset=utf-8;");
+	downloadFile("configuracion.json", jsonContent, "application/json;charset=utf-8;");
+}
+
+function hydrateFromStructuredConfig(rawConfig) {
+	if (!Array.isArray(rawConfig.cfg_troncales) || !Array.isArray(rawConfig.cfg_segmentos)) {
+		return null;
+	}
+
+	const segmentIndex = rawConfig.cfg_segmentos.reduce((acc, segmento) => {
+		const troncalId = Number(segmento.troncal_id);
+		if (!acc.has(troncalId)) {
+			acc.set(troncalId, []);
+		}
+		acc.get(troncalId).push({
+			seg_id: Number(segmento.seg_id) || 0,
+			num_list: normalizeText(segmento.num_list),
+			cat_list: normalizeText(segmento.cat_list),
+			dri_num_list: normalizeText(segmento.dri_num_list),
+			dri_cat_list: normalizeText(segmento.dri_cat_list),
+		});
+		return acc;
+	}, new Map());
+
+	return rawConfig.cfg_troncales.map((troncal, index) => ({
+		troncal_id: index + 1,
+		id_var_id: normalizeText(troncal.id_var_id),
+		target: normalizeText(troncal.target),
+		pd: normalizeText(troncal.pd),
+		xb: normalizeText(troncal.xb),
+		monto: normalizeText(troncal.monto),
+		byvar: normalizeText(troncal.byvar),
+		model_type: normalizeText(troncal.model_type),
+		tipo_producto: normalizeText(troncal.tipo_producto),
+		train_min_mes: normalizeText(troncal.train_min_mes),
+		train_max_mes: normalizeText(troncal.train_max_mes),
+		oot_min_mes: normalizeText(troncal.oot_min_mes),
+		oot_max_mes: normalizeText(troncal.oot_max_mes),
+		def_cld: normalizeText(troncal.def_cld),
+		num_unv: parseVariables(troncal.num_unv),
+		cat_unv: parseVariables(troncal.cat_unv),
+		dri_num_unv: parseVariables(troncal.dri_num_unv),
+		dri_cat_unv: parseVariables(troncal.dri_cat_unv),
+		var_seg: normalizeText(troncal.var_seg),
+		segmentos: (segmentIndex.get(Number(troncal.troncal_id)) || [])
+			.sort((a, b) => a.seg_id - b.seg_id)
+			.map((segmento, segIndex) => ({
+				...segmento,
+				seg_id: segIndex + 1,
+			})),
+	}));
+}
+	</script>
+	<script>
+function abrirAddTroncalModal() {
+	document.getElementById("addTroncalModal").classList.remove("hidden");
+}
+
+function cerrarAddTroncalModal() {
+	document.getElementById("addTroncalModal").classList.add("hidden");
+}
+
+function confirmarAgregarTroncal() {
+	const count = Number(document.getElementById("n_troncales_modal").value);
+	if (!Number.isInteger(count) || count < 1) {
+		showToast("Ingrese un número válido de troncales.", "error");
+		return;
+	}
+
+	const startingId = configData.troncales.length + 1;
+	for (let offset = 0; offset < count; offset += 1) {
+		configData.troncales.push(createEmptyTroncal(startingId + offset));
+	}
+
+	cerrarAddTroncalModal();
+	activeTab = `troncal-${startingId}`;
+	renderApp();
+	showToast(`Se agregaron ${count} troncales.`, "success");
+}
+
+function confirmDeleteTroncal(troncalId) {
+	document.getElementById("confirmation-modal").classList.remove("hidden");
+	document.getElementById("modal-message").textContent =
+		`¿Está seguro de eliminar la Troncal ${troncalId}?`;
+	document.getElementById("modal-confirm").onclick = function () {
+		deleteTroncal(troncalId);
+		document.getElementById("confirmation-modal").classList.add("hidden");
+	};
+}
+
+function deleteTroncal(troncalId) {
+	configData.troncales = configData.troncales
+		.filter((troncal) => troncal.troncal_id !== troncalId)
+		.map((troncal, index) => ({
+			...troncal,
+			troncal_id: index + 1,
+			segmentos: troncal.segmentos.map((segmento, segIndex) => ({
+				...segmento,
+				seg_id: segIndex + 1,
+			})),
+		}));
+
+	activeTab = configData.troncales.length ? `troncal-${configData.troncales[0].troncal_id}` : null;
+	renderApp();
+	showToast(`Troncal ${troncalId} eliminada.`, "success");
+}
+
+function updateTroncalField(troncalId, field, value) {
+	const troncal = getTroncalById(troncalId);
+	if (!troncal) {
+		return;
+	}
+
+	troncal[field] = normalizeText(value);
+	autoGenerateSAS();
+	updateStructureTree();
+}
+
+function updateModelType(troncalId, value) {
+	const troncal = getTroncalById(troncalId);
+	if (!troncal) {
+		return;
+	}
+
+	troncal.model_type = normalizeText(value);
+	const allowedProducts = PRODUCT_OPTIONS[troncal.model_type] || [];
+	if (!allowedProducts.includes(troncal.tipo_producto)) {
+		troncal.tipo_producto = "";
+	}
+
+	renderApp();
+}
+
+function updateTroncalFieldParsed(troncalId, field, value) {
+	const troncal = getTroncalById(troncalId);
+	if (!troncal) {
+		return;
+	}
+
+	if (troncal.segmentos.length >= 2) {
+		return;
+	}
+
+	troncal[field] = parseVariables(value);
+	autoGenerateSAS();
+}
+
+function toggleSegments(troncalId, enabled) {
+	const troncal = getTroncalById(troncalId);
+	if (!troncal) {
+		return;
+	}
+
+	if (enabled) {
+		if (troncal.segmentos.length < 2) {
+			troncal.segmentos = [createEmptySegment(1), createEmptySegment(2)];
+		}
+	} else {
+		troncal.segmentos = [];
+		troncal.var_seg = "";
+	}
+
+	renderApp();
+}
+
+function updateSegmentsCount(troncalId, countValue) {
+	const troncal = getTroncalById(troncalId);
+	const newCount = Number(countValue);
+	if (!troncal) {
+		return;
+	}
+
+	if (!Number.isInteger(newCount) || newCount < 2) {
+		showToast("El número de segmentos debe ser 2 o mayor.", "error");
+		showTroncal(troncalId);
+		return;
+	}
+
+	if (newCount > troncal.segmentos.length) {
+		for (let segId = troncal.segmentos.length + 1; segId <= newCount; segId += 1) {
+			troncal.segmentos.push(createEmptySegment(segId));
+		}
+	} else if (newCount < troncal.segmentos.length) {
+		troncal.segmentos = troncal.segmentos.slice(0, newCount);
+	}
+
+	troncal.segmentos = troncal.segmentos.map((segmento, index) => ({
+		...segmento,
+		seg_id: index + 1,
+	}));
+
+	renderApp();
+}
+
+function openSegmentEditModal(troncalId, segId) {
+	const troncal = getTroncalById(troncalId);
+	const segment = troncal?.segmentos.find((item) => item.seg_id === segId);
+	if (!troncal || !segment) {
+		return;
+	}
+
+	currentEditingTroncalId = troncalId;
+	currentEditingSegmentId = segId;
+	document.getElementById("segment-edit-modal-title").textContent = `Editar Segmento ${segId}`;
+	document.getElementById("segment-edit-num").value = segment.num_list;
+	document.getElementById("segment-edit-cat").value = segment.cat_list;
+	document.getElementById("segment-edit-dri-num").value = segment.dri_num_list;
+	document.getElementById("segment-edit-dri-cat").value = segment.dri_cat_list;
+	document.getElementById("segment-edit-modal").classList.remove("hidden");
+}
+
+function closeSegmentEditModal() {
+	document.getElementById("segment-edit-modal").classList.add("hidden");
+}
+
+function saveSegmentEdit() {
+	const troncal = getTroncalById(currentEditingTroncalId);
+	const segment = troncal?.segmentos.find((item) => item.seg_id === currentEditingSegmentId);
+	if (!troncal || !segment) {
+		return;
+	}
+
+	segment.num_list = parseVariables(document.getElementById("segment-edit-num").value);
+	segment.cat_list = parseVariables(document.getElementById("segment-edit-cat").value);
+	segment.dri_num_list = parseVariables(document.getElementById("segment-edit-dri-num").value);
+	segment.dri_cat_list = parseVariables(document.getElementById("segment-edit-dri-cat").value);
+
+	closeSegmentEditModal();
+	renderApp();
+	showToast(`Segmento ${currentEditingSegmentId} actualizado.`, "success");
+}
+
+function deleteSegment(troncalId, segId) {
+	const troncal = getTroncalById(troncalId);
+	if (!troncal) {
+		return;
+	}
+
+	if (troncal.segmentos.length <= 2) {
+		showToast("Para eliminar todos los segmentos, desactive la segmentación de la troncal.", "error");
+		return;
+	}
+
+	troncal.segmentos = troncal.segmentos
+		.filter((segmento) => segmento.seg_id !== segId)
+		.map((segmento, index) => ({
+			...segmento,
+			seg_id: index + 1,
+		}));
+
+	renderApp();
+	showToast(`Segmento ${segId} eliminado.`, "success");
+}
+
+function buildExportConfig() {
+	const cfg_troncales = configData.troncales.map((troncal) => ({
+		...getDerivedUniverse(troncal),
+		troncal_id: troncal.troncal_id,
+		id_var_id: normalizeText(troncal.id_var_id),
+		target: normalizeText(troncal.target),
+		pd: normalizeText(troncal.pd),
+		xb: normalizeText(troncal.xb),
+		monto: normalizeText(troncal.monto),
+		byvar: normalizeText(troncal.byvar),
+		model_type: normalizeText(troncal.model_type),
+		tipo_producto: normalizeText(troncal.tipo_producto),
+		train_min_mes: toNumberOrNull(troncal.train_min_mes),
+		train_max_mes: toNumberOrNull(troncal.train_max_mes),
+		oot_min_mes: toNumberOrNull(troncal.oot_min_mes),
+		oot_max_mes: toNumberOrNull(troncal.oot_max_mes),
+		def_cld: toNumberOrNull(troncal.def_cld),
+		var_seg: troncal.segmentos.length >= 2 ? normalizeText(troncal.var_seg) : "",
+		n_segments: troncal.segmentos.length >= 2 ? troncal.segmentos.length : 0,
+	}));
+
+	const cfg_segmentos = configData.troncales.flatMap((troncal) =>
+		troncal.segmentos.length >= 2
+			? troncal.segmentos.map((segmento) => ({
+					troncal_id: troncal.troncal_id,
+					seg_id: segmento.seg_id,
+					num_list: normalizeText(segmento.num_list),
+					cat_list: normalizeText(segmento.cat_list),
+					dri_num_list: normalizeText(segmento.dri_num_list),
+					dri_cat_list: normalizeText(segmento.dri_cat_list),
+			  }))
+			: []
+	);
+
+	return { cfg_troncales, cfg_segmentos };
+}
+	</script>
+	<script>
+function showTroncal(troncalId) {
+	const troncal = getTroncalById(troncalId);
+	if (!troncal) {
+		renderEmptyState();
+		return;
+	}
+
+	const hasSegments = troncal.segmentos.length >= 2;
+	const derivedUniverse = getDerivedUniverse(troncal);
+	const detail = document.getElementById("troncal-detail");
+	detail.innerHTML = `
+		<div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-6">
+			<div>
+				<h3 class="text-xl font-semibold text-gray-900">Troncal ${troncalId}</h3>
+			</div>
+			<div class="flex flex-wrap gap-3">
+				<span class="px-3 py-2 rounded-lg text-sm font-medium ${
+					hasSegments ? "bg-indigo-50 text-indigo-700" : "bg-gray-100 text-gray-600"
+				}">
+					${hasSegments ? `${troncal.segmentos.length} segmentos activos` : "Sin segmentación"}
+				</span>
+				<button onclick="confirmDeleteTroncal(${troncalId})"
+					class="text-red-500 hover:text-red-700 flex items-center px-3 py-2 rounded-lg hover:bg-red-50 min-h-[44px]">
+					<i class="fas fa-trash-alt mr-2"></i> Eliminar
+				</button>
+			</div>
+		</div>
+
+		<div class="space-y-6">
+			<section class="border border-gray-200 rounded-xl p-4">
+				<div class="mb-4">
+					<h4 class="text-lg font-medium text-gray-900">Campos Base</h4>
+				</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Variable ID</label>
+						<input type="text" value="${escapeHtml(troncal.id_var_id)}"
+							onchange="updateTroncalField(${troncalId}, 'id_var_id', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="Ej: CODCLAVECIC" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Target</label>
+						<input type="text" value="${escapeHtml(troncal.target)}"
+							onchange="updateTroncalField(${troncalId}, 'target', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">PD</label>
+						<input type="text" value="${escapeHtml(troncal.pd)}"
+							onchange="updateTroncalField(${troncalId}, 'pd', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">XB</label>
+						<input type="text" value="${escapeHtml(troncal.xb)}"
+							onchange="updateTroncalField(${troncalId}, 'xb', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Variable Monto</label>
+						<input type="text" value="${escapeHtml(troncal.monto)}"
+							onchange="updateTroncalField(${troncalId}, 'monto', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Variable Tiempo</label>
+						<input type="text" value="${escapeHtml(troncal.byvar)}"
+							onchange="updateTroncalField(${troncalId}, 'byvar', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Modelo</label>
+						<select onchange="updateModelType(${troncalId}, this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+							${renderModelTypeOptions(troncal.model_type)}
+						</select>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Producto</label>
+						<select onchange="updateTroncalField(${troncalId}, 'tipo_producto', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							${troncal.model_type ? "" : "disabled"}>
+							${renderProductTypeOptions(troncal.model_type, troncal.tipo_producto)}
+						</select>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Fecha inicio train</label>
+						<input type="text" inputmode="numeric" value="${escapeHtml(troncal.train_min_mes)}"
+							onchange="updateTroncalField(${troncalId}, 'train_min_mes', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin train</label>
+						<input type="text" inputmode="numeric" value="${escapeHtml(troncal.train_max_mes)}"
+							onchange="updateTroncalField(${troncalId}, 'train_max_mes', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Fecha inicio OOT</label>
+						<input type="text" inputmode="numeric" value="${escapeHtml(troncal.oot_min_mes)}"
+							onchange="updateTroncalField(${troncalId}, 'oot_min_mes', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin OOT</label>
+						<input type="text" inputmode="numeric" value="${escapeHtml(troncal.oot_max_mes)}"
+							onchange="updateTroncalField(${troncalId}, 'oot_max_mes', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Fecha Default cerrado</label>
+						<input type="text" inputmode="numeric" value="${escapeHtml(troncal.def_cld)}"
+							onchange="updateTroncalField(${troncalId}, 'def_cld', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="" />
+					</div>
+				</div>
+			</section>
+
+			<section class="border border-gray-200 rounded-xl p-4">
+				<div class="mb-4">
+					<h4 class="text-lg font-medium text-gray-900">Universo de Variables</h4>
+					${hasSegments ? '<p class="text-xs text-blue-600 mt-2">Se completa automáticamente desde los segmentos, sin repetidos.</p>' : ""}
+				</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Variables Numéricas</label>
+						<textarea rows="8" onchange="updateTroncalFieldParsed(${troncalId}, 'num_unv', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${hasSegments ? "bg-gray-50 text-gray-500" : ""}"
+							placeholder="Ej: VAR1 VAR2 VAR3" ${hasSegments ? "readonly" : ""}>${escapeHtml(derivedUniverse.num_unv)}</textarea>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Variables Categóricas</label>
+						<textarea rows="8" onchange="updateTroncalFieldParsed(${troncalId}, 'cat_unv', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${hasSegments ? "bg-gray-50 text-gray-500" : ""}"
+							placeholder="Ej: REGION SEGMENTO" ${hasSegments ? "readonly" : ""}>${escapeHtml(derivedUniverse.cat_unv)}</textarea>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Drivers Numéricos</label>
+						<textarea rows="8" onchange="updateTroncalFieldParsed(${troncalId}, 'dri_num_unv', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${hasSegments ? "bg-gray-50 text-gray-500" : ""}"
+							placeholder="Ej: DRIVER1 DRIVER2" ${hasSegments ? "readonly" : ""}>${escapeHtml(derivedUniverse.dri_num_unv)}</textarea>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Drivers Categóricos</label>
+						<textarea rows="8" onchange="updateTroncalFieldParsed(${troncalId}, 'dri_cat_unv', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${hasSegments ? "bg-gray-50 text-gray-500" : ""}"
+							placeholder="Ej: DRIVER_CAT1 DRIVER_CAT2" ${hasSegments ? "readonly" : ""}>${escapeHtml(derivedUniverse.dri_cat_unv)}</textarea>
+					</div>
+				</div>
+			</section>
+
+			<section class="border border-gray-200 rounded-xl p-4">
+				<div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-4">
+					<div>
+						<h4 class="text-lg font-medium text-gray-900">Segmentación</h4>
+						<p class="text-sm text-gray-500">Activar si su troncal cuenta con más de 2 segmentos.</p>
+					</div>
+					<label class="inline-flex items-center cursor-pointer">
+						<input type="checkbox" class="sr-only peer" ${hasSegments ? "checked" : ""} onchange="toggleSegments(${troncalId}, this.checked)" />
+						<div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-400 rounded-full relative after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 peer-checked:after:translate-x-full peer-checked:after:border-white"></div>
+						<span class="ml-3 text-sm font-medium text-gray-700">Activar Segmentos</span>
+					</label>
+				</div>
+
+				<div id="segmentOptions_${troncalId}" class="${hasSegments ? "" : "hidden"}">
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-1">Variable Segmentadora</label>
+							<input type="text" value="${escapeHtml(troncal.var_seg)}" onchange="updateTroncalField(${troncalId}, 'var_seg', this.value)"
+								class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="" />
+						</div>
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-1">N de Segmentos</label>
+							<input type="number" min="2" value="${hasSegments ? troncal.segmentos.length : 2}" onchange="updateSegmentsCount(${troncalId}, this.value)"
+								class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+						</div>
+					</div>
+					<div class="overflow-x-auto border border-gray-200 rounded-lg">
+						<table class="min-w-full divide-y divide-gray-200 text-sm">
+							<thead class="bg-gray-50">
+								<tr>
+									<th class="px-4 py-3 text-left font-medium text-gray-600">Segmento</th>
+									<th class="px-4 py-3 text-left font-medium text-gray-600">Num</th>
+									<th class="px-4 py-3 text-left font-medium text-gray-600">Cat</th>
+									<th class="px-4 py-3 text-left font-medium text-gray-600">Dri Num</th>
+									<th class="px-4 py-3 text-left font-medium text-gray-600">Dri Cat</th>
+									<th class="px-4 py-3 text-right font-medium text-gray-600">Acciones</th>
+								</tr>
+							</thead>
+							<tbody id="segments-table-body-${troncalId}"></tbody>
+						</table>
+					</div>
+				</div>
+
+				<div id="segments-disabled-hint-${troncalId}" class="${hasSegments ? "hidden" : ""} rounded-lg bg-gray-50 border border-dashed border-gray-200 px-4 py-4 text-sm text-gray-500">
+					Esta troncal generará <span class="font-mono">n_segments=0</span> y no escribirá filas en <span class="font-mono">cfg_segmentos</span>.
+				</div>
+			</section>
+		</div>
+	`;
+
+	loadSegmentsTable(troncalId);
+}
+
+function loadSegmentsTable(troncalId) {
+	const troncal = getTroncalById(troncalId);
+	const tableBody = document.getElementById(`segments-table-body-${troncalId}`);
+	if (!troncal || !tableBody) {
+		return;
+	}
+
+	if (troncal.segmentos.length < 2) {
+		tableBody.innerHTML = `
+			<tr>
+				<td colspan="6" class="text-center py-4 text-gray-500">Activa la segmentación para cargar al menos 2 segmentos.</td>
+			</tr>
+		`;
+		return;
+	}
+
+	tableBody.innerHTML = troncal.segmentos
+		.map(
+			(segmento) => `
+				<tr class="border-b border-gray-100 last:border-b-0">
+					<td class="px-4 py-3 font-medium text-gray-700">Segmento ${segmento.seg_id}</td>
+					<td class="px-4 py-3 text-gray-600" title="${escapeHtml(segmento.num_list)}">${summarizeList(segmento.num_list)}</td>
+					<td class="px-4 py-3 text-gray-600" title="${escapeHtml(segmento.cat_list)}">${summarizeList(segmento.cat_list)}</td>
+					<td class="px-4 py-3 text-gray-600" title="${escapeHtml(segmento.dri_num_list)}">${summarizeList(segmento.dri_num_list)}</td>
+					<td class="px-4 py-3 text-gray-600" title="${escapeHtml(segmento.dri_cat_list)}">${summarizeList(segmento.dri_cat_list)}</td>
+					<td class="px-4 py-3 text-right">
+						<div class="flex justify-end gap-2">
+							<button onclick="openSegmentEditModal(${troncalId}, ${segmento.seg_id})" class="px-3 py-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg min-h-[44px]">
+								<i class="fas fa-pen mr-1"></i> Editar
+							</button>
+							<button onclick="deleteSegment(${troncalId}, ${segmento.seg_id})" class="px-3 py-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg min-h-[44px]">
+								<i class="fas fa-trash-alt mr-1"></i> Eliminar
+							</button>
+						</div>
+					</td>
+				</tr>
+			`
+		)
+		.join("");
+}
+	</script>
+	<script>
+		(() => {
+			return;
+		/* ==================== ESTADO GLOBAL ==================== */
+		let activeTab = null;
+		let configData = {
+			master_table: "",
+			/* Nuevos campos para Benchmarking */
+			container_path: "",
+			caslib_mmgr_front: "",
+			tipo_modelo: "", // "APPLICANT" o "BHV"
+			tipo_producto: "", // APPLICANT => [BT, CEF, EP], BHV => [TC, OTRO]
+			algoritmo_ml: "", // "GRADBOOST", "DECISIONTREE", "NEURALNET"
+
+			benchmarking_active: false,
+			replica_active: false,
+
+			troncales: [],
+		};
+		function updateCaslibMmgr(val) {
+			configData.caslib_mmgr_front = val.trim();
+			autoGenerateSAS();
+		}
+		// Para edición de un segmento
+		let currentEditingTroncalId = null;
+		let currentEditingSegmentId = null;
+
+		/* ==================== UTILS: Toast & Parse ==================== */
+		function showToast(message, type) {
+			const container = document.getElementById("toast-container");
+			const toast = document.createElement("div");
+			toast.className = "toast px-4 py-2 rounded shadow text-white mb-2";
+			toast.textContent = message;
+			if (type === "error") {
+				toast.classList.add("bg-red-500");
+			} else if (type === "success") {
+				toast.classList.add("bg-green-500");
+			} else {
+				toast.classList.add("bg-blue-500");
+			}
+			container.appendChild(toast);
+			setTimeout(() => {
+				toast.remove();
+			}, 3000);
+		}
+
+		// Unifica texto en un set (sin repeticiones)
+		function parseVariables(text) {
+			return [
+				...new Set(
+					text
+						.split(/[\s,]+/)
+						.map((v) => v.trim())
+						.filter((v) => v)
+				),
+			].join(" ");
+		}
+
+		/* ==================== MASTER TABLE & VALIDATOR ==================== */
+		function updateMasterTable(val) {
+			configData.master_table = val.trim();
+			autoGenerateSAS();
+		}
+		function updateContainer(val) {
+			configData.container_path = val.trim();
+			autoGenerateSAS();
+		}
+		/* ==================== ALGORITMOS ML FLAGS ==================== */
+		// Update the configData object to include algorithm flags
+		function updateConfigData() {
+			// Add algorithm flags if they don't exist
+			if (!("algorithm_flags" in configData)) {
+				configData.algorithm_flags = {
+					gb_flg: false,
+					nn_flg: false,
+					rf_flg: false,
+					dt_flg: false,
+					svm_flg: false,
+				};
+			}
+		}
+
+		// Initialize configData with algorithm flags
+		updateConfigData();
+
+		// Update specific algorithm flag
+		function updateAlgorithmFlag(algorithm, checked) {
+			updateConfigData();
+			switch (algorithm) {
+				case "gb":
+					configData.algorithm_flags.gb_flg = checked;
+					break;
+				case "nn":
+					configData.algorithm_flags.nn_flg = checked;
+					break;
+				case "rf":
+					configData.algorithm_flags.rf_flg = checked;
+					break;
+				case "dt":
+					configData.algorithm_flags.dt_flg = checked;
+					break;
+				case "svm":
+					configData.algorithm_flags.svm_flg = checked;
+					break;
+			}
+			autoGenerateSAS();
+		}
+
+		// Cambiar "Tipo de Modelo": APPLICANT o BHV => Actualizar "Tipo de Producto" en el dropdown
+		function handleTipoModeloChange(value) {
+			configData.tipo_modelo = value;
+			// Llenar las opciones de tipoProductoSelect según APPLICANT o BHV
+			const productoSelect = document.getElementById("tipoProductoSelect");
+			productoSelect.innerHTML = `<option value="">-- Seleccione --</option>`;
+			if (value === "APPLICANT") {
+				["BT", "CEF", "EP"].forEach((opt) => {
+					const option = document.createElement("option");
+					option.value = opt;
+					option.textContent = opt;
+					productoSelect.appendChild(option);
+				});
+			} else if (value === "BHV") {
+				["TC", "OTRO"].forEach((opt) => {
+					const option = document.createElement("option");
+					option.value = opt;
+					option.textContent = opt;
+					productoSelect.appendChild(option);
+				});
+			}
+			// Reset tipo_producto
+			configData.tipo_producto = "";
+			autoGenerateSAS();
+		}
+		function handleTipoProductoChange(value) {
+			configData.tipo_producto = value;
+			autoGenerateSAS();
+		}
+
+		/* ==================== AGREGAR TRONCAL(ES) ==================== */
+		function abrirAddTroncalModal() {
+			document.getElementById("addTroncalModal").classList.remove("hidden");
+		}
+		function cerrarAddTroncalModal() {
+			document.getElementById("addTroncalModal").classList.add("hidden");
+		}
+		function confirmarAgregarTroncal() {
+			const num = parseInt(
+				document.getElementById("n_troncales_modal").value
+			);
+			if (isNaN(num) || num < 1) {
+				showToast("Ingrese un número válido de troncales", "error");
+				return;
+			}
+			const currentLength = configData.troncales.length;
+			for (let i = 1; i <= num; i++) {
+				let newId = currentLength + i;
+				configData.troncales.push({
+					id: newId,
+					cod: "",
+					target: "",
+					pd: "",
+					xb: "",
+					monto: "",
+					byvar: "",
+					flag: "",
+					trainMinMes: "",
+					trainMaxMes: "",
+					ootMinMes: "",
+					ootMaxMes: "",
+					defCld: "",
+					trans: "",
+					astore: "",
+					numrounds: "",
+					threshold: "",
+					universeMMGR: "",
+					hiperparam: "",
+					universeNum: "",
+					universeCat: "",
+					universeDriNum: "",
+					universeDriCat: "",
+					varSegmentadora: "",
+					segmentos: [],
+				});
+			}
+			cerrarAddTroncalModal();
+			updateStructureTree();
+			if (configData.troncales.length > 0) {
+				switchTab(`troncal-${currentLength + 1}`);
+			}
+			showToast(`Se agregaron ${num} troncales`, "success");
+			autoGenerateSAS();
+		}
+
+		/* ==================== SIDEBAR & TABS ==================== */
+		function updateStructureTree() {
+			const container = document.getElementById("structure-tree");
+			if (configData.troncales.length === 0) {
+				container.innerHTML = `
+          <div class="text-center py-8 text-gray-500">
+            <i class="fas fa-diagram-project text-4xl mb-2 opacity-30"></i>
+            <p>No hay troncales configuradas aún.</p>
+          </div>
+        `;
+				return;
+			}
+			let html = "";
+			configData.troncales.forEach((troncal) => {
+				const troncalTabId = `troncal-${troncal.id}`;
+				html += `
+          <div class="mb-2">
+            <div onclick="switchTab('${troncalTabId}')" 
+                 class="flex items-center p-3 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors 
+                 ${activeTab === troncalTabId
+						? "bg-blue-50 border-l-4 border-blue-500"
+						: ""
+					}">
+              <i class="fas fa-project-diagram text-blue-600 mr-3"></i>
+              <span class="font-medium">Troncal ${troncal.id}</span>
+            </div>
+        `;
+				// Mostrar subitems (segmentos) si >=2
+				if (troncal.segmentos.length >= 2) {
+					html += `<div class="pl-8">`;
+					troncal.segmentos.forEach((seg) => {
+						const segTabId = `segmento-${troncal.id}-${seg.id}`;
+						html += `
+              <div onclick="switchTab('${segTabId}')"
+                   class="flex items-center p-2 hover:bg-indigo-50 rounded-lg cursor-pointer transition-colors
+                   ${activeTab === segTabId
+								? "bg-indigo-50 border-l-2 border-indigo-500"
+								: ""
+							}">
+                <i class="fas fa-layer-group text-indigo-500 mr-2"></i>
+                <span class="text-sm">Segmento ${seg.id}</span>
+              </div>
+            `;
+					});
+					html += `</div>`;
+				}
+				html += `</div>`;
+			});
+			container.innerHTML = html;
+		}
+
+		function switchTab(tabId) {
+			activeTab = tabId;
+			updateStructureTree();
+			if (tabId.startsWith("troncal-")) {
+				const id = parseInt(tabId.split("-")[1]);
+				showTroncal(id);
+			} else if (tabId.startsWith("segmento-")) {
+				const parts = tabId.split("-");
+				const troncalId = parseInt(parts[1]);
+				const segId = parseInt(parts[2]);
+				showSegmento(troncalId, segId);
+			}
+		}
+
+		/* ==================== MOSTRAR TRONCAL ==================== */
+		function showTroncal(id) {
+			const troncal = configData.troncales.find((t) => t.id === id);
+			if (!troncal) return;
+			const detail = document.getElementById("troncal-detail");
+
+			detail.innerHTML = `
+			<div class="flex justify-between items-center mb-6">
+			<h3 class="text-xl font-semibold">Troncal ${id}</h3>
+			<button onclick="confirmDeleteTroncal(${id})" class="text-red-500 hover:text-red-700 flex items-center">
+				<i class="fas fa-trash-alt mr-1"></i> Eliminar
+			</button>
+			</div>
+
+			<!-- 4 filas x 3 columnas (orden solicitado) -->
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+			<!-- Fila 1: Identificador, Flag_Troncal, Target -->
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Identificador:</label>
+				<input
+				type="text"
+				value="${troncal.cod}"
+				onchange="updateTroncalField(${id}, 'cod', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Flag_Troncal:</label>
+				<input
+				type="text"
+				value="${troncal.flag}"
+				onchange="updateTroncalField(${id}, 'flag', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder="Ej: f_troncal1"
+				/>
+			</div>
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Target:</label>
+				<input
+				type="text"
+				value="${troncal.target}"
+				onchange="updateTroncalField(${id}, 'target', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			<!-- Fila 2: PD, XB, Monto -->
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">PD:</label>
+				<input
+				type="text"
+				value="${troncal.pd}"
+				onchange="updateTroncalField(${id}, 'pd', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">XB:</label>
+				<input
+				type="text"
+				value="${troncal.xb}"
+				onchange="updateTroncalField(${id}, 'xb', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Variable Monto:</label>
+				<input
+				type="text"
+				value="${troncal.monto}"
+				onchange="updateTroncalField(${id}, 'monto', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			<!-- Fila 3: ByVar, Train Min Mes, Train Max Mes -->
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Variable Tiempo:</label>
+				<input
+				type="text"
+				value="${troncal.byvar}"
+				onchange="updateTroncalField(${id}, 'byvar', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Train Min Mes:</label>
+				<input
+				type="text"
+				value="${troncal.trainMinMes}"
+				onchange="updateTroncalField(${id}, 'trainMinMes', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Train Max Mes:</label>
+				<input
+				type="text"
+				value="${troncal.trainMaxMes}"
+				onchange="updateTroncalField(${id}, 'trainMaxMes', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			<!-- Fila 4: defCld, ootMinMes, ootMaxMes -->
+			<!--<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Default Cerrado:</label>
+				<input
+				type="text"
+				value="${troncal.defCld}"
+				onchange="updateTroncalField(${id}, 'defCld', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>-->
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">OOT Min Mes:</label>
+				<input
+				type="text"
+				value="${troncal.ootMinMes}"
+				onchange="updateTroncalField(${id}, 'ootMinMes', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">OOT Max Mes:</label>
+				<input
+				type="text"
+				value="${troncal.ootMaxMes}"
+				onchange="updateTroncalField(${id}, 'ootMaxMes', this.value)"
+				class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				placeholder=""
+				/>
+			</div>
+			</div>
+
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+		
+			</div>
+			</div>
+
+			<!-- All Universe -->
+			<div class="border-t pt-4">
+			<h4 class="text-lg font-medium mb-3">All Universe</h4>
+			<!-- 4 columnas -->
+			<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+				<!-- Universe Num -->
+				<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Variables Numéricas:</label>
+				<textarea
+					rows="7"
+					onchange="updateTroncalFieldParsed(${id}, 'universeNum', this.value)"
+					class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm font-mono
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+					placeholder="Ej: VAR1, VAR2"
+				>${troncal.universeNum}</textarea>
+				</div>
+				<!-- Universe Cat -->
+				<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Variables Categóricas:</label>
+				<textarea
+					rows="7"
+					onchange="updateTroncalFieldParsed(${id}, 'universeCat', this.value)"
+					class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm font-mono
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+					placeholder="Ej: VAR3, VAR4"
+				>${troncal.universeCat}</textarea>
+				</div>
+				<!-- Drivers Num (All Universe) -->
+				<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Drivers Numéricos:</label>
+				<textarea
+					rows="7"
+					onchange="updateTroncalFieldParsed(${id}, 'universeDriNum', this.value)"
+					class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm font-mono
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+					placeholder="Ej: DRIV_NUM1, DRIV_NUM2"
+				>${troncal.universeDriNum}</textarea>
+				</div>
+				<!-- Drivers Cat (All Universe) -->
+				<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Drivers Categóricos:</label>
+				<textarea
+					rows="7"
+					onchange="updateTroncalFieldParsed(${id}, 'universeDriCat', this.value)"
+					class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm font-mono
+						focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+					placeholder="Ej: DRIV_CAT1, DRIV_CAT2"
+				>${troncal.universeDriCat}</textarea>
+				</div>
+			</div>
+			</div>
+
+			<!-- Segmentos -->
+			<div class="mt-6 border-t pt-4">
+			<label class="inline-flex items-center cursor-pointer mb-4">
+				<input 
+				type="checkbox"
+				class="sr-only peer"
+				${troncal.segmentos.length >= 2 ? "checked" : ""}
+				onchange="toggleSegments(${id}, this.checked)"
+				/>
+				<div 
+				class="w-11 h-6 bg-gray-200 peer-focus:outline-none
+						peer-focus:ring-2 peer-focus:ring-blue-400 rounded-full peer
+						relative after:content-[''] after:absolute after:top-[2px] after:left-[2px]
+						after:bg-white after:border-gray-300 after:border after:rounded-full
+						after:h-5 after:w-5 after:transition-all
+						peer-checked:bg-blue-600
+						peer-checked:after:translate-x-full peer-checked:after:border-white"
+				></div>
+				<span class="ml-3 text-sm font-medium text-gray-700">Activar Segmentos</span>
+			</label>
+
+			<div id="segmentOptions_${id}" class="${troncal.segmentos.length < 2 ? "hidden" : ""
+					}">
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-1">Variable Segmentadora:</label>
+					<input
+					type="text"
+					value="${troncal.varSegmentadora}"
+					onchange="updateTroncalField(${id}, 'varSegmentadora', this.value)"
+					class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+							focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+					placeholder=""
+					/>
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-1">Nº de Segs:</label>
+					<input
+					type="number"
+					min="2"
+					value="${troncal.segmentos.length >= 2 ? troncal.segmentos.length : 2
+					}"
+					onchange="updateSegmentsCount(${id}, this.value)"
+					class="w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm
+							focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+					/>
+				</div>
+				</div>
+				<div class="overflow-x-auto">
+				<table class="min-w-full divide-y divide-gray-200 text-sm">
+					<thead class="bg-gray-100">
+					<tr>
+						<th class="px-4 py-2 text-left font-medium text-gray-600">Segmento</th>
+						<th class="px-4 py-2 text-left font-medium text-gray-600">Vars Num</th>
+						<th class="px-4 py-2 text-left font-medium text-gray-600">Vars Cat</th>
+						<th class="px-4 py-2 text-left font-medium text-gray-600">Driv Num</th>
+						<th class="px-4 py-2 text-left font-medium text-gray-600">Driv Cat</th>
+						<th class="px-4 py-2"></th>
+					</tr>
+					</thead>
+					<tbody id="segments-table-body-${id}">
+					<!-- Se llena con loadSegmentsTable -->
+					</tbody>
+				</table>
+				</div>
+			</div>
+			</div>
+      		`;
+			loadSegmentsTable(id);
+		}
+
+		/* ==================== SEGMENTOS ==================== */
+		function toggleSegments(troncalId, isActive) {
+			const troncal = configData.troncales.find((t) => t.id === troncalId);
+			const segmentOptions = document.getElementById(
+				`segmentOptions_${troncalId}`
+			);
+			if (!troncal || !segmentOptions) return;
+
+			if (isActive) {
+				segmentOptions.classList.remove("hidden");
+				if (troncal.segmentos.length < 2) {
+					troncal.segmentos = [
+						{
+							id: 1,
+							variablesNum: "",
+							variablesCat: "",
+							driversNum: "",
+							driversCat: "",
+							modelType: "",
+							modelParams: {},
+						},
+						{
+							id: 2,
+							variablesNum: "",
+							variablesCat: "",
+							driversNum: "",
+							driversCat: "",
+							modelType: "",
+							modelParams: {},
+						},
+					];
+				}
+			} else {
+				segmentOptions.classList.add("hidden");
+				troncal.segmentos = [];
+				troncal.varSegmentadora = "";
+			}
+			loadSegmentsTable(troncalId);
+			// Unificar all universe
+			updateAllUniverseFromSegments(troncalId);
+			autoGenerateSAS();
+		}
+
+		function loadSegmentsTable(troncalId) {
+			const troncal = configData.troncales.find((t) => t.id === troncalId);
+			const tableBody = document.getElementById(
+				`segments-table-body-${troncalId}`
+			);
+			if (!troncal || !tableBody) return;
+
+			if (troncal.segmentos.length < 2) {
+				tableBody.innerHTML = `
+          <tr>
+            <td colspan="7" class="text-center py-2 text-gray-500">Debe tener al menos 2 segmentos.</td>
+          </tr>`;
+				return;
+			}
+
+			tableBody.innerHTML = troncal.segmentos
+				.map((seg) => {
+					// Convert model type code to display name
+					let modelDisplay = "-";
+					switch (seg.modelType) {
+						case "gb":
+							modelDisplay = "Gradient Boosting";
+							break;
+						case "nn":
+							modelDisplay = "Neural Network";
+							break;
+						case "rf":
+							modelDisplay = "Random Forest";
+							break;
+						case "dt":
+							modelDisplay = "Decision Tree";
+							break;
+						case "svm":
+							modelDisplay = "Support Vector Machine";
+							break;
+					}
+
+					return `
+          <tr class="border-b border-gray-200">
+            <td class="px-4 py-2 font-medium text-gray-700">Segmento ${seg.id
+						}</td>
+            <td class="px-4 py-2 text-gray-600 break-words max-w-[100px] overflow-hidden truncate">${seg.variablesNum || "-"
+						}</td>
+            <td class="px-4 py-2 text-gray-600 break-words max-w-[100px] overflow-hidden truncate">${seg.variablesCat || "-"
+						}</td>
+            <td class="px-4 py-2 text-gray-600 break-words max-w-[100px] overflow-hidden truncate">${seg.driversNum || "-"
+						}</td>
+            <td class="px-4 py-2 text-gray-600 break-words max-w-[100px] overflow-hidden truncate">${seg.driversCat || "-"
+						}</td>
+            <td class="px-4 py-2 text-gray-600">${modelDisplay}</td>
+            <td class="px-4 py-2">
+              <button
+                onclick="openSegmentEditModal(${troncalId}, ${seg.id})"
+                class="text-blue-500 hover:text-blue-700 text-sm mr-2"
+              >
+                <i class="fas fa-edit"></i>
+              </button>
+              <button
+                onclick="deleteSegment(${troncalId}, ${seg.id})"
+                class="text-red-500 hover:text-red-700 text-sm"
+              >
+                <i class="fas fa-trash-alt"></i>
+              </button>
+            </td>
+          </tr>
+        `;
+				})
+				.join("");
+		}
+		// Model parameter handling functions
+		function updateModelParamsForm() {
+			const modelType = document.getElementById("segment-model-type").value;
+
+			// Hide all parameter forms
+			document.getElementById("no-model-selected").classList.add("hidden");
+			document.getElementById("gb-params").classList.add("hidden");
+			document.getElementById("nn-params").classList.add("hidden");
+			document.getElementById("rf-params").classList.add("hidden");
+			document.getElementById("dt-params").classList.add("hidden");
+			document.getElementById("svm-params").classList.add("hidden");
+
+			// Show the selected model's parameters form
+			if (!modelType) {
+				document
+					.getElementById("no-model-selected")
+					.classList.remove("hidden");
+			} else {
+				document
+					.getElementById(`${modelType}-params`)
+					.classList.remove("hidden");
+			}
+		}
+
+		// Populate the model parameters form based on segment data
+		function populateModelParamsForm(segment) {
+			const modelType = segment.modelType || "";
+			document.getElementById("segment-model-type").value = modelType;
+
+			// Call updateModelParamsForm to show the right parameter set
+			updateModelParamsForm();
+
+			// Populate the parameter values based on segment.modelParams
+			const params = segment.modelParams || {};
+
+			if (modelType === "gb") {
+				document.getElementById("gb-mmgr-table-replica").value =
+					params.mmgr_table_replica || "";
+				document.getElementById("gb-mmgr-table-compare").value =
+					params.mmgr_table_compare || "";
+				document.getElementById("gb-seed").value = params.seed || "";
+				document.getElementById("gb-maxbranch").value =
+					params.maxbranch || "";
+				document.getElementById("gb-l1").value = params.l1 || "";
+				document.getElementById("gb-l2").value = params.l2 || "";
+				document.getElementById("gb-learningrate").value =
+					params.learningrate || "";
+				document.getElementById("gb-maxdepth").value = params.maxdepth || "";
+				document.getElementById("gb-minleafsize").value =
+					params.minleafsize || "";
+				document.getElementById("gb-ntrees").value = params.ntrees || "";
+				document.getElementById("gb-numbin").value = params.numbin || "";
+				document.getElementById("gb-samplingrate").value =
+					params.samplingrate || "";
+				document.getElementById("gb-partitionvar").value =
+					params.partition_var || "";
+			} else if (modelType === "nn") {
+				document.getElementById("nn-hidden").value = params.hidden || "";
+				document.getElementById("nn-iter").value = params.iter || "";
+				document.getElementById("nn-learningrate").value =
+					params.learningrate || "";
+				document.getElementById("nn-dropout").value = params.dropout || "";
+				document.getElementById("nn-seed").value = params.seed || "";
+			} else if (modelType === "rf") {
+				document.getElementById("rf-ntrees").value = params.ntrees || "";
+				document.getElementById("rf-varstotry").value =
+					params.varstotry || "";
+				document.getElementById("rf-maxdepth").value = params.maxdepth || "";
+				document.getElementById("rf-seed").value = params.seed || "";
+				document.getElementById("rf-minleafsize").value =
+					params.minleafsize || "";
+			} else if (modelType === "dt") {
+				document.getElementById("dt-maxdepth").value = params.maxdepth || "";
+				document.getElementById("dt-minleafsize").value =
+					params.minleafsize || "";
+				document.getElementById("dt-maxbranch").value =
+					params.maxbranch || "";
+				document.getElementById("dt-seed").value = params.seed || "";
+			} else if (modelType === "svm") {
+				document.getElementById("svm-kernel").value =
+					params.kernel || "linear";
+				document.getElementById("svm-c").value = params.c || "";
+				document.getElementById("svm-gamma").value = params.gamma || "";
+				document.getElementById("svm-degree").value = params.degree || "";
+				document.getElementById("svm-seed").value = params.seed || "";
+			}
+		}
+
+		// Collect the model parameters from the form
+		function collectModelParams() {
+			const modelType = document.getElementById("segment-model-type").value;
+			let params = {};
+
+			if (modelType === "gb") {
+				params = {
+					mmgr_table_replica: document.getElementById("gb-mmgr-table-replica")
+						.value,
+					mmgr_table_compare: document.getElementById("gb-mmgr-table-compare")
+						.value,
+					seed: document.getElementById("gb-seed").value,
+					maxbranch: document.getElementById("gb-maxbranch").value,
+					l1: document.getElementById("gb-l1").value,
+					l2: document.getElementById("gb-l2").value,
+					learningrate: document.getElementById("gb-learningrate").value,
+					maxdepth: document.getElementById("gb-maxdepth").value,
+					minleafsize: document.getElementById("gb-minleafsize").value,
+					ntrees: document.getElementById("gb-ntrees").value,
+					numbin: document.getElementById("gb-numbin").value,
+					samplingrate: document.getElementById("gb-samplingrate").value,
+					varstotry: document.getElementById("gb-varstotry").value,
+					partition_var: document.getElementById("gb-partitionvar").value,
+				};
+			} else if (modelType === "nn") {
+				params = {
+					hidden: document.getElementById("nn-hidden").value,
+					iter: document.getElementById("nn-iter").value,
+					learningrate: document.getElementById("nn-learningrate").value,
+					dropout: document.getElementById("nn-dropout").value,
+					seed: document.getElementById("nn-seed").value,
+				};
+			} else if (modelType === "rf") {
+				params = {
+					ntrees: document.getElementById("rf-ntrees").value,
+					varstotry: document.getElementById("rf-varstotry").value,
+					maxdepth: document.getElementById("rf-maxdepth").value,
+					seed: document.getElementById("rf-seed").value,
+					minleafsize: document.getElementById("rf-minleafsize").value,
+				};
+			} else if (modelType === "dt") {
+				params = {
+					maxdepth: document.getElementById("dt-maxdepth").value,
+					minleafsize: document.getElementById("dt-minleafsize").value,
+					maxbranch: document.getElementById("dt-maxbranch").value,
+					seed: document.getElementById("dt-seed").value,
+				};
+			} else if (modelType === "svm") {
+				params = {
+					kernel: document.getElementById("svm-kernel").value,
+					c: document.getElementById("svm-c").value,
+					gamma: document.getElementById("svm-gamma").value,
+					degree: document.getElementById("svm-degree").value,
+					seed: document.getElementById("svm-seed").value,
+				};
+			}
+
+			return { modelType, params };
+		}
+		function openSegmentEditModal(troncalId, segId) {
+			currentEditingTroncalId = troncalId;
+			currentEditingSegmentId = segId;
+			const troncal = configData.troncales.find((t) => t.id === troncalId);
+			const seg = troncal.segmentos.find((s) => s.id === segId);
+
+			document.getElementById(
+				"segment-edit-modal-title"
+			).textContent = `Editar Segmento ${segId}`;
+			document.getElementById("segment-edit-num").value =
+				seg.variablesNum || "";
+			document.getElementById("segment-edit-cat").value =
+				seg.variablesCat || "";
+			document.getElementById("segment-edit-dri-num").value =
+				seg.driversNum || "";
+			document.getElementById("segment-edit-dri-cat").value =
+				seg.driversCat || "";
+
+			// Populate model type and parameters
+			populateModelParamsForm(seg);
+
+			document
+				.getElementById("segment-edit-modal")
+				.classList.remove("hidden");
+		}
+
+		function closeSegmentEditModal() {
+			document.getElementById("segment-edit-modal").classList.add("hidden");
+		}
+
+		function saveSegmentEdit() {
+			const troncal = configData.troncales.find(
+				(t) => t.id === currentEditingTroncalId
+			);
+			if (!troncal) return;
+			const seg = troncal.segmentos.find(
+				(s) => s.id === currentEditingSegmentId
+			);
+			if (!seg) return;
+
+			seg.variablesNum = parseVariables(
+				document.getElementById("segment-edit-num").value
+			);
+			seg.variablesCat = parseVariables(
+				document.getElementById("segment-edit-cat").value
+			);
+			seg.driversNum = parseVariables(
+				document.getElementById("segment-edit-dri-num").value
+			);
+			seg.driversCat = parseVariables(
+				document.getElementById("segment-edit-dri-cat").value
+			);
+
+			// Save model type and parameters
+			const { modelType, params } = collectModelParams();
+			seg.modelType = modelType;
+			seg.modelParams = params;
+
+			showToast(`Segmento ${currentEditingSegmentId} actualizado`, "success");
+			closeSegmentEditModal();
+			loadSegmentsTable(currentEditingTroncalId);
+
+			// Update the All Universe variables
+			updateAllUniverseFromSegments(currentEditingTroncalId);
+
+			// Generate SAS code
+			autoGenerateSAS();
+		}
+
+		function deleteSegment(troncalId, segId) {
+			const troncal = configData.troncales.find((t) => t.id === troncalId);
+			troncal.segmentos = troncal.segmentos.filter((s) => s.id !== segId);
+			if (troncal.segmentos.length < 2) {
+				troncal.segmentos = [];
+				troncal.varSegmentadora = "";
+			}
+			loadSegmentsTable(troncalId);
+			// Unificar all universe
+			updateAllUniverseFromSegments(troncalId);
+			autoGenerateSAS();
+			showToast(`Segmento ${segId} eliminado`, "success");
+		}
+
+		/* ==================== ACTUALIZAR "ALL UNIVERSE" DESDE SEGMENTOS ==================== */
+		function updateAllUniverseFromSegments(troncalId) {
+			const troncal = configData.troncales.find((t) => t.id === troncalId);
+			if (!troncal) return;
+
+			// Unificar solo si hay >=1 segmento
+			if (troncal.segmentos.length < 1) {
+				troncal.universeNum = "";
+				troncal.universeCat = "";
+				troncal.universeDriNum = "";
+				troncal.universeDriCat = "";
+			} else {
+				let allNum = [];
+				let allCat = [];
+				let allDriNum = [];
+				let allDriCat = [];
+
+				troncal.segmentos.forEach((seg) => {
+					if (seg.variablesNum) {
+						allNum = allNum.concat(
+							seg.variablesNum.split(/\s+/).filter(Boolean)
+						);
+					}
+					if (seg.variablesCat) {
+						allCat = allCat.concat(
+							seg.variablesCat.split(/\s+/).filter(Boolean)
+						);
+					}
+					if (seg.driversNum) {
+						allDriNum = allDriNum.concat(
+							seg.driversNum.split(/\s+/).filter(Boolean)
+						);
+					}
+					if (seg.driversCat) {
+						allDriCat = allDriCat.concat(
+							seg.driversCat.split(/\s+/).filter(Boolean)
+						);
+					}
+				});
+
+				// Quitar duplicados
+				allNum = [...new Set(allNum)];
+				allCat = [...new Set(allCat)];
+				allDriNum = [...new Set(allDriNum)];
+				allDriCat = [...new Set(allDriCat)];
+
+				troncal.universeNum = allNum.join(" ");
+				troncal.universeCat = allCat.join(" ");
+				troncal.universeDriNum = allDriNum.join(" ");
+				troncal.universeDriCat = allDriCat.join(" ");
+			}
+
+			// Si estamos viendo este Troncal, recargar su detalle
+			if (activeTab === `troncal-${troncalId}`) {
+				showTroncal(troncalId);
+			}
+		}
+
+		/* ==================== ELIMINAR TRONCAL ==================== */
+		function confirmDeleteTroncal(id) {
+			document
+				.getElementById("confirmation-modal")
+				.classList.remove("hidden");
+			document.getElementById(
+				"modal-message"
+			).textContent = `¿Está seguro de eliminar la Troncal ${id}?`;
+			document.getElementById("modal-confirm").onclick = function () {
+				deleteTroncal(id);
+				document.getElementById("confirmation-modal").classList.add("hidden");
+			};
+		}
+		function deleteTroncal(id) {
+			configData.troncales = configData.troncales.filter((t) => t.id !== id);
+			configData.troncales.forEach((t, index) => {
+				t.id = index + 1;
+			});
+			updateStructureTree();
+			showToast(`Troncal ${id} eliminada`, "success");
+			autoGenerateSAS();
+			if (configData.troncales.length === 0) {
+				document.getElementById("troncal-detail").innerHTML = `
+          <div class="text-center py-8 text-gray-500">
+            <i class="fas fa-info-circle text-4xl mb-2 opacity-30"></i>
+            <p>Seleccione o agregue una Troncal para configurarla.</p>
+          </div>
+        `;
+			} else {
+				switchTab("troncal-1");
+			}
+		}
+		document.getElementById("modal-cancel").onclick = () => {
+			document.getElementById("confirmation-modal").classList.add("hidden");
+		};
+
+		/* ==================== CAMPOS DE TRONCAL ==================== */
+		function updateTroncalField(troncalId, field, value) {
+			const troncal = configData.troncales.find((t) => t.id === troncalId);
+			if (!troncal) return;
+			troncal[field] = value.trim();
+			autoGenerateSAS();
+		}
+		function updateTroncalFieldParsed(troncalId, field, value) {
+			const troncal = configData.troncales.find((t) => t.id === troncalId);
+			if (!troncal) return;
+			troncal[field] = parseVariables(value);
+			autoGenerateSAS();
+		}
+
+		function updateSegmentsCount(troncalId, newCountStr) {
+			let newCount = parseInt(newCountStr);
+			if (isNaN(newCount) || newCount < 2) {
+				showToast("Mínimo 2 segmentos", "error");
+				return;
+			}
+			const troncal = configData.troncales.find((t) => t.id === troncalId);
+			if (!troncal) return;
+
+			if (troncal.segmentos.length === 0) {
+				for (let i = 1; i <= newCount; i++) {
+					troncal.segmentos.push({
+						id: i,
+						variablesNum: "",
+						variablesCat: "",
+						driversNum: "",
+						driversCat: "",
+					});
+				}
+			} else if (newCount > troncal.segmentos.length) {
+				let startId = troncal.segmentos[troncal.segmentos.length - 1].id + 1;
+				for (
+					let i = startId;
+					i < startId + (newCount - troncal.segmentos.length);
+					i++
+				) {
+					troncal.segmentos.push({
+						id: i,
+						variablesNum: "",
+						variablesCat: "",
+						driversNum: "",
+						driversCat: "",
+					});
+				}
+			} else if (newCount < troncal.segmentos.length) {
+				troncal.segmentos = troncal.segmentos.slice(0, newCount);
+			}
+			loadSegmentsTable(troncalId);
+			updateAllUniverseFromSegments(troncalId);
+			autoGenerateSAS();
+		}
+
+		/* ==================== GENERACIÓN AUTOMÁTICA DE SAS ==================== */
+		function autoGenerateSAS() {
+			generarSAS();
+		}
+
+		function generarSAS() {
+			const nTroncales = configData.troncales.length;
+			let sas = "/* Generated SAS Macro Variables */\n\n";
+			// Encabezado: config general
+			sas +=
+				"/* ================================ Configuracion general ================================ */\n";
+			sas += `%let n_troncales = ${nTroncales};\n`;
+			sas += `%let master_table = ${configData.master_table};\n`;
+			sas += `%macro cut_dataname;\n`;
+			sas += `%if %length(&master_table) > 22 %then %do;\n`;
+			sas += "    %local librefstat;\n";
+			sas += "    %let copy_master = &master_table;\n";
+			sas += "    %let master_table = %substr(&master_table, 1, 22);\n";
+			sas +=
+				"    %put WARNING DEVELOPER: master_table renombrado = &master_table;\n";
+			sas += "    %let librefstat = %sysfunc(libref(maindata));\n";
+			sas += "    %if &librefstat ne 0 %then %do;\n";
+			sas += '        libname maindata "&_root_path/Data";\n';
+			sas += "    %end;\n";
+			sas += "    %if %sysfunc(exist(maindata.&copy_master)) %then %do;\n";
+			sas += "        proc datasets library=maindata nolist;\n";
+			sas += "            change &copy_master = &master_table;\n";
+			sas += "        run;\n";
+			sas += "    %end;\n";
+			sas += "%end;\n";
+			sas += "%mend;\n";
+			sas += "%cut_dataname;\n";
+			sas += `%let caslib_mmgr = ${configData.caslib_mmgr_front};\n`;
+			sas += `%let _container_path = ${configData.container_path};\n`;
+			sas += `%let tipo_modelo = ${configData.tipo_modelo};\n`;
+			sas += `%let tipo_producto = ${configData.tipo_producto};\n`;
+			// Algorithm flags
+			sas += "/* ================ Algorithm Flags ================ */\n";
+			updateConfigData(); // Ensure algorithm_flags exists
+			sas += `%let gb_flg = ${configData.algorithm_flags.gb_flg ? "1" : "0"
+				};\n`;
+			sas += `%let nn_flg = ${configData.algorithm_flags.nn_flg ? "1" : "0"
+				};\n`;
+			sas += `%let rf_flg = ${configData.algorithm_flags.rf_flg ? "1" : "0"
+				};\n`;
+			sas += `%let dt_flg = ${configData.algorithm_flags.dt_flg ? "1" : "0"
+				};\n`;
+			sas += `%let svm_flg = ${configData.algorithm_flags.svm_flg ? "1" : "0"
+				};\n\n`;
+			// flags concatenadas
+			const flags = configData.troncales
+				.map((t) => t.flag.trim())
+				.filter((f) => f)
+				.join(" ");
+			sas += `%let flag_tcl = ${flags};\n\n`;
+
+			// Troncal x Troncal
+			configData.troncales.forEach((troncal) => {
+				const i = troncal.id;
+				sas += `/* ================================ Troncal ${i} ================================ */\n`;
+				sas += `%let troncal_${i} = ${troncal.cod};\n`;
+				sas += `%let target_${i} = ${troncal.target};\n`;
+				sas += `%let pd_${i} = ${troncal.pd};\n`;
+				sas += `%let xb_${i} = ${troncal.xb};\n`;
+				sas += `%let monto_${i} = ${troncal.monto};\n`;
+				sas += `%let byvar_${i} = ${troncal.byvar};\n\n`;
+
+				// train_tcl_i y oot_tcl_i con &master_table
+				sas += `%let train_tcl_${i} = tro${i}_train&master_table;\n`;
+				sas += `%let oot_tcl_${i} = tro${i}_oot&master_table;\n\n`;
+
+				sas += `%let train_min_mes_${i} = ${troncal.trainMinMes};\n`;
+				sas += `%let train_max_mes_${i} = ${troncal.trainMaxMes};\n`;
+				sas += `%let oot_min_mes_${i} = ${troncal.ootMinMes};\n`;
+				sas += `%let oot_max_mes_${i} = ${troncal.ootMaxMes};\n`;
+				sas += `%let def_cld_${i} = ${troncal.defCld};\n`;
+				sas += `%let astore_${i} = ${troncal.astore};\n`;
+				sas += `%let trans_table_${i} = ${troncal.trans};\n`;
+				sas += `%let hiperparam_table_${i} = ${troncal.hiperparam};\n`;
+				sas += `%let num_rounds_${i} = ${troncal.numrounds};\n`;
+				sas += `%let threshold_${i} = ${troncal.threshold};\n`;
+				sas += `%let universeMMGR_${i} = ${troncal.universeMMGR};\n\n`;
+
+				// All Universe
+				sas += `/* ================ All universe ================ */\n`;
+				sas += `%let num_unv_${i} = ${troncal.universeNum};\n`;
+				sas += `%let cat_unv_${i} = ${troncal.universeCat};\n`;
+				sas += `%let dri_num_unv_${i} = ${troncal.universeDriNum};\n`;
+				sas += `%let dri_cat_unv_${i} = ${troncal.universeDriCat};\n\n`;
+
+				sas += `%let var_seg_${i} = ${troncal.varSegmentadora};\n`;
+				// Segmentos
+				if (troncal.segmentos.length >= 2) {
+					sas += `%let n_segs_tro_${i} = ${troncal.segmentos.length};\n\n`;
+					troncal.segmentos.forEach((seg) => {
+						sas += `/* ================ Segmento ${seg.id} ================ */\n`;
+						sas += `%let num_seg_${i}_${seg.id} = ${seg.variablesNum};\n`;
+						sas += `%let cat_seg_${i}_${seg.id} = ${seg.variablesCat};\n`;
+						sas += `%let dri_num_seg_${i}_${seg.id} = ${seg.driversNum};\n`;
+						sas += `%let dri_cat_seg_${i}_${seg.id} = ${seg.driversCat};\n`;
+
+						// Add model type
+						sas += `%let model_type_seg_${i}_${seg.id} = ${seg.modelType || ""
+							};\n\n`;
+
+						// Add model parameters as data step tables based on model type
+						if (seg.modelType && seg.modelParams) {
+							if (seg.modelType === "gb") {
+								sas += `/* Create table for Gradient Boosting parameters */\n`;
+								sas += `data work.params_tro${i}_seg${seg.id};\n`;
+								sas += `length parametro $30 valor $32;\n`;
+								sas += `input parametro $ valor;\n`;
+								sas += `datalines;\n`;
+								sas += `mmgr_table_replica ${seg.modelParams.mmgr_table_replica || ""
+									}\n`;
+								sas += `mmgr_table_compare ${seg.modelParams.mmgr_table_compare || ""
+									}\n`;
+								sas += `seed ${seg.modelParams.seed || "NULL"}\n`;
+								sas += `maxbranch ${seg.modelParams.maxbranch || "NULL"}\n`;
+								sas += `lasso ${seg.modelParams.l1 || "NULL"}\n`;
+								sas += `ridge ${seg.modelParams.l2 || "NULL"}\n`;
+								sas += `learningrate ${seg.modelParams.learningrate || "NULL"
+									}\n`;
+								sas += `maxdepth ${seg.modelParams.maxdepth || "NULL"}\n`;
+								sas += `minleafsize ${seg.modelParams.minleafsize || "NULL"
+									}\n`;
+								sas += `ntrees ${seg.modelParams.ntrees || "NULL"}\n`;
+								sas += `numbin ${seg.modelParams.numbin || "NULL"}\n`;
+								sas += `samplingrate ${seg.modelParams.samplingrate || "NULL"
+									}\n`;
+								sas += `vars_to_try ${seg.modelParams.varstotry || "NULL"}\n`;
+								sas += `partition_var ${seg.modelParams.partition_var || "NULL"
+									}\n`;
+								sas += `;\n`;
+								sas += `run;\n\n`;
+							} else if (seg.modelType === "nn") {
+								sas += `/* Create table for Neural Network parameters */\n`;
+								sas += `data work.params_tro${i}_seg${seg.id};\n`;
+								sas += `    hidden = "${seg.modelParams.hidden || ""}";\n`;
+								sas += `    iterations = ${seg.modelParams.iter || "NULL"
+									};\n`;
+								sas += `    learningrate = ${seg.modelParams.learningrate || "NULL"
+									};\n`;
+								sas += `    dropout = ${seg.modelParams.dropout || "NULL"
+									};\n`;
+								sas += `    seed = ${seg.modelParams.seed || "NULL"};\n`;
+								sas += `run;\n\n`;
+							} else if (seg.modelType === "rf") {
+								sas += `/* Create table for Random Forest parameters */\n`;
+								sas += `data work.params_tro${i}_seg${seg.id};\n`;
+								sas += `    ntrees = ${seg.modelParams.ntrees || "NULL"};\n`;
+								sas += `    varstotry = ${seg.modelParams.varstotry || "NULL"
+									};\n`;
+								sas += `    maxdepth = ${seg.modelParams.maxdepth || "NULL"
+									};\n`;
+								sas += `    seed = ${seg.modelParams.seed || "NULL"};\n`;
+								sas += `    minleafsize = ${seg.modelParams.minleafsize || "NULL"
+									};\n`;
+								sas += `run;\n\n`;
+							} else if (seg.modelType === "dt") {
+								sas += `/* Create table for Decision Tree parameters */\n`;
+								sas += `data work.params_tro${i}_seg${seg.id};\n`;
+								sas += `    maxdepth = ${seg.modelParams.maxdepth || "NULL"
+									};\n`;
+								sas += `    minleafsize = ${seg.modelParams.minleafsize || "NULL"
+									};\n`;
+								sas += `    maxbranch = ${seg.modelParams.maxbranch || "NULL"
+									};\n`;
+								sas += `    seed = ${seg.modelParams.seed || "NULL"};\n`;
+								sas += `run;\n\n`;
+							} else if (seg.modelType === "svm") {
+								sas += `/* Create table for SVM parameters */\n`;
+								sas += `data work.params_tro${i}_seg${seg.id};\n`;
+								sas += `    kernel = "${seg.modelParams.kernel || "linear"
+									}";\n`;
+								sas += `    c = ${seg.modelParams.c || "NULL"};\n`;
+								sas += `    gamma = ${seg.modelParams.gamma || "NULL"};\n`;
+								sas += `    degree = ${seg.modelParams.degree || "NULL"};\n`;
+								sas += `    seed = ${seg.modelParams.seed || "NULL"};\n`;
+								sas += `run;\n\n`;
+							}
+						}
+					});
+				}
+			});
+			// Colocamos en el textarea del modal (si está abierto)
+			document.getElementById("output").value = sas;
+		}
+
+		/* ==================== MODAL SAS: MOSTRAR/CERRAR Y DESCARGAR ==================== */
+		function abrirSASModal() {
+			generarSAS();
+			document.getElementById("sasModal").classList.remove("hidden");
+		}
+		function cerrarSASModal() {
+			document.getElementById("sasModal").classList.add("hidden");
+		}
+
+		function descargarAmbos() {
+			// 1) Aseguramos SAS actualizado
+			generarSAS();
+
+			// 2) Descargar SAS
+			const sasData = document.getElementById("output").value;
+			const sasBlob = new Blob([sasData], {
+				type: "text/plain;charset=utf-8;",
+			});
+			const sasUrl = window.URL.createObjectURL(sasBlob);
+			const aSas = document.createElement("a");
+			aSas.href = sasUrl;
+			aSas.download = "config.sas";
+			aSas.click();
+
+			// 3) Descargar JSON
+			const json = JSON.stringify(configData, null, 2);
+			const jsonBlob = new Blob([json], {
+				type: "application/json;charset=utf-8;",
+			});
+			const jsonUrl = window.URL.createObjectURL(jsonBlob);
+			const aJson = document.createElement("a");
+			aJson.href = jsonUrl;
+			aJson.download = "configuracion.json";
+			aJson.click();
+		}
+
+		/* ==================== CARGAR CONFIG (JSON) ==================== */
+		function cargarConfiguracion(event) {
+			const file = event.target.files[0];
+			if (!file) return;
+			const reader = new FileReader();
+			reader.onload = function (e) {
+				try {
+					configData = JSON.parse(e.target.result);
+					// Reflejar la master_table y validator_name
+					document.getElementById("masterTableInput").value =
+						configData.master_table || "";
+					document.getElementById("containerInput").value =
+						configData.caslib_mmgr || "";						
+					document.getElementById("containerInput").value =
+						configData.container_path || "";
+					
+					//document.getElementById('validatorNameInput').value = configData.validator_name || "";
+					// Update algorithm checkboxes
+					updateConfigData(); // Ensure algorithm_flags exists
+					document.getElementById("gbCheck").checked =
+						configData.algorithm_flags?.gb_flg === true;
+					document.getElementById("nnCheck").checked =
+						configData.algorithm_flags?.nn_flg === true;
+					document.getElementById("rfCheck").checked =
+						configData.algorithm_flags?.rf_flg === true;
+					document.getElementById("dtCheck").checked =
+						configData.algorithm_flags?.dt_flg === true;
+					document.getElementById("svmCheck").checked =
+						configData.algorithm_flags?.svm_flg === true;
+
+					// Llenar combos de modelo/producto
+					const modeloSelect = document.getElementById("tipoModeloSelect");
+					const productoSelect =
+						document.getElementById("tipoProductoSelect");
+					modeloSelect.value = configData.tipo_modelo || "";
+
+					// Rellenar producto
+					productoSelect.innerHTML = `<option value="">-- Seleccione --</option>`;
+					if (configData.tipo_modelo === "APPLICANT") {
+						["BT", "CEF", "EP"].forEach((opt) => {
+							const option = document.createElement("option");
+							option.value = opt;
+							option.textContent = opt;
+							productoSelect.appendChild(option);
+						});
+					} else if (configData.tipo_modelo === "BHV") {
+						["TC", "OTRO"].forEach((opt) => {
+							const option = document.createElement("option");
+							option.value = opt;
+							option.textContent = opt;
+							productoSelect.appendChild(option);
+						});
+					}
+					productoSelect.value = configData.tipo_producto || "";
+
+					// Troncales
+					updateStructureTree();
+					if (configData.troncales.length > 0) {
+						switchTab("troncal-1");
+					}
+					showToast("Configuración cargada", "success");
+					autoGenerateSAS();
+				} catch (err) {
+					showToast("Error al cargar la configuración", "error");
+				}
+			};
+			reader.readAsText(file);
+		}
+
+		/* ==================== DOM READY ==================== */
+		document.addEventListener("DOMContentLoaded", function () {
+			// Botón Cargar Config
+			document.getElementById("btnLoadConfig").onclick = function () {
+				const input = document.createElement("input");
+				input.type = "file";
+				input.accept = "application/json";
+				input.onchange = cargarConfiguracion;
+				input.click();
+			};
+			// Modal confirm: cancelar
+			document.getElementById("modal-cancel").onclick = () => {
+				document.getElementById("confirmation-modal").classList.add("hidden");
+			};
+		});
+		})();
+	</script>
+	<script>
+let activeTab = null;
+let currentEditingTroncalId = null;
+let currentEditingSegmentId = null;
+let configData = {
+	troncales: [],
+};
+
+const PRODUCT_OPTIONS = {
+	APP: [
+		"CEF",
+		"TC",
+		"HIPOTECARIO",
+		"VEHICULAR",
+		"GAHI",
+		"BT",
+		"EP",
+		"CT",
+		"AFM",
+		"AFI",
+		"AFMP",
+		"TSN",
+		"CLIENTE",
+		"SHIELD",
+		"OTROS_SUBSI",
+	],
+	BHV: [
+		"CEF",
+		"TC",
+		"HIPOTECARIO",
+		"VEHICULAR",
+		"CT",
+		"AFM",
+		"AFI",
+		"CLIENTE",
+		"OTROS_SUBSI",
+	],
+};
+
+function createEmptySegment(segId) {
+	return {
+		seg_id: segId,
+		num_list: "",
+		cat_list: "",
+		dri_num_list: "",
+		dri_cat_list: "",
+	};
+}
+
+function createEmptyTroncal(troncalId) {
+	return {
+		troncal_id: troncalId,
+		id_var_id: "",
+		target: "",
+		pd: "",
+		xb: "",
+		monto: "",
+		byvar: "",
+		model_type: "",
+		tipo_producto: "",
+		train_min_mes: "",
+		train_max_mes: "",
+		oot_min_mes: "",
+		oot_max_mes: "",
+		def_cld: "",
+		num_unv: "",
+		cat_unv: "",
+		dri_num_unv: "",
+		dri_cat_unv: "",
+		var_seg: "",
+		segmentos: [],
+	};
+}
+
+function showToast(message, type = "info") {
+	const container = document.getElementById("toast-container");
+	const toast = document.createElement("div");
+	toast.className = "toast px-4 py-2 rounded shadow text-white mb-2";
+	toast.textContent = message;
+	if (type === "error") {
+		toast.classList.add("bg-red-500");
+	} else if (type === "success") {
+		toast.classList.add("bg-green-500");
+	} else {
+		toast.classList.add("bg-blue-500");
+	}
+	container.appendChild(toast);
+	setTimeout(() => toast.remove(), 3000);
+}
+
+function parseVariables(text) {
+	return [
+		...new Set(
+			String(text || "")
+				.split(/[\s,]+/)
+				.map((value) => value.trim())
+				.filter(Boolean)
+		),
+	].join(" ");
+}
+
+function escapeHtml(value) {
+	return String(value ?? "")
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;");
+}
+
+function normalizeText(value) {
+	return String(value ?? "").trim();
+}
+
+function toNumberOrNull(value) {
+	const trimmed = normalizeText(value);
+	if (!trimmed) {
+		return null;
+	}
+	const numericValue = Number(trimmed);
+	return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function getTroncalById(troncalId) {
+	return configData.troncales.find((troncal) => troncal.troncal_id === troncalId);
+}
+
+function renderSummary() {
+	const totalTroncales = configData.troncales.length;
+	const totalSegmentos = configData.troncales.reduce(
+		(acc, troncal) => acc + troncal.segmentos.length,
+		0
+	);
+	document.getElementById("summary-troncales").textContent = totalTroncales;
+	document.getElementById("summary-segmentos").textContent = totalSegmentos;
+	document.getElementById("summary-estructura").textContent =
+		totalTroncales > 0 ? "cfg_* listo" : "Sin datos";
+}
+
+function renderEmptyState() {
+	document.getElementById("troncal-detail").innerHTML = `
+		<div class="text-center py-10 text-gray-500">
+			<i class="fas fa-info-circle text-4xl mb-3 opacity-30"></i>
+			<p class="text-base">Seleccione o agregue una Troncal para configurarla.</p>
+		</div>
+	`;
+}
+
+function updateStructureTree() {
+	const container = document.getElementById("structure-tree");
+	if (configData.troncales.length === 0) {
+		container.innerHTML = `
+			<div class="text-center py-8 text-gray-500">
+				<i class="fas fa-diagram-project text-4xl mb-2 opacity-30"></i>
+				<p>No hay troncales configuradas aún.</p>
+			</div>
+		`;
+		return;
+	}
+
+	container.innerHTML = configData.troncales
+		.map((troncal) => {
+			const tabId = `troncal-${troncal.troncal_id}`;
+			const isActive = activeTab === tabId;
+			const segmentCount = troncal.segmentos.length;
+			return `
+				<button
+					type="button"
+					onclick="switchTab('${tabId}')"
+					class="w-full text-left mb-2 p-3 rounded-lg transition-colors border ${
+						isActive ? "bg-blue-50 border-blue-200" : "border-transparent hover:bg-blue-50"
+					}"
+				>
+					<div class="flex items-center justify-between gap-3">
+						<div class="flex items-center min-w-0">
+							<i class="fas fa-project-diagram text-blue-600 mr-3"></i>
+							<div class="min-w-0">
+								<div class="font-medium text-gray-800 truncate">Troncal ${troncal.troncal_id}</div>
+								<div class="text-xs text-gray-500 truncate">${escapeHtml(
+									troncal.id_var_id || "Sin variable ID"
+								)}</div>
+							</div>
+						</div>
+						<span class="text-xs font-semibold px-2 py-1 rounded-full ${
+							segmentCount >= 2 ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-500"
+						}">
+							${segmentCount >= 2 ? `${segmentCount} segs` : "Sin segs"}
+						</span>
+					</div>
+				</button>
+			`;
+		})
+		.join("");
+}
+
+function renderApp() {
+	renderSummary();
+	updateStructureTree();
+
+	if (configData.troncales.length === 0) {
+		activeTab = null;
+		renderEmptyState();
+		autoGenerateSAS();
+		return;
+	}
+
+	if (!activeTab || !getTroncalById(Number(activeTab.split("-")[1]))) {
+		activeTab = `troncal-${configData.troncales[0].troncal_id}`;
+	}
+
+	showTroncal(Number(activeTab.split("-")[1]));
+	autoGenerateSAS();
+}
+
+function switchTab(tabId) {
+	activeTab = tabId;
+	renderApp();
+}
+
+function renderModelTypeOptions(selectedValue) {
+	const options = [
+		{ value: "", label: "-- Seleccione --" },
+		{ value: "APP", label: "Applicant" },
+		{ value: "BHV", label: "Behavior" },
+	];
+
+	return options
+		.map(
+			(option) =>
+				`<option value="${option.value}" ${selectedValue === option.value ? "selected" : ""}>${option.label}</option>`
+		)
+		.join("");
+}
+
+function renderProductTypeOptions(modelType, selectedValue) {
+	const options = PRODUCT_OPTIONS[modelType] || [];
+	const baseOption = `<option value="">-- Seleccione --</option>`;
+	return (
+		baseOption +
+		options
+			.map(
+				(option) =>
+					`<option value="${option}" ${selectedValue === option ? "selected" : ""}>${option}</option>`
+			)
+			.join("")
+	);
+}
+
+function getDerivedUniverse(troncal) {
+	if (!troncal || troncal.segmentos.length < 2) {
+		return {
+			num_unv: troncal?.num_unv || "",
+			cat_unv: troncal?.cat_unv || "",
+			dri_num_unv: troncal?.dri_num_unv || "",
+			dri_cat_unv: troncal?.dri_cat_unv || "",
+		};
+	}
+
+	const aggregate = (field) =>
+		[
+			...new Set(
+				troncal.segmentos.flatMap((segmento) =>
+					String(segmento[field] || "")
+						.split(/\s+/)
+						.map((value) => value.trim())
+						.filter(Boolean)
+				)
+			),
+		].join(" ");
+
+	return {
+		num_unv: aggregate("num_list"),
+		cat_unv: aggregate("cat_list"),
+		dri_num_unv: aggregate("dri_num_list"),
+		dri_cat_unv: aggregate("dri_cat_list"),
+	};
+}
+
+function summarizeList(listValue) {
+	if (!listValue) {
+		return '<span class="text-gray-400">-</span>';
+	}
+	const items = listValue.split(/\s+/).filter(Boolean);
+	if (items.length <= 2) {
+		return escapeHtml(items.join(", "));
+	}
+	return `${escapeHtml(items.slice(0, 2).join(", "))} <span class="text-gray-400">+${
+		items.length - 2
+	}</span>`;
+}
+	</script>
+</body>
+
+</html>

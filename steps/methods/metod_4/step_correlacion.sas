@@ -27,12 +27,17 @@ Outputs van a experiments/ (análisis exploratorio).           */
 
 /* ---- EJECUCIÓN -------------------------------------------------------- */
 %macro _step_correlacion;
+    %local _step_rc;
+    %let _step_rc=0;
+
+    %fw_log_start(step_name=step_correlacion, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=metod_4_step_correlacion);
 
     /* ---- 0) Check flag de habilitación ---------------------------------- */
     %if &run_correlacion. ne 1 %then %do;
         %put NOTE: [step_correlacion] Módulo deshabilitado
             (run_correlacion=&run_correlacion.). Saltando.;
-        %return;
+        %goto _step_correlacion_end;
     %end;
 
     %put NOTE: [step_correlacion] Iniciando - scope=&ctx_scope.
@@ -119,6 +124,9 @@ Outputs van a experiments/ (análisis exploratorio).           */
     %put NOTE: [step_correlacion] Completado (scope=&ctx_scope.
         mode=&corr_mode.);
     %put NOTE:======================================================;
+
+%_step_correlacion_end:
+    %fw_log_stop(step_name=step_correlacion, step_rc=&_step_rc.);
 
 %mend _step_correlacion;
 %_step_correlacion;

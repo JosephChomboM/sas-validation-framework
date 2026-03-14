@@ -45,12 +45,17 @@ Outputs van a experiments/ (analisis exploratorio).           */
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_estabilidad;
+    %local _step_rc;
+    %let _step_rc=0;
+
+    %fw_log_start(step_name=step_estabilidad, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=metod_4_step_estabilidad);
 
     /* ---- 0) Check flag de habilitacion -------------------------------- */
     %if &run_estabilidad. ne 1 %then %do;
         %put NOTE: [step_estabilidad] Modulo deshabilitado
             (run_estabilidad=&run_estabilidad.). Saltando.;
-        %return;
+        %goto _step_estabilidad_end;
     %end;
 
     %put NOTE: [step_estabilidad] Iniciando - scope=&ctx_scope.
@@ -109,6 +114,9 @@ Outputs van a experiments/ (analisis exploratorio).           */
     %put NOTE: [step_estabilidad] Completado (scope=&ctx_scope.
         mode=&estab_mode.);
     %put NOTE:======================================================;
+
+%_step_estabilidad_end:
+    %fw_log_stop(step_name=step_estabilidad, step_rc=&_step_rc.);
 
 %mend _step_estabilidad;
 %_step_estabilidad;

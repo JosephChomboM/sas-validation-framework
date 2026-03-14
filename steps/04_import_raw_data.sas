@@ -20,6 +20,12 @@
 
 /* Importación opcional desde ADLS */
 %macro _step04_import;
+   %local _step_rc;
+   %let _step_rc=0;
+
+   %fw_log_start(step_name=step-04_import_raw_data, run_id=&run_id.,
+      fw_root=&fw_root., log_stem=04_import_raw_data);
+
    %if &adls_import_enabled. = 1 %then %do;
       %fw_import_adls_to_cas(
          raw_path          = &fw_root./data/raw,
@@ -33,5 +39,8 @@
    %else %do;
       %put NOTE: [step-04] adls_import_enabled=0 - skip import ADLS.;
    %end;
+
+%_step04_exit:
+   %fw_log_stop(step_name=step-04_import_raw_data, step_rc=&_step_rc.);
 %mend _step04_import;
 %_step04_import;

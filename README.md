@@ -146,6 +146,7 @@ Notas:
 - Los módulos se agrupan en sub-métodos: Método 1.1 (universe), Método 4.2 (estabilidad, fillrate, missings, psi) y Método 4.3 (bivariado, correlacion, gini, bootstrap). Los reportes se organizan en subcarpetas `METOD1.1/`, `METOD4.2/`, `METOD4.3/`.
 - Todo dato operativo persistente (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`). Tablas temporales de módulos se crean en `casuser` y se eliminan al finalizar.
 - Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`) en cada corrida, independientemente de `data_prep_enabled`. Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) se crean dinámicamente.
+- `logs/` es una salida operativa del framework: `steps/02_load_config.sas`, `steps/03_create_folders.sas`, `steps/04_import_raw_data.sas`, `steps/05_partition_data.sas` y cada `steps/methods/step_*.sas` redireccionan el log SAS a un archivo dedicado por step con `PROC PRINTTO`, y restauran el destino por defecto al finalizar.
 - Step 03 crea `data/raw/`, `data/processed/`, y subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal. Solo se ejecuta durante data prep.
 - Parámetros específicos de módulos de análisis (`threshold`, `corr_mode`, etc.) **no** viven en `config.sas`; se configuran en el step del módulo correspondiente.
 - `def_cld` en `config.sas` define la fecha maxima (YYYYMM) para controles que usan target/PD/XB (ej. Gini, Bootstrap). Controles que solo analizan variables (ej. correlacion, PSI) usan `oot_max_mes`.

@@ -1,4 +1,8 @@
 .github/
 .docs/
+.agent/
+.agents/
+.claude/
+docs/
 # do not include marketplace files:
 *.md

@@ -44,15 +44,19 @@ CUSTOM -> usa mono_custom_vars_num/cat y permite override target/def_cld.
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_monotonicidad;
 
-    %local _run_mono;
+    %local _run_mono _step_rc;
+    %let _step_rc=0;
     %if %symexist(run_monotonicidad)=1 %then %let _run_mono=&run_monotonicidad.;
     %else %let _run_mono=0;
+
+    %fw_log_start(step_name=step_monotonicidad, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=metod_7_step_monotonicidad);
 
     /* ---- 0) Check flag de habilitacion -------------------------------- */
     %if &_run_mono. ne 1 %then %do;
         %put NOTE: [step_monotonicidad] Modulo deshabilitado
             (run_monotonicidad=&_run_mono.). Saltando.;
-        %return;
+        %goto _step_monotonicidad_end;
     %end;
 
     %put NOTE: [step_monotonicidad] Iniciando - scope=&ctx_scope.
@@ -109,6 +113,9 @@ CUSTOM -> usa mono_custom_vars_num/cat y permite override target/def_cld.
     %put NOTE:======================================================;
     %put NOTE: [step_monotonicidad] Completado (scope=&ctx_scope.);
     %put NOTE:======================================================;
+
+%_step_monotonicidad_end:
+    %fw_log_stop(step_name=step_monotonicidad, step_rc=&_step_rc.);
 
 %mend _step_monotonicidad;
 %_step_monotonicidad;

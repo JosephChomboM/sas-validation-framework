@@ -68,12 +68,17 @@ Cada step es independiente: carga sus propias dependencias.
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_bootstrap;
+    %local _step_rc;
+    %let _step_rc=0;
+
+    %fw_log_start(step_name=step_bootstrap, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=metod_4_step_bootstrap);
 
     /* ---- 0) Check flag de habilitacion -------------------------------- */
     %if &run_bootstrap. ne 1 %then %do;
         %put NOTE: [step_bootstrap] Modulo deshabilitado
             (run_bootstrap=&run_bootstrap.). Saltando.;
-        %return;
+        %goto _step_bootstrap_end;
     %end;
 
     %put NOTE: [step_bootstrap] Iniciando - scope=&ctx_scope.
@@ -132,6 +137,9 @@ Cada step es independiente: carga sus propias dependencias.
     %put NOTE: [step_bootstrap] Completado (scope=&ctx_scope.
         mode=&boot_mode.);
     %put NOTE:======================================================;
+
+%_step_bootstrap_end:
+    %fw_log_stop(step_name=step_bootstrap, step_rc=&_step_rc.);
 
 %mend _step_bootstrap;
 %_step_bootstrap;

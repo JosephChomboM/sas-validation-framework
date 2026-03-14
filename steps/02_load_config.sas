@@ -6,19 +6,14 @@ Backend del step:
 - Carga config.sas (cfg_troncales/cfg_segmentos)
 - Crea carpetas de output del run actual (siempre, cada corrida)
 ========================================================================= */
+%include "&fw_root./src/common/log_utils.sas";
 %let config_file=&fw_root./config.sas;
 
 %macro _step02_load;
+    %local _step_rc;
+    %let _step_rc=0;
 
-	%if %sysfunc(fileexist(&config_file.))=0 %then %do;
-		%put ERROR: [step-02] No existe config_file=&config_file.;
-		%return;
-	%end;
-	%else %do;
-		%put NOTE: [step-02] config_file=&config_file.;
-	%end;
-
-	/* --- Backend: CAS init + run_id + carga config ----------------------- */
+	/* --- Backend: CAS init + run_id + dirs + log ------------------------ */
 	cas conn;
 	libname casuser cas caslib=casuser;
 	options casdatalimit=ALL;
@@ -29,6 +24,20 @@ Backend del step:
 		_ts=compress(_ts, "T");
 		call symputx("run_id", cats("run_", _ts));
 	run;
+
+    %_create_run_dirs;
+    %put NOTE: [step-02] Carpetas de output del run &run_id. creadas.;
+    %fw_log_start(step_name=step-02_load_config, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=02_load_config);
+
+	%if %sysfunc(fileexist(&config_file.))=0 %then %do;
+		%put ERROR: [step-02] No existe config_file=&config_file.;
+        %let _step_rc=1;
+		%goto _step02_exit;
+	%end;
+	%else %do;
+		%put NOTE: [step-02] config_file=&config_file.;
+	%end;
 
 	/* --- Promover tablas de config (necesario para background submit) --- */
 
@@ -55,8 +64,10 @@ Backend del step:
 	%put NOTE: [step-02] CAS inicializado, config cargado y promovido.
 		run_id=&run_id.;
 
+%_step02_exit:
+    %fw_log_stop(step_name=step-02_load_config, step_rc=&_step_rc.);
+
 %mend _step02_load;
-%_step02_load;
 
 /* --- Crear carpetas de output del run (cada corrida) ----------------- */
 %macro _create_run_dirs;
@@ -82,6 +93,4 @@ Backend del step:
 
 	options nodlcreatedir;
 %mend _create_run_dirs;
-%_create_run_dirs;
-
-%put NOTE: [step-02] Carpetas de output del run (&run_id.) creadas.;
+%_step02_load;

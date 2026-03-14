@@ -182,6 +182,8 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 
 **Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`). Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) dentro de `reports/`, `images/` y `tables/` se crean dinámicamente por cada módulo cuando genera archivos.
 
+La carpeta `logs/` es operativa: `steps/02_load_config.sas`, `steps/03_create_folders.sas`, `steps/04_import_raw_data.sas`, `steps/05_partition_data.sas` y cada `steps/methods/step_*.sas` redireccionan el log SAS de sesión a un archivo dedicado del step con `PROC PRINTTO ... NEW`, y luego restauran el log por defecto al terminar.
+
 **Step 03** crea las carpetas de data (`data/raw`, `data/processed`) y las subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal en `casuser.cfg_troncales`. Solo se ejecuta durante data prep (`data_prep_enabled=1`).
 
 **`context_and_modules.sas`** unifica la selección de contexto (scope, troncal, split, segmento) y la habilitación de módulos en un solo step. Los steps de módulos (en `steps/methods/`) leen `&ctx_scope` y los flags `&run_<modulo>` para decidir qué ejecutar.

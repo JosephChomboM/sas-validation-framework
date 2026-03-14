@@ -54,12 +54,17 @@ Cada step es independiente: carga sus propias dependencias.
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_similitud;
+    %local _step_rc;
+    %let _step_rc=0;
+
+    %fw_log_start(step_name=step_similitud, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=metod_4_step_similitud);
 
     /* ---- 0) Check flag de habilitacion -------------------------------- */
     %if &run_similitud. ne 1 %then %do;
         %put NOTE: [step_similitud] Modulo deshabilitado
             (run_similitud=&run_similitud.). Saltando.;
-        %return;
+        %goto _step_similitud_end;
     %end;
 
     %put NOTE: [step_similitud] Iniciando - scope=&ctx_scope.
@@ -118,6 +123,9 @@ Cada step es independiente: carga sus propias dependencias.
     %put NOTE: [step_similitud] Completado (scope=&ctx_scope.
         mode=&simil_mode.);
     %put NOTE:======================================================;
+
+%_step_similitud_end:
+    %fw_log_stop(step_name=step_similitud, step_rc=&_step_rc.);
 
 %mend _step_similitud;
 %_step_similitud;

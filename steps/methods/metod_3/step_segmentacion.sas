@@ -70,12 +70,17 @@ Cada step es independiente: carga sus propias dependencias.
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_segmentacion;
+    %local _step_rc;
+    %let _step_rc=0;
+
+    %fw_log_start(step_name=step_segmentacion, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=metod_3_step_segmentacion);
 
     /* ---- 0) Check flag de habilitacion -------------------------------- */
     %if &run_segmentacion. ne 1 %then %do;
         %put NOTE: [step_segmentacion] Modulo deshabilitado
             (run_segmentacion=&run_segmentacion.). Saltando.;
-        %return;
+        %goto _step_segmentacion_end;
     %end;
 
     %put NOTE: [step_segmentacion] Iniciando - scope=&ctx_scope.
@@ -86,13 +91,14 @@ Cada step es independiente: carga sus propias dependencias.
     %if %upcase(&ctx_scope.) = SEGMENTO %then %do;
         %put WARNING: [step_segmentacion] Segmentacion solo aplica a
             scope UNIVERSO. ctx_scope=SEGMENTO -> Saltando.;
-        %return;
+        %goto _step_segmentacion_end;
     %end;
 
     %if %upcase(&ctx_scope.) ne UNIVERSO %then %do;
         %put ERROR: [step_segmentacion] ctx_scope=&ctx_scope. no reconocido.
             Debe ser UNIVERSO.;
-        %return;
+        %let _step_rc=1;
+        %goto _step_segmentacion_end;
     %end;
 
     /* ---- 2) Crear CASLIBs PROC + OUT --------------------------------- */
@@ -138,6 +144,9 @@ Cada step es independiente: carga sus propias dependencias.
     %put NOTE: [step_segmentacion] Completado (scope=&ctx_scope.
         mode=&seg_mode.);
     %put NOTE:======================================================;
+
+%_step_segmentacion_end:
+    %fw_log_stop(step_name=step_segmentacion, step_rc=&_step_rc.);
 
 %mend _step_segmentacion;
 %_step_segmentacion;

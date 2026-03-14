@@ -10,6 +10,14 @@
    Las carpetas de output del run (outputs/runs/<run_id>/...) se crean
    en Step 02 (siempre, cada corrida).
    ========================================================================= */
+%include "&fw_root./src/common/log_utils.sas";
+
+%macro _step03_create_folders;
+%local _step_rc;
+%let _step_rc=0;
+
+%fw_log_start(step_name=step-03_create_folders, run_id=&run_id.,
+    fw_root=&fw_root., log_stem=03_create_folders);
 
 options dlcreatedir;
 
@@ -55,3 +63,7 @@ libname _mkdir03 clear;
 
 options nodlcreatedir;
 %put NOTE: [step-03] Carpetas data y troncales verificadas/creadas.;
+
+%fw_log_stop(step_name=step-03_create_folders, step_rc=&_step_rc.);
+%mend _step03_create_folders;
+%_step03_create_folders;

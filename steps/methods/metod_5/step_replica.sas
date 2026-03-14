@@ -58,15 +58,19 @@ CUSTOM -> usa replica_custom_vars y permite override de target, time_var,
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_replica;
 
-    %local _run_replica;
+    %local _run_replica _step_rc;
+    %let _step_rc=0;
     %if %symexist(run_replica)=1 %then %let _run_replica=&run_replica.;
     %else %let _run_replica=0;
+
+    %fw_log_start(step_name=step_replica, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=metod_5_step_replica);
 
     /* ---- 0) Check flag de habilitacion -------------------------------- */
     %if &_run_replica. ne 1 %then %do;
         %put NOTE: [step_replica] Modulo deshabilitado
             (run_replica=&_run_replica.). Saltando.;
-        %return;
+        %goto _step_replica_end;
     %end;
 
     %put NOTE: [step_replica] Iniciando - scope=&ctx_scope.
@@ -124,6 +128,9 @@ CUSTOM -> usa replica_custom_vars y permite override de target, time_var,
     %put NOTE: [step_replica] Completado (scope=&ctx_scope.
         mode=&replica_mode.);
     %put NOTE:======================================================;
+
+%_step_replica_end:
+    %fw_log_stop(step_name=step_replica, step_rc=&_step_rc.);
 
 %mend _step_replica;
 %_step_replica;

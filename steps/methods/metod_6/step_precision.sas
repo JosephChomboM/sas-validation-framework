@@ -40,14 +40,18 @@ CUSTOM -> permite overridear score, target, monto, segvar y def_cld.
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_precision;
 
-    %local _run_precision;
+    %local _run_precision _step_rc;
+    %let _step_rc=0;
     %if %symexist(run_precision)=1 %then %let _run_precision=&run_precision.;
     %else %let _run_precision=0;
+
+    %fw_log_start(step_name=step_precision, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=metod_6_step_precision);
 
     %if &_run_precision. ne 1 %then %do;
         %put NOTE: [step_precision] Modulo deshabilitado
             (run_precision=&_run_precision.). Saltando.;
-        %return;
+        %goto _step_precision_end;
     %end;
 
     %put NOTE: [step_precision] Iniciando - scope=&ctx_scope.
@@ -96,6 +100,9 @@ CUSTOM -> permite overridear score, target, monto, segvar y def_cld.
     %put NOTE: [step_precision] Completado (scope=&ctx_scope.
         mode=&prec_mode.);
     %put NOTE:======================================================;
+
+%_step_precision_end:
+    %fw_log_stop(step_name=step_precision, step_rc=&_step_rc.);
 
 %mend _step_precision;
 %_step_precision;

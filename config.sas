@@ -1,11 +1,10 @@
-/* ======================= CONFIG.SAS (SOURCE OF TRUTH) =======================
+/* ======================= CONFIG.SAS =======================
 Generado desde HTML.  Declara configuración y construye tablas CAS
 (casuser) para iteración del framework.
-NO contiene lógica de orquestación; el framework la ejecuta.
 
 Esquema estricto - campos exactos requeridos:
 cfg_troncales : 1 fila por troncal
-cfg_segmentos : 1 fila por (troncal_id, seg_id), overrides opcionales
+cfg_segmentos : 1 fila por (troncal_id, seg_id)
 
 Los parámetros de usuario (fw_root, ADLS, methods) se configuran en
 los archivos steps/*.sas (frontend).  Este archivo solo genera las
@@ -14,7 +13,7 @@ tablas CAS de configuración de troncales y segmentos.
 Requisitos: sesión CAS activa y caslib CASUSER accesible.
 =========================================================================== */
 
-/* ---------- 1) casuser.cfg_troncales (1 fila por troncal) ---------- */
+/* ---------- casuser.cfg_troncales ---------- */
 data casuser.cfg_troncales;
 	length troncal_id 8 id_var_id $64 target $64 pd $64 xb $64 monto $64 byvar
 		$64 model_type $8 train_min_mes 8 train_max_mes 8 oot_min_mes 8
@@ -76,10 +75,8 @@ data casuser.cfg_troncales;
 	output;
 run;
 
-/* ---------- 2) casuser.cfg_segmentos (overrides por segmento) ---------- */
-/*  Clave: (troncal_id, seg_id).  Ambos numéricos.                        */
-
-/*  Si las listas quedan en blanco, el segmento hereda del troncal.        */
+/* ---------- casuser.cfg_segmentos ---------- */
+/*  Clave: (troncal_id, seg_id).  Ambos numéricos. */
 data casuser.cfg_segmentos;
 	length troncal_id 8 seg_id 8 num_list $4000 cat_list $4000 dri_num_list
 		$4000 dri_cat_list $4000 ;

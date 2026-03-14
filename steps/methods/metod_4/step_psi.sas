@@ -54,12 +54,17 @@ Outputs van a experiments/ (análisis exploratorio).           */
 
 /* ---- EJECUCIÓN -------------------------------------------------------- */
 %macro _step_psi;
+    %local _step_rc;
+    %let _step_rc=0;
+
+    %fw_log_start(step_name=step_psi, run_id=&run_id.,
+        fw_root=&fw_root., log_stem=metod_4_step_psi);
 
     /* ---- 0) Check flag de habilitación -------------------------------- */
     %if &run_psi. ne 1 %then %do;
         %put NOTE: [step_psi] Módulo deshabilitado (run_psi=&run_psi.).
             Saltando.;
-        %return;
+        %goto _step_psi_end;
     %end;
 
     %put NOTE: [step_psi] Iniciando - scope=&ctx_scope. psi_mode=&psi_mode.;
@@ -118,6 +123,9 @@ Outputs van a experiments/ (análisis exploratorio).           */
     %put NOTE:======================================================;
     %put NOTE: [step_psi] Completado (scope=&ctx_scope. mode=&psi_mode.);
     %put NOTE:======================================================;
+
+%_step_psi_end:
+    %fw_log_stop(step_name=step_psi, step_rc=&_step_rc.);
 
 %mend _step_psi;
 %_step_psi;
