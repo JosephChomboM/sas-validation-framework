@@ -73,9 +73,8 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
     ods excel options(sheet_name="MODEL_MONTHLY" sheet_interval="now");
     title "GINI del Modelo por Periodo";
     proc report data=casuser._gini_model_monthly nowd missing;
-        columns Periodo=PeriodoOrd Periodo Split N_Total N_Default
+        columns Periodo Split N_Total N_Default
             Tasa_Default N_Gini Gini Delta_Gini Tendencia Evaluacion;
-        define PeriodoOrd / order order=internal noprint;
         define Periodo / display "Periodo" format=6.;
         define Split / display "Dataset";
         define N_Total / display "N Total";
@@ -96,9 +95,8 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
     ods excel options(sheet_name="VARS_GENERAL" sheet_interval="now");
     title "GINI por Variable";
     proc report data=casuser._gini_vars_general nowd missing;
-        columns Variable=VariableOrd Variable Split N_Total N_Valid Pct_Valid
+        columns Variable Split N_Total N_Valid Pct_Valid
             N_Default N_Gini Gini Evaluacion;
-        define VariableOrd / order order=internal noprint;
         define Variable / display "Variable";
         define Split / display "Dataset";
         define N_Total / display "N Total";
@@ -116,9 +114,8 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
     ods excel options(sheet_name="VARS_COMPARE" sheet_interval="now");
     title "GINI Variables - Comparativo TRAIN vs OOT";
     proc report data=casuser._gini_vars_compare nowd missing;
-        columns Variable=VariableOrd Variable Gini_Train Gini_OOT Delta_Gini
+        columns Variable Gini_Train Gini_OOT Delta_Gini
             Estabilidad;
-        define VariableOrd / order order=internal noprint;
         define Variable / display "Variable";
         define Gini_Train / display "GINI Train" format=8.4;
         define Gini_OOT / display "GINI OOT" format=8.4;
@@ -134,10 +131,9 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
     ods excel options(sheet_name="VARS_SUMMARY" sheet_interval="now");
     title "Resumen GINI Variables";
     proc report data=casuser._gini_vars_summary nowd missing;
-        columns Variable=VariableOrd Variable Split N_Periodos First_Period
+        columns Variable Split N_Periodos First_Period
             Last_Period Gini_First Gini_Last Gini_Promedio Gini_Min Gini_Max
             Gini_Std Delta_Gini Tendencia Evaluacion;
-        define VariableOrd / order order=internal noprint;
         define Variable / display "Variable";
         define Split / display "Dataset";
         define N_Periodos / display "N Periodos";
@@ -164,10 +160,8 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
     ods excel options(sheet_name="VARS_DETAIL" sheet_interval="now");
     title "Cubo GINI Variables - Detalle por Periodo";
     proc report data=casuser._gini_vars_detail nowd missing;
-        columns Variable=VariableOrd Periodo=PeriodoOrd Variable Split Periodo
+        columns Variable Split Periodo
             N_Total N_Valid N_Default N_Gini Gini Evaluacion;
-        define VariableOrd / order order=internal noprint;
-        define PeriodoOrd / order order=internal noprint;
         define Variable / display "Variable";
         define Split / display "Dataset";
         define Periodo / display "Periodo" format=6.;

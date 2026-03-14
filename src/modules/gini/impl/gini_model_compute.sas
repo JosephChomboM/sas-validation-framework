@@ -218,7 +218,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
     quit;
 
     proc sql noprint;
-        create table &out. as
+        create table work._gini_model_monthly_out as
         select a.*,
             t.Gini_First,
             t.Gini_Last,
@@ -235,9 +235,17 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             on a.Split=t.Split;
     quit;
 
+    proc sort data=work._gini_model_monthly_out;
+        by Periodo;
+    run;
+
+    data &out.;
+        set work._gini_model_monthly_out;
+    run;
+
     proc datasets library=work nolist nowarn;
         delete _gini_model_train_m _gini_model_oot_m _gini_model_monthly_all
-            _gini_model_fl _gini_model_trend;
+            _gini_model_fl _gini_model_trend _gini_model_monthly_out;
     quit;
 
 %mend _gini_model_monthly;
