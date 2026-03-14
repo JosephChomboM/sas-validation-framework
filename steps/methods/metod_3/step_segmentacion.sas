@@ -70,8 +70,9 @@ Cada step es independiente: carga sus propias dependencias.
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_segmentacion;
-    %local _step_rc;
+    %local _step_rc _step_status;
     %let _step_rc=0;
+    %let _step_status=OK;
 
     %fw_log_start(step_name=step_segmentacion, run_id=&run_id.,
         fw_root=&fw_root., log_stem=metod_3_step_segmentacion);
@@ -80,6 +81,7 @@ Cada step es independiente: carga sus propias dependencias.
     %if &run_segmentacion. ne 1 %then %do;
         %put NOTE: [step_segmentacion] Modulo deshabilitado
             (run_segmentacion=&run_segmentacion.). Saltando.;
+        %let _step_status=SKIP;
         %goto _step_segmentacion_end;
     %end;
 
@@ -91,6 +93,7 @@ Cada step es independiente: carga sus propias dependencias.
     %if %upcase(&ctx_scope.) = SEGMENTO %then %do;
         %put WARNING: [step_segmentacion] Segmentacion solo aplica a
             scope UNIVERSO. ctx_scope=SEGMENTO -> Saltando.;
+        %let _step_status=SKIP;
         %goto _step_segmentacion_end;
     %end;
 
@@ -146,7 +149,8 @@ Cada step es independiente: carga sus propias dependencias.
     %put NOTE:======================================================;
 
 %_step_segmentacion_end:
-    %fw_log_stop(step_name=step_segmentacion, step_rc=&_step_rc.);
+    %fw_log_stop(step_name=step_segmentacion, step_rc=&_step_rc.,
+        step_status=&_step_status);
 
 %mend _step_segmentacion;
 %_step_segmentacion;

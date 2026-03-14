@@ -32,8 +32,9 @@ CUSTOM -> usa fill_custom_vars_num/cat y permite override de target/def_cld.
 %let fill_custom_def_cld=;
 
 %macro _step_fillrate;
-    %local _step_rc;
+    %local _step_rc _step_status;
     %let _step_rc=0;
+    %let _step_status=OK;
 
     %fw_log_start(step_name=step_fillrate, run_id=&run_id.,
         fw_root=&fw_root., log_stem=metod_4_step_fillrate);
@@ -41,6 +42,7 @@ CUSTOM -> usa fill_custom_vars_num/cat y permite override de target/def_cld.
     %if %sysfunc(coalescec(%superq(run_fillrate), 0)) ne 1 %then %do;
         %put NOTE: [step_fillrate] Modulo deshabilitado
             (run_fillrate=&run_fillrate.). Saltando.;
+        %let _step_status=SKIP;
         %goto _step_fillrate_end;
     %end;
 
@@ -92,7 +94,8 @@ CUSTOM -> usa fill_custom_vars_num/cat y permite override de target/def_cld.
     %put NOTE:======================================================;
 
 %_step_fillrate_end:
-    %fw_log_stop(step_name=step_fillrate, step_rc=&_step_rc.);
+    %fw_log_stop(step_name=step_fillrate, step_rc=&_step_rc.,
+        step_status=&_step_status);
 
 %mend _step_fillrate;
 %_step_fillrate;

@@ -49,8 +49,9 @@ Outputs van a experiments/ (analisis exploratorio).           */
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_bivariado;
-    %local _step_rc;
+    %local _step_rc _step_status;
     %let _step_rc=0;
+    %let _step_status=OK;
 
     %fw_log_start(step_name=step_bivariado, run_id=&run_id.,
         fw_root=&fw_root., log_stem=metod_4_step_bivariado);
@@ -59,6 +60,7 @@ Outputs van a experiments/ (analisis exploratorio).           */
     %if &run_bivariado. ne 1 %then %do;
         %put NOTE: [step_bivariado] Modulo deshabilitado
             (run_bivariado=&run_bivariado.). Saltando.;
+        %let _step_status=SKIP;
         %goto _step_bivariado_end;
     %end;
 
@@ -119,7 +121,8 @@ Outputs van a experiments/ (analisis exploratorio).           */
     %put NOTE:======================================================;
 
 %_step_bivariado_end:
-    %fw_log_stop(step_name=step_bivariado, step_rc=&_step_rc.);
+    %fw_log_stop(step_name=step_bivariado, step_rc=&_step_rc.,
+        step_status=&_step_status);
 
 %mend _step_bivariado;
 %_step_bivariado;

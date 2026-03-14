@@ -24,8 +24,9 @@ Cada step es independiente: carga sus propias dependencias.
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_target;
-    %local _step_rc;
+    %local _step_rc _step_status;
     %let _step_rc=0;
+    %let _step_status=OK;
 
     %fw_log_start(step_name=step_target, run_id=&run_id.,
         fw_root=&fw_root., log_stem=metod_2_step_target);
@@ -34,6 +35,7 @@ Cada step es independiente: carga sus propias dependencias.
     %if &run_target. ne 1 %then %do;
         %put NOTE: [step_target] Modulo deshabilitado
             (run_target=&run_target.). Saltando.;
+        %let _step_status=SKIP;
         %goto _step_target_end;
     %end;
 
@@ -95,7 +97,8 @@ Cada step es independiente: carga sus propias dependencias.
     %put NOTE:======================================================;
 
 %_step_target_end:
-    %fw_log_stop(step_name=step_target, step_rc=&_step_rc.);
+    %fw_log_stop(step_name=step_target, step_rc=&_step_rc.,
+        step_status=&_step_status);
 
 %mend _step_target;
 %_step_target;

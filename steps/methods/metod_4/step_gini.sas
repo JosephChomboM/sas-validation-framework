@@ -45,8 +45,9 @@ Default requerido: 1 */
 %let gini_custom_def_cld=;
 
 %macro _step_gini;
-    %local _step_rc;
+    %local _step_rc _step_status;
     %let _step_rc=0;
+    %let _step_status=OK;
 
     %fw_log_start(step_name=step_gini, run_id=&run_id.,
         fw_root=&fw_root., log_stem=metod_4_step_gini);
@@ -54,6 +55,7 @@ Default requerido: 1 */
     %if %sysfunc(coalescec(%superq(run_gini), 0)) ne 1 %then %do;
         %put NOTE: [step_gini] Modulo deshabilitado (run_gini=&run_gini.).
             Saltando.;
+        %let _step_status=SKIP;
         %goto _step_gini_end;
     %end;
 
@@ -104,7 +106,8 @@ Default requerido: 1 */
     %put NOTE:======================================================;
 
 %_step_gini_end:
-    %fw_log_stop(step_name=step_gini, step_rc=&_step_rc.);
+    %fw_log_stop(step_name=step_gini, step_rc=&_step_rc.,
+        step_status=&_step_status);
 
 %mend _step_gini;
 %_step_gini;

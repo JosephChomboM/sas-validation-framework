@@ -21,8 +21,9 @@ Step de modulo: Calibracion / Backtesting por driver (METOD8)
 
 %macro _step_calibracion;
 
-    %local _run_calibracion _step_rc;
+    %local _run_calibracion _step_rc _step_status;
     %let _step_rc=0;
+    %let _step_status=OK;
     %if %symexist(run_calibracion)=1 %then
         %let _run_calibracion=&run_calibracion.;
     %else %let _run_calibracion=0;
@@ -33,6 +34,7 @@ Step de modulo: Calibracion / Backtesting por driver (METOD8)
     %if &_run_calibracion. ne 1 %then %do;
         %put NOTE: [step_calibracion] Modulo deshabilitado
             (run_calibracion=&_run_calibracion.). Saltando.;
+        %let _step_status=SKIP;
         %goto _step_calibracion_end;
     %end;
 
@@ -84,7 +86,8 @@ Step de modulo: Calibracion / Backtesting por driver (METOD8)
     %put NOTE:======================================================;
 
 %_step_calibracion_end:
-    %fw_log_stop(step_name=step_calibracion, step_rc=&_step_rc.);
+    %fw_log_stop(step_name=step_calibracion, step_rc=&_step_rc.,
+        step_status=&_step_status);
 
 %mend _step_calibracion;
 %_step_calibracion;

@@ -48,8 +48,9 @@ Outputs van a experiments/ (analisis exploratorio).           */
 
 /* ---- EJECUCION -------------------------------------------------------- */
 %macro _step_missings;
-    %local _step_rc;
+    %local _step_rc _step_status;
     %let _step_rc=0;
+    %let _step_status=OK;
 
     %fw_log_start(step_name=step_missings, run_id=&run_id.,
         fw_root=&fw_root., log_stem=metod_4_step_missings);
@@ -58,6 +59,7 @@ Outputs van a experiments/ (analisis exploratorio).           */
     %if &run_missings. ne 1 %then %do;
         %put NOTE: [step_missings] Modulo deshabilitado
             (run_missings=&run_missings.). Saltando.;
+        %let _step_status=SKIP;
         %goto _step_missings_end;
     %end;
 
@@ -118,7 +120,8 @@ Outputs van a experiments/ (analisis exploratorio).           */
     %put NOTE:======================================================;
 
 %_step_missings_end:
-    %fw_log_stop(step_name=step_missings, step_rc=&_step_rc.);
+    %fw_log_stop(step_name=step_missings, step_rc=&_step_rc.,
+        step_status=&_step_status);
 
 %mend _step_missings;
 %_step_missings;
