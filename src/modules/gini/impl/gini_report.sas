@@ -88,7 +88,7 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
     title "GINI por Variable";
     proc report data=casuser._gini_vars_general nowd;
         columns Variable Split N_Total N_Valid Pct_Valid N_Default N_Gini Gini
-            Ranking Evaluacion;
+            Evaluacion;
         define Variable / display "Variable";
         define Split / display "Dataset";
         define N_Total / display "N Total" format=comma12.;
@@ -98,7 +98,6 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
         define N_Gini / display "N Gini" format=comma12.;
         define Gini / display "GINI" format=8.4
             style(column)=[backgroundcolor=GiniVarFmt.];
-        define Ranking / display "Ranking" format=3.;
         define Evaluacion / display "Evaluacion"
             style(column)=[backgroundcolor=$TrendFmt.];
     run;
@@ -107,8 +106,7 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
     ods excel options(sheet_name="VARS_COMPARE" sheet_interval="now");
     title "GINI Variables - Comparativo TRAIN vs OOT";
     proc report data=casuser._gini_vars_compare nowd;
-        columns Variable Gini_Train Gini_OOT Delta_Gini Rank_Train Rank_OOT
-            Delta_Rank Estabilidad;
+        columns Variable Gini_Train Gini_OOT Delta_Gini Estabilidad;
         define Variable / display "Variable";
         define Gini_Train / display "GINI Train" format=8.4
             style(column)=[backgroundcolor=GiniVarFmt.];
@@ -116,9 +114,6 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
             style(column)=[backgroundcolor=GiniVarFmt.];
         define Delta_Gini / display "Delta GINI" format=8.4
             style(column)=[backgroundcolor=DeltaFmt.];
-        define Rank_Train / display "Rank Train" format=3.;
-        define Rank_OOT / display "Rank OOT" format=3.;
-        define Delta_Rank / display "Delta Rank" format=4.;
         define Estabilidad / display "Estabilidad"
             style(column)=[backgroundcolor=$TrendFmt.];
     run;

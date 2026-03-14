@@ -259,6 +259,71 @@ Implementacion:
         var_low=&_gini_var_low., var_high=&_gini_var_high.,
         trend_delta=&gini_trend_delta., out=casuser._gini_vars_summary);
 
+    /* ==================================================================
+    Orden final de tablas para reporte y persistencia
+    Regla: si hay Variable -> Variable ASC y luego Periodo ASC si existe.
+    Si no hay Variable pero hay Periodo -> Periodo ASC.
+    ================================================================== */
+    data work._gini_model_general_s;
+        set casuser._gini_model_general;
+    run;
+    proc sort data=work._gini_model_general_s;
+        by Split;
+    run;
+    data casuser._gini_model_general;
+        set work._gini_model_general_s;
+    run;
+
+    data work._gini_model_monthly_s;
+        set casuser._gini_model_monthly;
+    run;
+    proc sort data=work._gini_model_monthly_s;
+        by Periodo Split;
+    run;
+    data casuser._gini_model_monthly;
+        set work._gini_model_monthly_s;
+    run;
+
+    data work._gini_vars_general_s;
+        set casuser._gini_vars_general;
+    run;
+    proc sort data=work._gini_vars_general_s;
+        by Variable Split;
+    run;
+    data casuser._gini_vars_general;
+        set work._gini_vars_general_s;
+    run;
+
+    data work._gini_vars_compare_s;
+        set casuser._gini_vars_compare;
+    run;
+    proc sort data=work._gini_vars_compare_s;
+        by Variable;
+    run;
+    data casuser._gini_vars_compare;
+        set work._gini_vars_compare_s;
+    run;
+
+    data work._gini_vars_summary_s;
+        set casuser._gini_vars_summary;
+    run;
+    proc sort data=work._gini_vars_summary_s;
+        by Variable Split;
+    run;
+    data casuser._gini_vars_summary;
+        set work._gini_vars_summary_s;
+    run;
+
+    data work._gini_vars_detail_s;
+        set casuser._gini_vars_detail;
+    run;
+    proc sort data=work._gini_vars_detail_s;
+        by Variable Periodo Split;
+    run;
+    data casuser._gini_vars_detail;
+        set work._gini_vars_detail_s;
+    run;
+
     %_gini_report(report_path=&_report_path., images_path=&_images_path.,
         file_prefix=&_file_prefix., byvar=&_gini_byvar.,
         model_low=&_gini_model_low., model_high=&_gini_model_high.,
