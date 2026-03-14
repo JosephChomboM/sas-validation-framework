@@ -1,6 +1,15 @@
 /* =========================================================================
 gini_report.sas - Reportes HTML + Excel + JPEG para Gini
 ========================================================================= */
+%macro _gini_report_style(col=, fmt=);
+    compute &col.;
+        if not missing(strip(put(&col., &fmt..))) then
+            call define(_col_, "style",
+                cats("style=[backgroundcolor=", strip(put(&col., &fmt..)),
+                "]"));
+    endcomp;
+%mend _gini_report_style;
+
 %macro _gini_report(report_path=, images_path=, file_prefix=, byvar=,
     model_low=, model_high=, var_low=, var_high=, delta_warn=, top_n=10);
 
@@ -42,111 +51,134 @@ gini_report.sas - Reportes HTML + Excel + JPEG para Gini
         embedded_titles="yes" frozen_headers="yes" autofilter="all");
 
     title "GINI del Modelo - Resumen Global";
-    proc print data=casuser._gini_model_general noobs label;
-        var Split N_Total N_Default N_No_Default Tasa_Default N_Gini Gini
+    proc report data=casuser._gini_model_general nowd missing;
+        columns Split N_Total N_Default N_No_Default Tasa_Default N_Gini Gini
             IC_95_Lower IC_95_Upper Degradacion Evaluacion;
-        label Split="Dataset"
-            N_Total="N Total"
-            N_Default="N Default"
-            N_No_Default="N No Default"
-            Tasa_Default="Tasa Default"
-            N_Gini="N Gini"
-            IC_95_Lower="IC 95% Inf"
-            IC_95_Upper="IC 95% Sup"
-            Degradacion="Degradacion"
-            Evaluacion="Evaluacion";
-        format Tasa_Default percent8.2 Gini IC_95_Lower IC_95_Upper 8.4
-            Degradacion percent8.2;
+        define Split / display "Dataset";
+        define N_Total / display "N Total";
+        define N_Default / display "N Default";
+        define N_No_Default / display "N No Default";
+        define Tasa_Default / display "Tasa Default" format=percent8.2;
+        define N_Gini / display "N Gini";
+        define Gini / display "GINI" format=8.4;
+        define IC_95_Lower / display "IC 95% Inf" format=8.4;
+        define IC_95_Upper / display "IC 95% Sup" format=8.4;
+        define Degradacion / display "Degradacion" format=percent8.2;
+        define Evaluacion / display "Evaluacion";
+        %_gini_report_style(col=Gini, fmt=GiniModelFmt)
+        %_gini_report_style(col=Evaluacion, fmt=$TrendFmt)
     run;
     title;
 
     ods excel options(sheet_name="MODEL_MONTHLY" sheet_interval="now");
     title "GINI del Modelo por Periodo";
-    proc print data=casuser._gini_model_monthly noobs label;
-        var Split Periodo N_Total N_Default Tasa_Default N_Gini Gini
-            Delta_Gini Tendencia Evaluacion;
-        label Split="Dataset"
-            Periodo="Periodo"
-            N_Total="N Total"
-            N_Default="N Default"
-            Tasa_Default="Tasa Default"
-            N_Gini="N Gini"
-            Delta_Gini="Delta Gini"
-            Tendencia="Tendencia"
-            Evaluacion="Evaluacion";
-        format Periodo 6. Tasa_Default percent8.2 Gini Delta_Gini 8.4;
+    proc report data=casuser._gini_model_monthly nowd missing;
+        columns Periodo=PeriodoOrd Periodo Split N_Total N_Default
+            Tasa_Default N_Gini Gini Delta_Gini Tendencia Evaluacion;
+        define PeriodoOrd / order order=internal noprint;
+        define Periodo / display "Periodo" format=6.;
+        define Split / display "Dataset";
+        define N_Total / display "N Total";
+        define N_Default / display "N Default";
+        define Tasa_Default / display "Tasa Default" format=percent8.2;
+        define N_Gini / display "N Gini";
+        define Gini / display "GINI" format=8.4;
+        define Delta_Gini / display "Delta Gini" format=8.4;
+        define Tendencia / display "Tendencia";
+        define Evaluacion / display "Evaluacion";
+        %_gini_report_style(col=Gini, fmt=GiniModelFmt)
+        %_gini_report_style(col=Delta_Gini, fmt=DeltaFmt)
+        %_gini_report_style(col=Tendencia, fmt=$TrendFmt)
+        %_gini_report_style(col=Evaluacion, fmt=$TrendFmt)
     run;
     title;
 
     ods excel options(sheet_name="VARS_GENERAL" sheet_interval="now");
     title "GINI por Variable";
-    proc print data=casuser._gini_vars_general noobs label;
-        var Variable Split N_Total N_Valid Pct_Valid N_Default N_Gini Gini
-            Evaluacion;
-        label Variable="Variable"
-            Split="Dataset"
-            N_Total="N Total"
-            N_Valid="N Validos"
-            Pct_Valid="% Validos"
-            N_Default="N Default"
-            N_Gini="N Gini"
-            Evaluacion="Evaluacion";
-        format Pct_Valid percent8.2 Gini 8.4;
+    proc report data=casuser._gini_vars_general nowd missing;
+        columns Variable=VariableOrd Variable Split N_Total N_Valid Pct_Valid
+            N_Default N_Gini Gini Evaluacion;
+        define VariableOrd / order order=internal noprint;
+        define Variable / display "Variable";
+        define Split / display "Dataset";
+        define N_Total / display "N Total";
+        define N_Valid / display "N Validos";
+        define Pct_Valid / display "% Validos" format=percent8.2;
+        define N_Default / display "N Default";
+        define N_Gini / display "N Gini";
+        define Gini / display "GINI" format=8.4;
+        define Evaluacion / display "Evaluacion";
+        %_gini_report_style(col=Gini, fmt=GiniVarFmt)
+        %_gini_report_style(col=Evaluacion, fmt=$TrendFmt)
     run;
     title;
 
     ods excel options(sheet_name="VARS_COMPARE" sheet_interval="now");
     title "GINI Variables - Comparativo TRAIN vs OOT";
-    proc print data=casuser._gini_vars_compare noobs label;
-        var Variable Gini_Train Gini_OOT Delta_Gini Estabilidad;
-        label Variable="Variable"
-            Gini_Train="GINI Train"
-            Gini_OOT="GINI OOT"
-            Delta_Gini="Delta GINI"
-            Estabilidad="Estabilidad";
-        format Gini_Train Gini_OOT Delta_Gini 8.4;
+    proc report data=casuser._gini_vars_compare nowd missing;
+        columns Variable=VariableOrd Variable Gini_Train Gini_OOT Delta_Gini
+            Estabilidad;
+        define VariableOrd / order order=internal noprint;
+        define Variable / display "Variable";
+        define Gini_Train / display "GINI Train" format=8.4;
+        define Gini_OOT / display "GINI OOT" format=8.4;
+        define Delta_Gini / display "Delta GINI" format=8.4;
+        define Estabilidad / display "Estabilidad";
+        %_gini_report_style(col=Gini_Train, fmt=GiniVarFmt)
+        %_gini_report_style(col=Gini_OOT, fmt=GiniVarFmt)
+        %_gini_report_style(col=Delta_Gini, fmt=DeltaFmt)
+        %_gini_report_style(col=Estabilidad, fmt=$TrendFmt)
     run;
     title;
 
     ods excel options(sheet_name="VARS_SUMMARY" sheet_interval="now");
     title "Resumen GINI Variables";
-    proc print data=casuser._gini_vars_summary noobs label;
-        var Variable Split N_Periodos First_Period Last_Period Gini_First
-            Gini_Last Gini_Promedio Gini_Min Gini_Max Gini_Std Delta_Gini
-            Tendencia Evaluacion;
-        label Variable="Variable"
-            Split="Dataset"
-            N_Periodos="N Periodos"
-            First_Period="Primer Periodo"
-            Last_Period="Ultimo Periodo"
-            Gini_First="GINI Inicial"
-            Gini_Last="GINI Final"
-            Gini_Promedio="GINI Promedio"
-            Gini_Min="GINI Min"
-            Gini_Max="GINI Max"
-            Gini_Std="GINI Std"
-            Delta_Gini="Delta GINI"
-            Tendencia="Tendencia"
-            Evaluacion="Evaluacion";
-        format First_Period Last_Period 6. Gini_First Gini_Last
-            Gini_Promedio Gini_Min Gini_Max Gini_Std Delta_Gini 8.4;
+    proc report data=casuser._gini_vars_summary nowd missing;
+        columns Variable=VariableOrd Variable Split N_Periodos First_Period
+            Last_Period Gini_First Gini_Last Gini_Promedio Gini_Min Gini_Max
+            Gini_Std Delta_Gini Tendencia Evaluacion;
+        define VariableOrd / order order=internal noprint;
+        define Variable / display "Variable";
+        define Split / display "Dataset";
+        define N_Periodos / display "N Periodos";
+        define First_Period / display "Primer Periodo" format=6.;
+        define Last_Period / display "Ultimo Periodo" format=6.;
+        define Gini_First / display "GINI Inicial" format=8.4;
+        define Gini_Last / display "GINI Final" format=8.4;
+        define Gini_Promedio / display "GINI Promedio" format=8.4;
+        define Gini_Min / display "GINI Min" format=8.4;
+        define Gini_Max / display "GINI Max" format=8.4;
+        define Gini_Std / display "GINI Std" format=8.4;
+        define Delta_Gini / display "Delta GINI" format=8.4;
+        define Tendencia / display "Tendencia";
+        define Evaluacion / display "Evaluacion";
+        %_gini_report_style(col=Gini_First, fmt=GiniVarFmt)
+        %_gini_report_style(col=Gini_Last, fmt=GiniVarFmt)
+        %_gini_report_style(col=Gini_Promedio, fmt=GiniVarFmt)
+        %_gini_report_style(col=Delta_Gini, fmt=DeltaFmt)
+        %_gini_report_style(col=Tendencia, fmt=$TrendFmt)
+        %_gini_report_style(col=Evaluacion, fmt=$TrendFmt)
     run;
     title;
 
     ods excel options(sheet_name="VARS_DETAIL" sheet_interval="now");
     title "Cubo GINI Variables - Detalle por Periodo";
-    proc print data=casuser._gini_vars_detail noobs label;
-        var Variable Split Periodo N_Total N_Valid N_Default N_Gini Gini
-            Evaluacion;
-        label Variable="Variable"
-            Split="Dataset"
-            Periodo="Periodo"
-            N_Total="N Total"
-            N_Valid="N Validos"
-            N_Default="N Default"
-            N_Gini="N Gini"
-            Evaluacion="Evaluacion";
-        format Periodo 6. Gini 8.4;
+    proc report data=casuser._gini_vars_detail nowd missing;
+        columns Variable=VariableOrd Periodo=PeriodoOrd Variable Split Periodo
+            N_Total N_Valid N_Default N_Gini Gini Evaluacion;
+        define VariableOrd / order order=internal noprint;
+        define PeriodoOrd / order order=internal noprint;
+        define Variable / display "Variable";
+        define Split / display "Dataset";
+        define Periodo / display "Periodo" format=6.;
+        define N_Total / display "N Total";
+        define N_Valid / display "N Validos";
+        define N_Default / display "N Default";
+        define N_Gini / display "N Gini";
+        define Gini / display "GINI" format=8.4;
+        define Evaluacion / display "Evaluacion";
+        %_gini_report_style(col=Gini, fmt=GiniVarFmt)
+        %_gini_report_style(col=Evaluacion, fmt=$TrendFmt)
     run;
     title;
 

@@ -163,8 +163,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             end as Estabilidad length=15
         from (select * from work._gini_vars_general_w where Split="TRAIN") t
         full join (select * from work._gini_vars_general_w where Split="OOT") o
-            on t.Variable=o.Variable
-        order by Variable;
+            on t.Variable=o.Variable;
     quit;
 
     data &out.;
@@ -213,8 +212,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
                     as N_Valid,
                 sum(&target.) as N_Default
             from work._gini_var_src
-            group by &byvar.
-            order by &byvar.;
+            group by &byvar.;
         quit;
 
         %if &with_missing.=1 %then %do;
@@ -224,8 +222,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
                     count(*) as N_Gini
                 from work._gini_var_src
                 where not missing(&target.)
-                group by &byvar.
-                order by &byvar.;
+                group by &byvar.;
             quit;
 
             proc freqtab data=work._gini_var_src noprint missing;
@@ -241,8 +238,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
                     count(*) as N_Gini
                 from work._gini_var_src
                 where not missing(&target.) and not missing(&_var.)
-                group by &byvar.
-                order by &byvar.;
+                group by &byvar.;
             quit;
 
             proc freqtab data=work._gini_var_src noprint;
@@ -267,8 +263,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             left join work._gini_var_ng n
                 on c.Periodo=n.Periodo
             left join work._gini_var_ftb f
-                on c.Periodo=f.&byvar.
-            order by c.Periodo;
+                on c.Periodo=f.&byvar.;
         quit;
 
         data work._gini_var_row;
@@ -296,10 +291,6 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         %let _i=%eval(&_i. + 1);
         %let _var=%scan(&vars_num., &_i., %str( ));
     %end;
-
-    proc sort data=&out.;
-        by Variable Periodo;
-    run;
 
     proc datasets library=work nolist nowarn;
         delete _gini_var_src;
@@ -396,8 +387,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             a.First_Period=f.Periodo
         left join work._gini_vars_detail_w l
             on a.Variable=l.Variable and a.Split=l.Split and
-            a.Last_Period=l.Periodo
-        order by a.Variable;
+            a.Last_Period=l.Periodo;
     quit;
 
     data &out.;

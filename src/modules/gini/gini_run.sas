@@ -259,17 +259,6 @@ Implementacion:
         var_low=&_gini_var_low., var_high=&_gini_var_high.,
         trend_delta=&gini_trend_delta., out=casuser._gini_vars_summary);
 
-    %_gini_sort_publish(src=casuser._gini_model_monthly,
-        out=casuser._gini_model_monthly, by=Periodo);
-    %_gini_sort_publish(src=casuser._gini_vars_general,
-        out=casuser._gini_vars_general, by=Variable);
-    %_gini_sort_publish(src=casuser._gini_vars_compare,
-        out=casuser._gini_vars_compare, by=Variable);
-    %_gini_sort_publish(src=casuser._gini_vars_summary,
-        out=casuser._gini_vars_summary, by=Variable);
-    %_gini_sort_publish(src=casuser._gini_vars_detail,
-        out=casuser._gini_vars_detail, by=Variable Periodo);
-
     %_gini_report(report_path=&_report_path., images_path=&_images_path.,
         file_prefix=&_file_prefix., byvar=&_gini_byvar.,
         model_low=&_gini_model_low., model_high=&_gini_model_high.,

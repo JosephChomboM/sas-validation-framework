@@ -112,8 +112,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             calculated N_Default / calculated N_Total as Tasa_Default
                 format=percent8.2
         from work._gini_model_src
-        group by &byvar.
-        order by &byvar.;
+        group by &byvar.;
     quit;
 
     %if &with_missing.=1 %then %do;
@@ -123,8 +122,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
                 count(*) as N_Gini
             from work._gini_model_src
             where not missing(&target.)
-            group by &byvar.
-            order by &byvar.;
+            group by &byvar.;
         quit;
 
         proc freqtab data=work._gini_model_src noprint missing;
@@ -140,8 +138,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
                 count(*) as N_Gini
             from work._gini_model_src
             where not missing(&target.) and not missing(&score.)
-            group by &byvar.
-            order by &byvar.;
+            group by &byvar.;
         quit;
 
         proc freqtab data=work._gini_model_src noprint;
@@ -166,8 +163,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
         left join work._gini_model_ng n
             on c.Periodo=n.Periodo
         left join work._gini_model_ftb f
-            on c.Periodo=f.&byvar.
-        order by c.Periodo;
+            on c.Periodo=f.&byvar.;
     quit;
 
     data &out.;
@@ -236,8 +232,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             end as Tendencia length=15
         from work._gini_model_monthly_all a
         left join work._gini_model_trend t
-            on a.Split=t.Split
-        order by a.Split, a.Periodo;
+            on a.Split=t.Split;
     quit;
 
     proc datasets library=work nolist nowarn;

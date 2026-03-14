@@ -91,21 +91,3 @@ gini_common.sas - Utilidades reutilizables para Gini con PROC FREQTAB
         quit;
     %end;
 %mend _gini_count_rows;
-
-%macro _gini_sort_publish(src=, out=, by=);
-    data work._gini_sort_tmp;
-        set &src.;
-    run;
-
-    proc sort data=work._gini_sort_tmp;
-        by &by.;
-    run;
-
-    data &out.;
-        set work._gini_sort_tmp;
-    run;
-
-    proc datasets library=work nolist nowarn;
-        delete _gini_sort_tmp;
-    quit;
-%mend _gini_sort_publish;
