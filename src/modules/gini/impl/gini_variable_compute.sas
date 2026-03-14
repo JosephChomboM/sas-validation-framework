@@ -133,10 +133,6 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         set work._gini_vars_train work._gini_vars_oot;
     run;
 
-    proc sort data=work._gini_vars_all;
-        by Variable;
-    run;
-
     data &out.;
         set work._gini_vars_all;
     run;
@@ -171,8 +167,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             end as Estabilidad length=15
         from (select * from work._gini_vars_general_w where Split="TRAIN") t
         full join (select * from work._gini_vars_general_w where Split="OOT") o
-            on t.Variable=o.Variable
-        order by calculated Variable;
+            on t.Variable=o.Variable;
     quit;
 
     data &out.;
@@ -337,10 +332,6 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         set work._gini_vars_trn_m work._gini_vars_oot_m;
     run;
 
-    proc sort data=work._gini_vars_monthly_all;
-        by Variable Periodo;
-    run;
-
     data &out.;
         set work._gini_vars_monthly_all;
     run;
@@ -404,8 +395,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             a.First_Period=f.Periodo
         left join work._gini_vars_detail_w l
             on a.Variable=l.Variable and a.Split=l.Split and
-            a.Last_Period=l.Periodo
-        order by a.Variable;
+            a.Last_Period=l.Periodo;
     quit;
 
     data &out.;

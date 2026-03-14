@@ -235,10 +235,6 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             on a.Split=t.Split;
     quit;
 
-    proc sort data=work._gini_model_monthly_out;
-        by Periodo;
-    run;
-
     data &out.;
         set work._gini_model_monthly_out;
     run;

@@ -259,37 +259,54 @@ Implementacion:
         var_low=&_gini_var_low., var_high=&_gini_var_high.,
         trend_delta=&gini_trend_delta., out=casuser._gini_vars_summary);
 
-    %_gini_report(report_path=&_report_path., images_path=&_images_path.,
-        file_prefix=&_file_prefix., byvar=&_gini_byvar.,
-        model_low=&_gini_model_low., model_high=&_gini_model_high.,
-        var_low=&_gini_var_low., var_high=&_gini_var_high.,
-        delta_warn=&gini_delta_warn., top_n=&gini_plot_top_n.);
-
     libname _giniout "&_tables_path.";
 
     data _giniout.&_tbl_prefix._mdlg;
         set casuser._gini_model_general;
     run;
 
-    data _giniout.&_tbl_prefix._mdlm;
+    data work._gini_mdlm_out;
         set casuser._gini_model_monthly;
     run;
 
-    data _giniout.&_tbl_prefix._varg;
+    proc sort data=work._gini_mdlm_out out=_giniout.&_tbl_prefix._mdlm;
+        by Periodo;
+    run;
+
+    data work._gini_varg_out;
         set casuser._gini_vars_general;
+    run;
+
+    proc sort data=work._gini_varg_out out=_giniout.&_tbl_prefix._varg;
+        by Variable;
     run;
 
     data _giniout.&_tbl_prefix._vcmp;
         set casuser._gini_vars_compare;
     run;
 
-    data _giniout.&_tbl_prefix._vsum;
+    data work._gini_vsum_out;
         set casuser._gini_vars_summary;
     run;
 
-    data _giniout.&_tbl_prefix._vdet;
+    proc sort data=work._gini_vsum_out out=_giniout.&_tbl_prefix._vsum;
+        by Variable First_Period;
+    run;
+
+    data work._gini_vdet_out;
         set casuser._gini_vars_detail;
     run;
+
+    proc sort data=work._gini_vdet_out out=_giniout.&_tbl_prefix._vdet;
+        by Variable Periodo;
+    run;
+
+    %_gini_report(report_path=&_report_path., images_path=&_images_path.,
+        file_prefix=&_file_prefix., byvar=&_gini_byvar.,
+        model_low=&_gini_model_low., model_high=&_gini_model_high.,
+        var_low=&_gini_var_low., var_high=&_gini_var_high.,
+        delta_warn=&gini_delta_warn., top_n=&gini_plot_top_n.,
+        table_lib=_giniout, table_prefix=&_tbl_prefix.);
 
     libname _giniout clear;
 
@@ -298,7 +315,8 @@ Implementacion:
     quit;
 
     proc datasets library=work nolist nowarn;
-        delete _gini_:;
+        delete _gini_: _gini_mdlm_out _gini_varg_out _gini_vsum_out
+            _gini_vdet_out;
     quit;
 
     %put NOTE:======================================================;
