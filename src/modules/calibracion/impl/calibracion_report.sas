@@ -122,11 +122,11 @@ Lee exclusivamente las tablas persistidas de detalle y cortes.
             lineattrs=(color=lightsteelblue thickness=15);
         %if &_plot_has_10. > 0 %then %do;
             band x=Bucket_Label lower=LI_10 upper=LS_10 /
-                fillattrs=(color=gold) transparency=0.35 y2axis;
+                fillattrs=(color=gold) y2axis;
         %end;
         %if &_plot_has_25. > 0 %then %do;
             band x=Bucket_Label lower=LI_25 upper=LS_25 /
-                fillattrs=(color=orange) transparency=0.55 y2axis;
+                fillattrs=(color=big) y2axis;
         %end;
         %if &_plot_has_pd. > 0 %then %do;
             series x=Bucket_Label y=PD /

@@ -17,7 +17,8 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
         _cal_tbl_prefix _cal_seg_num _cal_dir_rc _cal_groups _cal_keep_train
         _cal_keep_oot _cal_keep_train_sql _cal_keep_oot_sql
         _cal_driver_keep_train _cal_driver_keep_oot _cal_any_train
-        _cal_weighted _cal_score_mode;
+        _cal_weighted _cal_score_mode _cal_cfg_num _cal_cfg_cat
+        _cal_cfg_dri_num _cal_cfg_dri_cat _cal_merge_idx _cal_merge_var;
 
     %put NOTE:======================================================;
     %put NOTE: [calibracion_run] INICIO;
@@ -35,6 +36,10 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
     %let _cal_def_cld=;
     %let _cal_vars_num=;
     %let _cal_vars_cat=;
+    %let _cal_cfg_num=;
+    %let _cal_cfg_cat=;
+    %let _cal_cfg_dri_num=;
+    %let _cal_cfg_dri_cat=;
     %let _cal_is_custom=0;
     %let _cal_weighted=0;
 
@@ -102,29 +107,91 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
         %if %substr(&scope., 1, 3)=seg %then %do;
             %let _cal_seg_num=%sysfunc(inputn(%substr(&scope., 4), best.));
             proc sql noprint;
-                select strip(dri_num_list) into :_cal_vars_num trimmed from
+                select strip(num_list) into :_cal_cfg_num trimmed from
                     casuser.cfg_segmentos where troncal_id=&troncal_id.
                     and seg_id=&_cal_seg_num.;
-                select strip(dri_cat_list) into :_cal_vars_cat trimmed from
+                select strip(cat_list) into :_cal_cfg_cat trimmed from
+                    casuser.cfg_segmentos where troncal_id=&troncal_id.
+                    and seg_id=&_cal_seg_num.;
+                select strip(dri_num_list) into :_cal_cfg_dri_num trimmed from
+                    casuser.cfg_segmentos where troncal_id=&troncal_id.
+                    and seg_id=&_cal_seg_num.;
+                select strip(dri_cat_list) into :_cal_cfg_dri_cat trimmed from
                     casuser.cfg_segmentos where troncal_id=&troncal_id.
                     and seg_id=&_cal_seg_num.;
             quit;
         %end;
 
-        %if %length(%superq(_cal_vars_num))=0 %then %do;
+        %if %length(%superq(_cal_cfg_num))=0 %then %do;
             proc sql noprint;
-                select strip(dri_num_unv) into :_cal_vars_num trimmed from
+                select strip(num_unv) into :_cal_cfg_num trimmed from
                     casuser.cfg_troncales where troncal_id=&troncal_id.;
             quit;
         %end;
 
-        %if %length(%superq(_cal_vars_cat))=0 %then %do;
+        %if %length(%superq(_cal_cfg_cat))=0 %then %do;
             proc sql noprint;
-                select strip(dri_cat_unv) into :_cal_vars_cat trimmed from
+                select strip(cat_unv) into :_cal_cfg_cat trimmed from
                     casuser.cfg_troncales where troncal_id=&troncal_id.;
             quit;
+        %end;
+
+        %if %length(%superq(_cal_cfg_dri_num))=0 %then %do;
+            proc sql noprint;
+                select strip(dri_num_unv) into :_cal_cfg_dri_num trimmed from
+                    casuser.cfg_troncales where troncal_id=&troncal_id.;
+            quit;
+        %end;
+
+        %if %length(%superq(_cal_cfg_dri_cat))=0 %then %do;
+            proc sql noprint;
+                select strip(dri_cat_unv) into :_cal_cfg_dri_cat trimmed from
+                    casuser.cfg_troncales where troncal_id=&troncal_id.;
+            quit;
+        %end;
+
+        %let _cal_merge_idx=1;
+        %let _cal_merge_var=%scan(%superq(_cal_cfg_num), &_cal_merge_idx.,
+            %str( ));
+        %do %while(%length(%superq(_cal_merge_var)) > 0);
+            %_cal_push_unique(list_name=_cal_vars_num, value=&_cal_merge_var.);
+            %let _cal_merge_idx=%eval(&_cal_merge_idx. + 1);
+            %let _cal_merge_var=%scan(%superq(_cal_cfg_num), &_cal_merge_idx.,
+                %str( ));
+        %end;
+
+        %let _cal_merge_idx=1;
+        %let _cal_merge_var=%scan(%superq(_cal_cfg_dri_num), &_cal_merge_idx.,
+            %str( ));
+        %do %while(%length(%superq(_cal_merge_var)) > 0);
+            %_cal_push_unique(list_name=_cal_vars_num, value=&_cal_merge_var.);
+            %let _cal_merge_idx=%eval(&_cal_merge_idx. + 1);
+            %let _cal_merge_var=%scan(%superq(_cal_cfg_dri_num),
+                &_cal_merge_idx., %str( ));
+        %end;
+
+        %let _cal_merge_idx=1;
+        %let _cal_merge_var=%scan(%superq(_cal_cfg_cat), &_cal_merge_idx.,
+            %str( ));
+        %do %while(%length(%superq(_cal_merge_var)) > 0);
+            %_cal_push_unique(list_name=_cal_vars_cat, value=&_cal_merge_var.);
+            %let _cal_merge_idx=%eval(&_cal_merge_idx. + 1);
+            %let _cal_merge_var=%scan(%superq(_cal_cfg_cat), &_cal_merge_idx.,
+                %str( ));
+        %end;
+
+        %let _cal_merge_idx=1;
+        %let _cal_merge_var=%scan(%superq(_cal_cfg_dri_cat), &_cal_merge_idx.,
+            %str( ));
+        %do %while(%length(%superq(_cal_merge_var)) > 0);
+            %_cal_push_unique(list_name=_cal_vars_cat, value=&_cal_merge_var.);
+            %let _cal_merge_idx=%eval(&_cal_merge_idx. + 1);
+            %let _cal_merge_var=%scan(%superq(_cal_cfg_dri_cat),
+                &_cal_merge_idx., %str( ));
         %end;
     %end;
+
+    %_cal_push_unique(list_name=_cal_vars_cat, value=&_cal_byvar.);
 
     %let _cal_groups=&cal_groups.;
     %if %length(%superq(_cal_groups))=0 %then %let _cal_groups=5;

@@ -27,6 +27,33 @@ Pattern B:
     %let &outvar=&_exists.;
 %mend _cal_var_exists;
 
+%macro _cal_push_unique(list_name=, value=);
+    %local _cur _i _tok _found;
+    %let _found=0;
+    %let _cur=&&&list_name.;
+
+    %if %length(%superq(value))=0 %then %return;
+
+    %let _i=1;
+    %let _tok=%scan(%superq(_cur), &_i., %str( ));
+    %do %while(%length(%superq(_tok)) > 0);
+        %if %upcase(%superq(_tok))=%upcase(%superq(value)) %then %do;
+            %let _found=1;
+            %goto _cal_push_unique_done;
+        %end;
+        %let _i=%eval(&_i. + 1);
+        %let _tok=%scan(%superq(_cur), &_i., %str( ));
+    %end;
+
+    %if &_found.=0 %then %do;
+        %if %length(%superq(_cur))=0 %then %let &list_name=%superq(value);
+        %else %let &list_name=%superq(_cur) %superq(value);
+    %end;
+
+%_cal_push_unique_done:
+    %let &list_name=%sysfunc(compbl(&&&list_name.));
+%mend _cal_push_unique;
+
 %macro _cal_init_outputs(detail=work._cal_detail_all,
     cuts=work._cal_cuts_all);
 
