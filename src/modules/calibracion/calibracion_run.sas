@@ -15,8 +15,9 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
         _cal_def_cld _cal_vars_num _cal_vars_cat _cal_is_custom _cal_scope_abbr
         _cal_report_path _cal_images_path _cal_tables_path _cal_file_prefix
         _cal_tbl_prefix _cal_seg_num _cal_dir_rc _cal_groups _cal_keep_train
-        _cal_keep_oot _cal_driver_keep_train _cal_driver_keep_oot
-        _cal_any_train _cal_weighted _cal_score_mode;
+        _cal_keep_oot _cal_keep_train_sql _cal_keep_oot_sql
+        _cal_driver_keep_train _cal_driver_keep_oot _cal_any_train
+        _cal_weighted _cal_score_mode;
 
     %put NOTE:======================================================;
     %put NOTE: [calibracion_run] INICIO;
@@ -192,23 +193,27 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
         %let _cal_keep_train=&_cal_keep_train. &_cal_monto.;
     %let _cal_keep_train=%sysfunc(compbl(&_cal_keep_train.
         &_cal_driver_keep_train.));
+    %let _cal_keep_train_sql=%sysfunc(tranwrd(%superq(_cal_keep_train),
+        %str( ), %str(, )));
 
     %let _cal_keep_oot=&_cal_target. &_cal_score. &_cal_byvar.;
     %if %length(%superq(_cal_monto)) > 0 %then
         %let _cal_keep_oot=&_cal_keep_oot. &_cal_monto.;
     %let _cal_keep_oot=%sysfunc(compbl(&_cal_keep_oot.
         &_cal_driver_keep_oot.));
+    %let _cal_keep_oot_sql=%sysfunc(tranwrd(%superq(_cal_keep_oot),
+        %str( ), %str(, )));
 
     proc fedsql sessref=conn;
         create table casuser._cal_train {options replace=true} as
-            select &_cal_keep_train.
+            select &_cal_keep_train_sql.
             from &input_caslib..&train_table.
             where &_cal_byvar. <= &_cal_def_cld.;
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._cal_oot {options replace=true} as
-            select &_cal_keep_oot.
+            select &_cal_keep_oot_sql.
             from &input_caslib..&oot_table.
             where &_cal_byvar. <= &_cal_def_cld.;
     quit;
