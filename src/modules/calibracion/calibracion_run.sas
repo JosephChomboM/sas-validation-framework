@@ -255,19 +255,39 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
         %return;
     %end;
 
-    %let _cal_keep_train=&_cal_target. &_cal_score. &_cal_byvar.;
+    %let _cal_keep_train=;
+    %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_target.);
+    %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_score.);
+    %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_byvar.);
     %if %length(%superq(_cal_monto)) > 0 %then
-        %let _cal_keep_train=&_cal_keep_train. &_cal_monto.;
-    %let _cal_keep_train=%sysfunc(compbl(&_cal_keep_train.
-        &_cal_driver_keep_train.));
+        %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_monto.);
+    %let _cal_merge_idx=1;
+    %let _cal_merge_var=%scan(%superq(_cal_driver_keep_train),
+        &_cal_merge_idx., %str( ));
+    %do %while(%length(%superq(_cal_merge_var)) > 0);
+        %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_merge_var.);
+        %let _cal_merge_idx=%eval(&_cal_merge_idx. + 1);
+        %let _cal_merge_var=%scan(%superq(_cal_driver_keep_train),
+            &_cal_merge_idx., %str( ));
+    %end;
     %let _cal_keep_train_sql=%sysfunc(tranwrd(%superq(_cal_keep_train),
         %str( ), %str(, )));
 
-    %let _cal_keep_oot=&_cal_target. &_cal_score. &_cal_byvar.;
+    %let _cal_keep_oot=;
+    %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_target.);
+    %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_score.);
+    %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_byvar.);
     %if %length(%superq(_cal_monto)) > 0 %then
-        %let _cal_keep_oot=&_cal_keep_oot. &_cal_monto.;
-    %let _cal_keep_oot=%sysfunc(compbl(&_cal_keep_oot.
-        &_cal_driver_keep_oot.));
+        %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_monto.);
+    %let _cal_merge_idx=1;
+    %let _cal_merge_var=%scan(%superq(_cal_driver_keep_oot),
+        &_cal_merge_idx., %str( ));
+    %do %while(%length(%superq(_cal_merge_var)) > 0);
+        %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_merge_var.);
+        %let _cal_merge_idx=%eval(&_cal_merge_idx. + 1);
+        %let _cal_merge_var=%scan(%superq(_cal_driver_keep_oot),
+            &_cal_merge_idx., %str( ));
+    %end;
     %let _cal_keep_oot_sql=%sysfunc(tranwrd(%superq(_cal_keep_oot),
         %str( ), %str(, )));
 
