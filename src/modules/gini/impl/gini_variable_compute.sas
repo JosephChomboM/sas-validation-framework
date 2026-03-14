@@ -52,6 +52,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             N_Valid=input(symget('_n_valid'), best32.);
             N_Default=input(symget('_n_default'), best32.);
             N_Gini=input(symget('_n_gini'), best32.);
+            Ranking=.;
             if N_Total > 0 then Pct_Valid=N_Valid / N_Total;
             Smdcr_Raw=input(symget('_smdcr'), best32.);
             Gini=abs(Smdcr_Raw);
@@ -141,8 +142,12 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 %macro _gini_variables_compare(data=, delta_warn=0.05,
     out=casuser._gini_vars_compare);
 
+    data work._gini_vars_general_w;
+        set &data.;
+    run;
+
     proc sql noprint;
-        create table &out. as
+        create table work._gini_vars_compare_tmp as
         select coalesce(t.Variable, o.Variable) as Variable length=64,
             t.Gini as Gini_Train format=8.4,
             t.Ranking as Rank_Train,
@@ -156,10 +161,18 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
                 when calculated Delta_Gini < -&delta_warn. then "MEJORA"
                 else "ESTABLE"
             end as Estabilidad length=15
-        from (select * from &data. where Split="TRAIN") t
-        full join (select * from &data. where Split="OOT") o
+        from (select * from work._gini_vars_general_w where Split="TRAIN") t
+        full join (select * from work._gini_vars_general_w where Split="OOT") o
             on t.Variable=o.Variable
         order by Rank_Train, Variable;
+    quit;
+
+    data &out.;
+        set work._gini_vars_compare_tmp;
+    run;
+
+    proc datasets library=work nolist nowarn;
+        delete _gini_vars_general_w _gini_vars_compare_tmp;
     quit;
 
 %mend _gini_variables_compare;
@@ -295,6 +308,10 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 %macro _gini_variables_summary(data=, var_low=, var_high=, trend_delta=0.03,
     out=casuser._gini_vars_summary);
 
+    data work._gini_vars_detail_w;
+        set &data.;
+    run;
+
     proc sql noprint;
         create table work._gini_vars_base as
         select Variable,
@@ -306,11 +323,11 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             min(Gini) as Gini_Min format=8.4,
             max(Gini) as Gini_Max format=8.4,
             std(Gini) as Gini_Std format=8.4
-        from &data.
+        from work._gini_vars_detail_w
         where Gini is not missing
         group by Variable, Split;
 
-        create table &out. as
+        create table work._gini_vars_summary_tmp as
         select a.Variable,
             a.Split,
             a.N_Periodos,
@@ -336,17 +353,21 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
                 else "BAJO"
             end as Evaluacion length=15
         from work._gini_vars_base a
-        left join &data. f
+        left join work._gini_vars_detail_w f
             on a.Variable=f.Variable and a.Split=f.Split and
             a.First_Period=f.Periodo
-        left join &data. l
+        left join work._gini_vars_detail_w l
             on a.Variable=l.Variable and a.Split=l.Split and
             a.Last_Period=l.Periodo
         order by a.Split, a.Gini_Promedio desc, a.Variable;
     quit;
 
+    data &out.;
+        set work._gini_vars_summary_tmp;
+    run;
+
     proc datasets library=work nolist nowarn;
-        delete _gini_vars_base;
+        delete _gini_vars_base _gini_vars_detail_w _gini_vars_summary_tmp;
     quit;
 
 %mend _gini_variables_summary;
