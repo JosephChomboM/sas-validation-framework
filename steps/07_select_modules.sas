@@ -1,5 +1,5 @@
 ﻿/* =========================================================================
-steps/segmento/select_modules.sas - Selección de módulos
+steps/07_select_modules.sas - Selección de módulos
 =========================================================================
 Habilitar (1) o deshabilitar (0) cada módulo.
 Los módulos deshabilitados se saltan automáticamente.
@@ -15,6 +15,8 @@ Método 4.2: estabilidad, fillrate, missings, psi
 Método 4.3: bivariado, correlación, gini
 Método 5.2.1: replica
 Método 6: precision
+Método 7: monotonicidad
+Método 8: calibracion
 ========================================================================= */
 /* ========= Método 1.1 - Describe Universo ============================== */
 %let run_universe=&_id_run_universe.;
@@ -37,6 +39,9 @@ Método 6: precision
 /* ========= Método 6 - Precision ======================================= */
 %let run_precision=%sysfunc(coalescec(%superq(_id_run_precision), 0));
 
+/* ========= Método 8 - Calibracion ===================================== */
+%let run_calibracion=%sysfunc(coalescec(%superq(_id_run_calibracion), 0));
+
 %put NOTE: [select_modules] Módulos habilitados:;
 %put NOTE: 1.1 → universe=&run_universe.;
 %put NOTE: 4.2 → estabilidad=&run_estabilidad. fillrate=&run_fillrate.
@@ -46,3 +51,4 @@ Método 6: precision
 %put NOTE: 5.2.1 → replica=&run_replica.;
 %put NOTE: 6.0 → precision=&run_precision.;
 %put NOTE: 7.0 → monotonicidad=&run_monotonicidad.;
+%put NOTE: 8.0 → calibracion=&run_calibracion.;

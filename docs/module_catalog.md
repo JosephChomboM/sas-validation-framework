@@ -95,6 +95,7 @@ Cada Método agrupa módulos lógicamente. Los steps de módulos están en `step
 | Metodo 3 | -          | `steps/methods/metod_3/` | segmentacion (futuro)                    |
 | Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi**, **similitud** |
 | Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlación**, gini, **bootstrap**            |
+| Metodo 8 | 8.0        | `steps/methods/metod_8/` | **calibracion**                                            |
 
 Los sub-métodos organizan la selección en el UI y las carpetas de output (`reports/METOD1.1/`, `reports/METOD2.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`).
 
@@ -774,7 +775,7 @@ Para agregar un módulo nuevo:
      - SEGMENTO ? itera via `ctx_n_segments`, `ctx_seg_id`
      - UNIVERSO ? ejecuta base/troncal via `ctx_troncal_id`
    - Cleanup CASLIBs al final
-4. Añadir flag `run_<nuevo_modulo>` en `steps/context_and_modules.sas`.
+4. Añadir flag `run_<nuevo_modulo>` en `steps/07_select_modules.sas`.
    - Inputs esperados
    - Outputs generados
    - Validaciones
@@ -799,3 +800,134 @@ Ejemplo:
 - `gini_troncal_1_train_seg001.xlsx`
 - `correlacion_troncal_1_train_base.html`
 - `correlacion_troncal_1_oot_seg002.xlsx`
+
+---
+
+## 6) Modulo: Calibracion (Metodo 8.0)
+
+**Fecha de corte:** Calibracion usa `def_cld` porque compara `target` contra un
+score del modelo (`pd` o `xb`) y por lo tanto solo analiza observaciones con
+`byvar <= def_cld`.
+
+**Ruta**
+- `src/modules/calibracion/`
+
+**API publica**
+- `%calibracion_run(...)`
+- Parametros de entrada:
+  - `input_caslib=PROC` - CASLIB de entrada
+  - `train_table=_train_input` - tabla TRAIN promovida por `run_module`
+  - `oot_table=_oot_input` - tabla OOT promovida por `run_module`
+  - `output_caslib=OUT` - CASLIB de salida
+  - `troncal_id`, `scope`, `run_id` - contexto
+
+**Nota arquitectonica:** Calibracion compara TRAIN vs OOT driver por driver.
+Usa `run_module.sas` con `dual_input=1`.
+
+**Estructura interna**
+```
+src/modules/calibracion/
+  calibracion_run.sas              %calibracion_run - entry point publico
+  calibracion_contract.sas         %calibracion_contract - validaciones
+  impl/
+    calibracion_compute.sas        %_cal_build_driver_meta
+                                   %_calibration_compute
+    calibracion_report.sas         %_calibracion_report
+```
+
+**Inputs tipicos**
+- Dos datasets: TRAIN y OOT, promovidos como `_train_input` y `_oot_input`.
+- Variables base resueltas desde `casuser.cfg_troncales`:
+  - `target`
+  - `pd` / `xb`
+  - `monto`
+  - `byvar`
+  - `def_cld`
+- Drivers en modo AUTO:
+  - universo: `dri_num_unv`, `dri_cat_unv`
+  - segmento: `dri_num_list`, `dri_cat_list`
+  - fallback al troncal si el override del segmento viene vacio
+
+**Modos de ejecucion (configurados en `steps/methods/metod_8/step_calibracion.sas`)**
+
+| Modo          | `cal_mode` | Variables                                                                 | Output destino                          | Prefijo archivo                 |
+| ------------- | ---------- | ------------------------------------------------------------------------- | --------------------------------------- | ------------------------------- |
+| Automatico    | `AUTO`     | drivers desde config + `target` + `score` + `monto` + `byvar` + `def_cld` | `reports/`+`tables/`+`images/`          | `calibracion_troncal_`          |
+| Personalizado | `CUSTOM`   | `cal_custom_vars_dri_num/cat` + overrides opcionales                      | `experiments/`                          | `custom_calibracion_troncal_`   |
+
+Parametros adicionales del step:
+- `cal_score_source` - `AUTO|PD|XB|CUSTOM`
+- `cal_use_weighted` - 0/1 para habilitar variante ponderada
+- `cal_groups` - numero de buckets para drivers numericos (default 5)
+- `cal_custom_target`
+- `cal_custom_score_var`
+- `cal_custom_monto`
+- `cal_custom_def_cld`
+
+**Validaciones (contract)**
+- Debe existir al menos un driver numerico o categorico.
+- `target`, `score_var`, `byvar` y `def_cld` deben estar definidos.
+- TRAIN y OOT deben existir y tener observaciones.
+- TRAIN y OOT filtrados con `byvar <= def_cld` deben quedar con observaciones.
+- `target`, `score_var` y `byvar` deben existir en ambos splits.
+- `monto` es opcional; si falta en alguno de los splits se omite la variante
+  ponderada con WARNING.
+- Si un driver no existe en TRAIN, se omite completo.
+- Si un driver existe en TRAIN pero no en OOT, se calcula solo TRAIN.
+
+**Computo**
+- Filtro temprano en CAS (`PROC FEDSQL`) para TRAIN y OOT con `byvar <= def_cld`
+  y `keep` minimo.
+- Copia controlada CAS -> work (Pattern B).
+- Drivers numericos:
+  - normaliza sentinels legacy a missing
+  - construye cortes TRAIN con `PROC RANK groups=&cal_groups.`
+  - genera bucket `00. Missing`
+  - reaplica exactamente los cortes TRAIN en OOT
+- Drivers categoricos:
+  - agrupa por valor formateado
+  - missing explicito como `00. Missing`
+- Metricas por bucket:
+  - `N_Cuentas`
+  - `Pct_Cuentas`
+  - `RD`
+  - `PD`
+  - `Registros_RD`, `Registros_PD`
+  - `Registros_RD_Pond`, `Registros_PD_Pond` en variante ponderada
+- Bandas Vasicek:
+  - `RHO=0.005`
+  - `ALPHA=0.10`
+  - `ALPHA=0.25`
+
+**Tablas temporales**
+- `casuser._cal_train`, `casuser._cal_oot` - inputs filtrados
+- `work._cal_*` - bucketizacion, metricas y llaves de plots
+
+**Tablas persistidas (.sas7bdat)** - 2 tablas por ejecucion:
+- AUTO:
+  - `calb_tX_<scope>_detl.sas7bdat`
+  - `calb_tX_<scope>_cuts.sas7bdat`
+- CUSTOM:
+  - `cx_calb_tX_<scope>_detl.sas7bdat`
+  - `cx_calb_tX_<scope>_cuts.sas7bdat`
+
+**Reportes**
+- Un HTML consolidado:
+  - `outputs/runs/<run_id>/reports/METOD8/<prefix>.html`
+- Un Excel consolidado:
+  - `outputs/runs/<run_id>/reports/METOD8/<prefix>.xlsx`
+- Hojas esperadas:
+  - `STD_TRAIN`
+  - `STD_OOT`
+  - `WGT_TRAIN`
+  - `WGT_OOT`
+  - `PLOTS`
+- JPEGs independientes:
+  - `outputs/runs/<run_id>/images/METOD8/<prefix>_vNNN_<split>_<modo>.jpeg`
+
+**Compatibilidad de contexto**: segmento y universo.
+
+**Cleanup**
+- El modulo elimina tablas temporales `casuser._cal_:` y `work._cal_:`.
+- Las tablas promovidas `_train_input` y `_oot_input` se dropean por
+  `run_module.sas` al finalizar cada invocacion.
