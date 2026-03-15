@@ -26,11 +26,11 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
 
 %macro _fw_append_audit_row(step_name=, step_rc=0, step_status=OK);
     %local _fw_audit_path _fw_audit_table _fw_tipo_wf
-        _fw_status _fw_end_dttm _fw_user_id _fw_nombre_prueba _fw_dataset_name
+        _fw_status _fw_end_dttm _fw_user_id _fw_dataset_name
         _fw_tipo_modelo _fw_tipo_producto _fw_wf_version _fw_troncal _fw_segmento
         _fw_scope _fw_split _fw_cfg_tipo_modelo _fw_cfg_model_type
         _fw_cfg_tipo_producto _fw_step_group _fw_module_name _fw_skip_flag
-        _sysuserid;
+        _sysuserid _fw_metod_name;
 
     %let _fw_end_dttm=%sysfunc(datetime());
 
@@ -62,20 +62,6 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
     %let _fw_skip_flag=%sysfunc(ifc(%upcase(&_fw_status.)=SKIP,1,0));
 
     %let _fw_user_id=%scan(&SYSUSERID., 1, @);
-
-    %let _fw_nombre_prueba=;
-    %if %symexist(nombre_prueba) %then %do;
-        %if %superq(nombre_prueba) ne %then
-            %let _fw_nombre_prueba=%superq(nombre_prueba);
-    %end;
-    %if %superq(_fw_nombre_prueba)= %then %do;
-        %if %symexist(_id_nombre_prueba) %then %do;
-            %if %superq(_id_nombre_prueba) ne %then
-                %let _fw_nombre_prueba=%superq(_id_nombre_prueba);
-        %end;
-    %end;
-    %if %superq(_fw_nombre_prueba)= %then
-        %let _fw_nombre_prueba=&_fw_log_run.;
 
     %let _fw_dataset_name=;
     %if %symexist(fw_sas_dataset_name) %then %do;
@@ -169,12 +155,16 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
     %if %upcase(%substr(%superq(_fw_log_stem), 1, 6))=METOD_ %then
         %let _fw_step_group=METHOD;
 
+    %let _fw_metod_name=core_steps;
+    %if %upcase(%substr(%superq(_fw_log_stem), 1, 6))=METOD_ %then
+        %let _fw_metod_name=%scan(%superq(_fw_log_stem), 1, _)_%scan(%superq(_fw_log_stem), 2, _);
+
     %let _fw_module_name=%scan(%superq(_fw_log_stem), -1, _);
     %let _sysuserid=%scan(&SYSUSERID., 1, "@");
     data work._fw_audit_row;
         length fecha_ejecucion 8 hora_inicio 8 hora_fin 8 duracion_minutos 8 duracion_segundos 8 step_rc 8 skip_flag 8 success_flag 8 
-        user_id $128 nombre_prueba $256 tipo_modelo $64 tipo_producto $64 troncal $32 segmento $32 wf_version $64 tipo_wf $32 
-        run_id $64 step_name $128 log_stem $128 log_path $512 step_status $16 ctx_scope $32 ctx_split $32 step_group $16
+        user_id $128 tipo_modelo $64 tipo_producto $64 troncal $32 segmento $32 wf_version $64 tipo_wf $32 
+        run_id $64 step_name $128 metod_name $64 log_path $512 step_status $16 ctx_scope $32 ctx_split $32 step_group $16
     	module_name $64 dataset_name $128 sas_userid $256;
         format fecha_ejecucion yymmdd10. hora_inicio time8. hora_fin time8. duracion_minutos 12.2 duracion_segundos 12.2;
 
@@ -187,7 +177,6 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
         skip_flag=&_fw_skip_flag.;
         success_flag=(step_rc=0 and skip_flag=0);
         user_id=symget('_fw_user_id');
-        nombre_prueba=symget('_fw_nombre_prueba');
         tipo_modelo=symget('_fw_tipo_modelo');
         tipo_producto=symget('_fw_tipo_producto');
         troncal=symget('_fw_troncal');
@@ -196,7 +185,7 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
         tipo_wf=symget('_fw_tipo_wf');
         run_id=symget('_fw_log_run');
         step_name=symget('_fw_log_step');
-        log_stem=symget('_fw_log_stem');
+        metod_name=symget('_fw_metod_name');
         log_path=symget('_fw_log_path');
         step_status=symget('_fw_status');
         ctx_scope=symget('_fw_scope');

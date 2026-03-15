@@ -186,7 +186,7 @@ La carpeta `logs/` es operativa: `steps/02_load_config.sas`, `steps/03_create_fo
 
 Al cerrar cada step, `log_utils.sas` también registra una fila de auditoría en
 `auditoria_ejecuciones_v3` bajo `/bcp/bcp-exploratorio-adr-vime/transform_vi_monitoring/monitoring_workflow_scoring_vi`.
-La fila incluye fecha/hora, duración, usuario, `run_id`, step, contexto (`scope/split/troncal/segmento`) y estado (`OK`, `SKIP`, `ERROR`).
+La fila incluye fecha/hora, duración, usuario, `run_id`, `step_name`, `metod_name`, contexto (`scope/split/troncal/segmento`) y estado (`OK`, `SKIP`, `ERROR`).
 
 **Step 03** crea las carpetas de data (`data/raw`, `data/processed`) y las subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal en `casuser.cfg_troncales`. Solo se ejecuta durante data prep (`data_prep_enabled=1`).
 
