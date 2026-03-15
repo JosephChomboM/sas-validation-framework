@@ -10,6 +10,7 @@ Backend del step:
 %let config_file=&fw_root./config.sas;
 
 %macro _step02_load;
+    %global run_id;
     %local _step_rc;
     %let _step_rc=0;
 

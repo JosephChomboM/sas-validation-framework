@@ -18,30 +18,44 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
     %else 0;
 %mend _fw_ds_hasvar;
 
+%macro _fw_macro_value(name=);
+    %if %symexist(&name.) %then %do;
+        %superq(&name.)
+    %end;
+%mend _fw_macro_value;
+
 %macro _fw_append_audit_row(step_name=, step_rc=0, step_status=OK);
-    %local _fw_audit_path _fw_audit_table _fw_tipo_wf _fw_workflow_name
+    %local _fw_audit_path _fw_audit_table _fw_tipo_wf
         _fw_status _fw_end_dttm _fw_user_id _fw_nombre_prueba _fw_dataset_name
         _fw_tipo_modelo _fw_tipo_producto _fw_wf_version _fw_troncal _fw_segmento
         _fw_scope _fw_split _fw_cfg_tipo_modelo _fw_cfg_model_type
-        _fw_cfg_tipo_producto _fw_step_group _fw_module_name _fw_skip_flag;
+        _fw_cfg_tipo_producto _fw_step_group _fw_module_name _fw_skip_flag
+        _sysuserid;
 
     %let _fw_end_dttm=%sysfunc(datetime());
 
-    %if %symexist(_fw_log_start_dttm)=0 or %superq(_fw_log_start_dttm)= %then
+    %if %symexist(_fw_log_start_dttm)=0 %then
+        %let _fw_log_start_dttm=&_fw_end_dttm.;
+    %else %if %superq(_fw_log_start_dttm)= %then
         %let _fw_log_start_dttm=&_fw_end_dttm.;
 
-    %if %symexist(fw_audit_path)=1 and %superq(fw_audit_path) ne %then
-        %let _fw_audit_path=&fw_audit_path.;
-    %else
-        %let _fw_audit_path=/bcp/bcp-exploratorio-adr-vime/transform_vi_monitoring/monitoring_workflow_scoring_vi;
+    %let _fw_audit_path=;
+    %if %symexist(fw_audit_path) %then %do;
+        %if %superq(fw_audit_path) ne %then
+            %let _fw_audit_path=&fw_audit_path.;
+    %end;
+    %if %superq(_fw_audit_path)= %then
+        %let _fw_audit_path=/bcp/bcp-exploratorio-adr-vime/transform_vi_monitoring/workflows;
 
-    %if %symexist(fw_audit_table)=1 and %superq(fw_audit_table) ne %then
-        %let _fw_audit_table=&fw_audit_table.;
-    %else
-        %let _fw_audit_table=auditoria_ejecuciones_v3;
+    %let _fw_audit_table=;
+    %if %symexist(fw_audit_table) %then %do;
+        %if %superq(fw_audit_table) ne %then
+            %let _fw_audit_table=&fw_audit_table.;
+    %end;
+    %if %superq(_fw_audit_table)= %then
+        %let _fw_audit_table=fw_auditoria_ejecuciones;
 
     %let _fw_tipo_wf=scoring;
-    %let _fw_workflow_name=framework_validacion;
     %let _fw_status=%upcase(%superq(step_status));
     %if %superq(_fw_status)= %then %let _fw_status=OK;
     %if %sysevalf(&step_rc. ne 0) %then %let _fw_status=ERROR;
@@ -50,35 +64,47 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
     %let _fw_user_id=%scan(&SYSUSERID., 1, @);
 
     %let _fw_nombre_prueba=;
-    %if %symexist(nombre_prueba)=1 and %superq(nombre_prueba) ne %then
-        %let _fw_nombre_prueba=%superq(nombre_prueba);
-    %else %if %symexist(_id_nombre_prueba)=1 and %superq(_id_nombre_prueba) ne %then
-        %let _fw_nombre_prueba=%superq(_id_nombre_prueba);
-    %else %if %symexist(fw_sas_dataset_name)=1 and %superq(fw_sas_dataset_name) ne %then
-        %let _fw_nombre_prueba=%superq(fw_sas_dataset_name);
-    %else
+    %if %symexist(nombre_prueba) %then %do;
+        %if %superq(nombre_prueba) ne %then
+            %let _fw_nombre_prueba=%superq(nombre_prueba);
+    %end;
+    %if %superq(_fw_nombre_prueba)= %then %do;
+        %if %symexist(_id_nombre_prueba) %then %do;
+            %if %superq(_id_nombre_prueba) ne %then
+                %let _fw_nombre_prueba=%superq(_id_nombre_prueba);
+        %end;
+    %end;
+    %if %superq(_fw_nombre_prueba)= %then
         %let _fw_nombre_prueba=&_fw_log_run.;
 
     %let _fw_dataset_name=;
-    %if %symexist(fw_sas_dataset_name)=1 and %superq(fw_sas_dataset_name) ne %then
-        %let _fw_dataset_name=%superq(fw_sas_dataset_name);
+    %if %symexist(fw_sas_dataset_name) %then %do;
+        %if %superq(fw_sas_dataset_name) ne %then
+            %let _fw_dataset_name=%superq(fw_sas_dataset_name);
+    %end;
 
     %let _fw_wf_version=;
-    %if %symexist(wf_version)=1 and %superq(wf_version) ne %then
-        %let _fw_wf_version=%superq(wf_version);
-    %else %if %symexist(_id_wf_version)=1 and %superq(_id_wf_version) ne %then
-        %let _fw_wf_version=%superq(_id_wf_version);
-    %else
-        %let _fw_wf_version=v1;
+    %if %symexist(wf_version) %then %do;
+        %if %superq(wf_version) ne %then
+            %let _fw_wf_version=%superq(wf_version);
+    %end;
+    %if %superq(_fw_wf_version)= %then %do;
+        %if %symexist(_id_wf_version) %then %do;
+            %if %superq(_id_wf_version) ne %then
+                %let _fw_wf_version=%superq(_id_wf_version);
+        %end;
+    %end;
+    %if %superq(_fw_wf_version)= %then
+        %let _fw_wf_version=v3;
 
     %let _fw_troncal=;
-    %if %symexist(ctx_troncal_id)=1 %then %let _fw_troncal=%superq(ctx_troncal_id);
+    %if %symexist(ctx_troncal_id) %then %let _fw_troncal=%superq(ctx_troncal_id);
     %let _fw_segmento=;
-    %if %symexist(ctx_seg_id)=1 %then %let _fw_segmento=%superq(ctx_seg_id);
+    %if %symexist(ctx_seg_id) %then %let _fw_segmento=%superq(ctx_seg_id);
     %let _fw_scope=;
-    %if %symexist(ctx_scope)=1 %then %let _fw_scope=%superq(ctx_scope);
+    %if %symexist(ctx_scope) %then %let _fw_scope=%superq(ctx_scope);
     %let _fw_split=;
-    %if %symexist(ctx_split)=1 %then %let _fw_split=%superq(ctx_split);
+    %if %symexist(ctx_split) %then %let _fw_split=%superq(ctx_split);
 
     %let _fw_cfg_tipo_modelo=;
     %let _fw_cfg_model_type=;
@@ -112,38 +138,45 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
     %end;
 
     %let _fw_tipo_modelo=;
-    %if %symexist(tipo_modelo)=1 and %superq(tipo_modelo) ne %then
-        %let _fw_tipo_modelo=%superq(tipo_modelo);
-    %else %if %symexist(model_type)=1 and %superq(model_type) ne %then
-        %let _fw_tipo_modelo=%superq(model_type);
-    %else %if %superq(_fw_cfg_tipo_modelo) ne %then
-        %let _fw_tipo_modelo=&_fw_cfg_tipo_modelo.;
-    %else %if %superq(_fw_cfg_model_type) ne %then
-        %let _fw_tipo_modelo=&_fw_cfg_model_type.;
+    %if %symexist(tipo_modelo) %then %do;
+        %if %superq(tipo_modelo) ne %then
+            %let _fw_tipo_modelo=%superq(tipo_modelo);
+    %end;
+    %if %superq(_fw_tipo_modelo)= %then %do;
+        %if %symexist(model_type) %then %do;
+            %if %superq(model_type) ne %then
+                %let _fw_tipo_modelo=%superq(model_type);
+        %end;
+    %end;
+    %if %superq(_fw_tipo_modelo)= %then %do;
+        %if %superq(_fw_cfg_tipo_modelo) ne %then
+            %let _fw_tipo_modelo=&_fw_cfg_tipo_modelo.;
+        %else %if %superq(_fw_cfg_model_type) ne %then
+            %let _fw_tipo_modelo=&_fw_cfg_model_type.;
+    %end;
 
     %let _fw_tipo_producto=;
-    %if %symexist(tipo_producto)=1 and %superq(tipo_producto) ne %then
-        %let _fw_tipo_producto=%superq(tipo_producto);
-    %else %if %superq(_fw_cfg_tipo_producto) ne %then
-        %let _fw_tipo_producto=&_fw_cfg_tipo_producto.;
+    %if %symexist(tipo_producto) %then %do;
+        %if %superq(tipo_producto) ne %then
+            %let _fw_tipo_producto=%superq(tipo_producto);
+    %end;
+    %if %superq(_fw_tipo_producto)= %then %do;
+        %if %superq(_fw_cfg_tipo_producto) ne %then
+            %let _fw_tipo_producto=&_fw_cfg_tipo_producto.;
+    %end;
 
     %let _fw_step_group=CORE;
     %if %upcase(%substr(%superq(_fw_log_stem), 1, 6))=METOD_ %then
         %let _fw_step_group=METHOD;
 
     %let _fw_module_name=%scan(%superq(_fw_log_stem), -1, _);
-
+    %let _sysuserid=%scan(&SYSUSERID., 1, "@");
     data work._fw_audit_row;
-        length fecha_ejecucion 8 hora_inicio 8 hora_fin 8 duracion_minutos 8
-            duracion_segundos 8 step_rc 8 skip_flag 8 success_flag 8
-            user_id $128 nombre_prueba $256 tipo_modelo $64 tipo_producto $64
-            troncal $32 segmento $32 wf_version $64 tipo_wf $32
-            run_id $64 step_name $128 log_stem $128 log_path $512
-            step_status $16 ctx_scope $32 ctx_split $32 step_group $16
-            module_name $64 workflow_name $64 dataset_name $128
-            host_name $128 sas_userid $256;
-        format fecha_ejecucion yymmdd10. hora_inicio time8. hora_fin time8.
-            duracion_minutos 12.2 duracion_segundos 12.2;
+        length fecha_ejecucion 8 hora_inicio 8 hora_fin 8 duracion_minutos 8 duracion_segundos 8 step_rc 8 skip_flag 8 success_flag 8 
+        user_id $128 nombre_prueba $256 tipo_modelo $64 tipo_producto $64 troncal $32 segmento $32 wf_version $64 tipo_wf $32 
+        run_id $64 step_name $128 log_stem $128 log_path $512 step_status $16 ctx_scope $32 ctx_split $32 step_group $16
+    	module_name $64 dataset_name $128 sas_userid $256;
+        format fecha_ejecucion yymmdd10. hora_inicio time8. hora_fin time8. duracion_minutos 12.2 duracion_segundos 12.2;
 
         fecha_ejecucion=datepart(&_fw_log_start_dttm.);
         hora_inicio=timepart(&_fw_log_start_dttm.);
@@ -170,10 +203,8 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
         ctx_split=symget('_fw_split');
         step_group=symget('_fw_step_group');
         module_name=symget('_fw_module_name');
-        workflow_name=symget('_fw_workflow_name');
         dataset_name=symget('_fw_dataset_name');
-        host_name=symget('SYSHOSTNAME');
-        sas_userid=symget('SYSUSERID');
+        sas_userid=symget('_sysuserid');
     run;
 
     libname _fwaud "&_fw_audit_path.";
@@ -182,7 +213,6 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
         %put WARNING: [fw_log_stop] No se pudo asignar libname de auditoria en &_fw_audit_path..;
         %goto _fw_audit_done;
     %end;
-
     %if %sysfunc(exist(_fwaud.&_fw_audit_table.)) %then %do;
         proc append base=_fwaud.&_fw_audit_table.
             data=work._fw_audit_row force;
@@ -193,14 +223,12 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
             set work._fw_audit_row;
         run;
     %end;
-
     %put NOTE: [fw_log_stop] Auditoria registrada en &_fw_audit_path./&_fw_audit_table..sas7bdat;
 
 %_fw_audit_done:
     %if %sysfunc(libref(_fwaud))=0 %then %do;
         libname _fwaud clear;
     %end;
-
     proc datasets library=work nolist nowarn;
         delete _fw_audit_row;
     quit;
@@ -234,7 +262,6 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
         %put NOTE: [fw_log_start] ctx_seg_id=&ctx_seg_id.;
     %put NOTE:======================================================;
 %mend fw_log_start;
-
 %macro fw_log_stop(step_name=, step_rc=0, step_status=OK);
     %put NOTE:======================================================;
     %put NOTE: [fw_log_stop] step=&step_name.;

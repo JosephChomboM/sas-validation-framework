@@ -16,7 +16,7 @@ Requisitos: sesión CAS activa y caslib CASUSER accesible.
 /* ---------- casuser.cfg_troncales ---------- */
 data casuser.cfg_troncales;
 	length troncal_id 8 id_var_id $64 target $64 pd $64 xb $64 monto $64 byvar
-		$64 model_type $8 train_min_mes 8 train_max_mes 8 oot_min_mes 8
+		$64 model_type $8 tipo_producto $32 train_min_mes 8 train_max_mes 8 oot_min_mes 8
 		oot_max_mes 8 def_cld 8 num_unv $4000 cat_unv $4000 dri_num_unv $4000
 		dri_cat_unv $4000 var_seg $64 n_segments 8 ;
 
@@ -29,6 +29,7 @@ data casuser.cfg_troncales;
 	monto="Monto_dummy";
 	byvar="CODMES";
 	model_type="APP";
+	tipo_producto="TC";
 
 	train_min_mes=202301;
 	train_max_mes=202310;
@@ -56,6 +57,7 @@ data casuser.cfg_troncales;
 	monto="Monto_dummy";
 	byvar="CODMES";
 	model_type="BHV";
+	tipo_producto="GAHI";
 
 	train_min_mes=202301;
 	train_max_mes=202308;
