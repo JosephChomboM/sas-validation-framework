@@ -106,15 +106,22 @@ challenge_prechallenge.sas - Preparacion de inputs para METOD9 Challenge
     oot_table=_oot_input, keep_train=, keep_oot=,
     out_train=casuser._chall_train_src, out_oot=casuser._chall_oot_src);
 
+    %local _keep_train_sql _keep_oot_sql;
+
+    %let _keep_train_sql=%sysfunc(tranwrd(%sysfunc(compbl(%superq(keep_train))),
+        %str( ), %str(, )));
+    %let _keep_oot_sql=%sysfunc(tranwrd(%sysfunc(compbl(%superq(keep_oot))),
+        %str( ), %str(, )));
+
     proc fedsql sessref=conn;
         create table &out_train. {options replace=true} as
-            select &keep_train.
+            select &_keep_train_sql.
             from &input_caslib..&train_table.;
     quit;
 
     proc fedsql sessref=conn;
         create table &out_oot. {options replace=true} as
-            select &keep_oot.
+            select &_keep_oot_sql.
             from &input_caslib..&oot_table.;
     quit;
 %mend _chall_prepare_inputs;

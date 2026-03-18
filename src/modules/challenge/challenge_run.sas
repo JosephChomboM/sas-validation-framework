@@ -24,7 +24,7 @@ challenge_run.sas - Macro publica del modulo Challenge (METOD9)
         _chall_report_path _chall_images_path _chall_tables_path
         _chall_models_path _chall_file_prefix _chall_tbl_prefix _chall_dir_rc
         _chall_vars_num_cfg _chall_vars_cat_cfg _chall_keep_train
-        _chall_keep_oot _chall_keep_train_sql _chall_keep_oot_sql
+        _chall_keep_oot
         _chall_mode_eff _chall_score_mode _chall_top_k _chall_top_models
         _chall_partition_pct _chall_seed _chall_presample_mode
         _chall_presample_cells _chall_sampling_ratio _chall_sampled_flag
@@ -209,14 +209,10 @@ challenge_run.sas - Macro publica del modulo Challenge (METOD9)
     %end;
 
     %let _chall_keep_oot=&_chall_keep_train.;
-    %let _chall_keep_train_sql=%sysfunc(tranwrd(%superq(_chall_keep_train),
-        %str( ), %str(, )));
-    %let _chall_keep_oot_sql=%sysfunc(tranwrd(%superq(_chall_keep_oot),
-        %str( ), %str(, )));
 
     %_chall_prepare_inputs(input_caslib=&input_caslib., train_table=&train_table.,
-        oot_table=&oot_table., keep_train=&_chall_keep_train_sql.,
-        keep_oot=&_chall_keep_oot_sql., out_train=casuser._chall_train_src,
+        oot_table=&oot_table., keep_train=&_chall_keep_train.,
+        keep_oot=&_chall_keep_oot., out_train=casuser._chall_train_src,
         out_oot=casuser._chall_oot_src);
 
     data work._chall_train_raw;
