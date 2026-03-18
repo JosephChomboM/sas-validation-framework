@@ -8,7 +8,7 @@ Step de modulo: Challenge Gradient Boosting (METOD9)
 /* ---- CONFIGURACION DEL MODULO (editar aqui) --------------------------- */
 %let chall_mode=AUTO;
 %let chall_score_source=AUTO;
-%let chall_top_k=40;
+%let chall_top_k=5;
 %let chall_top_models=5;
 %let chall_penalty_lambda=0.5;
 %let chall_presample_enabled=AUTO;

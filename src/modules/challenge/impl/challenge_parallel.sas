@@ -294,23 +294,24 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
             %let _remote_persist_champion=&persist_champion.;
 
             signon &_task_name. sascmd="!sascmd -nosyntaxcheck -noterminal";
-            %syslput _global_/like='_chall_%' remote=&_task_name.;
-            %syslput _global_/like='chall_%' remote=&_task_name.;
-            %syslput fw_root=&fw_root. remote=&_task_name.;
-            %syslput run_id=&run_id. remote=&_task_name.;
-            %syslput _log_path=&_log_path. remote=&_task_name.;
-            %syslput _remote_cas_sess=&_remote_cas_sess. remote=&_task_name.;
+            %syslput _global_ / like='*' remote=&_task_name.;
+            %syslput _local_ / like='*' remote=&_task_name.;
+            %syslput fw_root=&fw_root. / remote=&_task_name.;
+            %syslput run_id=&run_id. / remote=&_task_name.;
+            %syslput _log_path=&_log_path. / remote=&_task_name.;
+            %syslput _remote_cas_sess=&_remote_cas_sess. / remote=&_task_name.;
             %syslput _remote_shard_table=&_remote_shard_table.
-                remote=&_task_name.;
+                / remote=&_task_name.;
             %syslput _remote_result_table=&_remote_result_table.
-                remote=&_task_name.;
+                / remote=&_task_name.;
             %syslput _remote_monthly_table=&_remote_monthly_table.
-                remote=&_task_name.;
+                / remote=&_task_name.;
             %syslput _remote_session_index=&_remote_session_index.
-                remote=&_task_name.;
-            %syslput _remote_phase_uc=&_remote_phase_uc. remote=&_task_name.;
+                / remote=&_task_name.;
+            %syslput _remote_phase_uc=&_remote_phase_uc.
+                / remote=&_task_name.;
             %syslput _remote_persist_champion=&_remote_persist_champion.
-                remote=&_task_name.;
+                / remote=&_task_name.;
 
             rsubmit &_task_name. wait=no;
                 options MSGLEVEL=I NOFULLSTIMER OBS=MAX NOSYNTAXCHECK
