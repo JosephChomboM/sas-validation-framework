@@ -218,7 +218,9 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
     persist_champion=0);
 
     %local _phase_uc _phase_lc _cfg_n _active_workers _w _result_name
-        _monthly_name _task_name _log_path _task_prefix;
+        _monthly_name _task_name _log_path _task_prefix _remote_cas_sess
+        _remote_shard_table _remote_result_table _remote_monthly_table
+        _remote_session_index _remote_phase_uc _remote_persist_champion;
 
     %let _phase_uc=%upcase(%superq(phase));
     %let _phase_lc=%sysfunc(lowcase(%superq(phase)));
@@ -282,16 +284,37 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
     %else %do;
         %do _w=1 %to &_active_workers.;
             %let _task_name=&_task_prefix.&_w.;
+            %let _log_path=&_chall_run_root./logs/metod_9_&_chall_log_tag._&_phase_lc._worker_&_w..log;
+            %let _remote_cas_sess=casw&_w.;
+            %let _remote_shard_table=casuser._chall_cfg_&_phase_lc._w&_w.;
+            %let _remote_result_table=_chall_res_&_phase_lc._w&_w.;
+            %let _remote_monthly_table=_chall_mon_&_phase_lc._w&_w.;
+            %let _remote_session_index=&_w.;
+            %let _remote_phase_uc=&_phase_uc.;
+            %let _remote_persist_champion=&persist_champion.;
+
             signon &_task_name. sascmd="!sascmd -nosyntaxcheck -noterminal";
             %syslput _global_/like='_chall_%' remote=&_task_name.;
             %syslput _global_/like='chall_%' remote=&_task_name.;
             %syslput fw_root=&fw_root. remote=&_task_name.;
             %syslput run_id=&run_id. remote=&_task_name.;
+            %syslput _log_path=&_log_path. remote=&_task_name.;
+            %syslput _remote_cas_sess=&_remote_cas_sess. remote=&_task_name.;
+            %syslput _remote_shard_table=&_remote_shard_table.
+                remote=&_task_name.;
+            %syslput _remote_result_table=&_remote_result_table.
+                remote=&_task_name.;
+            %syslput _remote_monthly_table=&_remote_monthly_table.
+                remote=&_task_name.;
+            %syslput _remote_session_index=&_remote_session_index.
+                remote=&_task_name.;
+            %syslput _remote_phase_uc=&_remote_phase_uc. remote=&_task_name.;
+            %syslput _remote_persist_champion=&_remote_persist_champion.
+                remote=&_task_name.;
 
             rsubmit &_task_name. wait=no;
                 options MSGLEVEL=I NOFULLSTIMER OBS=MAX NOSYNTAXCHECK
                     REPLACE NOQUOTELENMAX;
-                %let _log_path=&_chall_run_root./logs/metod_9_&_chall_log_tag._&_phase_lc._worker_&_w..log;
                 proc printto log="&_log_path." new;
                 run;
 
@@ -299,19 +322,20 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
                 %include "&fw_root./src/modules/challenge/impl/challenge_gb_compute.sas";
                 %include "&fw_root./src/modules/challenge/impl/challenge_parallel.sas";
 
-                cas casw&_w. sessopts=(caslib="casuser");
+                cas &_remote_cas_sess. sessopts=(caslib="casuser");
                 libname casuser cas caslib=casuser;
                 options casdatalimit=ALL;
 
-                %_chall_worker_refit(phase=&_phase_uc., session_index=&_w.,
-                    shard_table=casuser._chall_cfg_&_phase_lc._w&_w.,
-                    result_table=_chall_res_&_phase_lc._w&_w.,
-                    monthly_table=_chall_mon_&_phase_lc._w&_w.,
-                    persist_champion=&persist_champion.);
+                %_chall_worker_refit(phase=&_remote_phase_uc.,
+                    session_index=&_remote_session_index.,
+                    shard_table=&_remote_shard_table.,
+                    result_table=&_remote_result_table.,
+                    monthly_table=&_remote_monthly_table.,
+                    persist_champion=&_remote_persist_champion.);
 
                 proc printto;
                 run;
-                cas casw&_w. terminate;
+                cas &_remote_cas_sess. terminate;
             endrsubmit;
         %end;
 
