@@ -17,12 +17,10 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
     result_table=, monthly_table=, persist_champion=0);
 
     %local _phase_uc _n_models _m _cfg_id _ntree _mtry _lr _ssr _lasso _ridge
-        _nbins _maxlevel _leafsize _predvar _g_penal
-        _worker_sess _worker_outcas;
+        _nbins _maxlevel _leafsize _predvar _g_penal _worker_sess;
 
     %let _phase_uc=%upcase(%superq(phase));
     %let _worker_sess=casw&session_index.;
-    %let _worker_outcas=OC%sysfunc(putn(&session_index., z2.));
 
     proc sql noprint;
         select count(*) into :_n_models trimmed
@@ -55,12 +53,6 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
                 Model_Label $64 Algo_Name $32 Source $16;
             stop;
         run;
-    %end;
-
-    %if &persist_champion.=1 %then %do;
-        %_create_caslib(cas_path=&_chall_run_root., caslib_name=&_worker_outcas.,
-            lib_caslib=&_worker_outcas., global=Y,
-            cas_sess_name=&_worker_sess., term_global_sess=0, subdirs_flg=1);
     %end;
 
     %do _m=1 %to &_n_models.;
@@ -181,7 +173,7 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
             %_save_into_caslib(m_cas_sess_name=&_worker_sess.,
                 m_input_caslib=casuser,
                 m_input_data=_chall_gb_w&session_index._cfg&_cfg_id.,
-                m_output_caslib=&_worker_outcas.,
+                m_output_caslib=OUT,
                 m_subdir_data=&_chall_models_subdir./&_chall_astore_name.);
         %end;
     %end;
@@ -200,11 +192,6 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
         data casuser.&monthly_table.(copies=0 promote=yes);
             set work._chall_worker_monthly;
         run;
-    %end;
-
-    %if &persist_champion.=1 %then %do;
-        %_drop_caslib(caslib_name=&_worker_outcas., cas_sess_name=&_worker_sess.,
-            del_prom_tables=0);
     %end;
 
     proc datasets library=work nolist nowarn;

@@ -223,7 +223,12 @@ challenge_prechallenge.sas - Preparacion de inputs para METOD9 Challenge
 %mend _chall_build_partition;
 
 %macro _chall_publish_work(work_data=, cas_table=);
-    data casuser.&cas_table.;
+    proc cas;
+        session conn;
+        table.dropTable / caslib="casuser" name="&cas_table." quiet=true;
+    quit;
+
+    data casuser.&cas_table.(copies=0 promote=yes);
         set &work_data.;
     run;
 %mend _chall_publish_work;

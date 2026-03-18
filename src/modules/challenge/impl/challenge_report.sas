@@ -17,11 +17,11 @@ challenge_report.sas - Reportes ODS para METOD9 Challenge
 
     proc format;
         value GainFmt
-            low-<0='lightred'
-            0-high='lightgreen';
+            low-<0='cxF4CCCC'
+            0-high='cxD9EAD3';
         value ChampFmt
             0='white'
-            1='lightgreen';
+            1='cxD9EAD3';
     run;
 
     ods graphics on;
