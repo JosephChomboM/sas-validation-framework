@@ -158,10 +158,19 @@ challenge_prechallenge.sas - Preparacion de inputs para METOD9 Challenge
         %let _ratio=%sysevalf(&max_cells. / &_total_cells.);
         %if %sysevalf(&_ratio. > 1) %then %let _ratio=1;
 
-        proc surveyselect data=&input_data. method=srs samprate=&_ratio.
+        proc sort data=&input_data. out=work._chall_presample_src;
+            by &byvar. &target.;
+        run;
+
+        proc surveyselect data=work._chall_presample_src method=srs
+            samprate=&_ratio.
             seed=&seed. out=&out_data.;
             strata &byvar. &target.;
         run;
+
+        proc datasets library=work nolist nowarn;
+            delete _chall_presample_src;
+        quit;
 
         %let &out_sampled_flag=1;
         %put NOTE: [challenge_prechallenge] Presampling activado.
