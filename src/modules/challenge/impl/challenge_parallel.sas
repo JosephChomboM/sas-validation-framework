@@ -6,7 +6,7 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
     result_table=, monthly_table=, persist_champion=0);
 
     %local _phase_uc _n_models _m _cfg_id _ntree _mtry _lr _ssr _lasso _ridge
-        _nbins _maxlevel _leafsize _predvar _g_train _g_oot _g_penal
+        _nbins _maxlevel _leafsize _predvar _g_penal
         _worker_sess _worker_outcas;
 
     %let _phase_uc=%upcase(%superq(phase));
@@ -120,10 +120,12 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
         run;
 
         %_chall_gini(data=work._chall_train_scored, target=&_chall_target.,
-            score_var=&_predvar., outmac=_g_train);
+            score_var=&_predvar., outmac=_chall_wrk_g_train);
         %_chall_gini(data=work._chall_oot_scored, target=&_chall_target.,
-            score_var=&_predvar., outmac=_g_oot);
-        %let _g_penal=%sysevalf(&_g_oot. - (&_chall_penalty_lambda. * (&_g_train. - &_g_oot.)));
+            score_var=&_predvar., outmac=_chall_wrk_g_oot);
+        %let _g_penal=%sysevalf(&_chall_wrk_g_oot. -
+            (&_chall_penalty_lambda. *
+            (&_chall_wrk_g_train. - &_chall_wrk_g_oot.)));
 
         data work._chall_worker_row;
             cfg_id=&_cfg_id.;
@@ -137,8 +139,8 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
             nbins=&_nbins.;
             maxlevel=&_maxlevel.;
             leafsize=&_leafsize.;
-            gini_train=&_g_train.;
-            gini_oot=&_g_oot.;
+            gini_train=&_chall_wrk_g_train.;
+            gini_oot=&_chall_wrk_g_oot.;
             gini_penalizado=&_g_penal.;
             is_champion=(cfg_id=1);
             format gini_: 8.4;

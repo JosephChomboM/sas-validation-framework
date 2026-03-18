@@ -3,6 +3,9 @@ challenge_gb_compute.sas - Calculo base para METOD9 Challenge (GB)
 ========================================================================= */
 
 %macro _chall_gini(data=, target=, score_var=, outmac=);
+    %global &outmac.;
+    %let &outmac.=.;
+
     proc freqtab data=&data. noprint missing;
         tables &target. * &score_var. / measures;
         output out=work._chall_gini_freqtab smdcr;
@@ -10,7 +13,7 @@ challenge_gb_compute.sas - Calculo base para METOD9 Challenge (GB)
 
     data _null_;
         set work._chall_gini_freqtab(obs=1);
-        call symputx("&outmac.", abs(_smdcr_), "L");
+        call symputx("&outmac.", abs(_smdcr_), "G");
     run;
 
     proc datasets library=work nolist nowarn;
@@ -72,25 +75,26 @@ challenge_gb_compute.sas - Calculo base para METOD9 Challenge (GB)
     out_global=work._chall_benchmark_global,
     out_monthly=work._chall_benchmark_monthly);
 
-    %local _g_train _g_oot _g_penal;
+    %local _bmk_g_penal;
 
     %_chall_gini(data=&train_data., target=&target., score_var=&score_var.,
-        outmac=_g_train);
+        outmac=_chall_bmk_g_train);
     %_chall_gini(data=&oot_data., target=&target., score_var=&score_var.,
-        outmac=_g_oot);
-    %let _g_penal=%sysevalf(&_g_oot. - (&penalty_lambda. * (&_g_train. - &_g_oot.)));
+        outmac=_chall_bmk_g_oot);
+    %let _bmk_g_penal=%sysevalf(&_chall_bmk_g_oot. -
+        %sysevalf(&penalty_lambda. * %sysevalf(&_chall_bmk_g_train. - &_chall_bmk_g_oot.)));
 
     data &out_global.;
         length Dataset $8 Score_Source $64;
         Dataset="TRAIN";
         Score_Source="&score_var.";
-        Gini=&_g_train.;
-        Gini_Penalizado=&_g_penal.;
+        Gini=&_chall_bmk_g_train.;
+        Gini_Penalizado=&_bmk_g_penal.;
         output;
         Dataset="OOT";
         Score_Source="&score_var.";
-        Gini=&_g_oot.;
-        Gini_Penalizado=&_g_penal.;
+        Gini=&_chall_bmk_g_oot.;
+        Gini_Penalizado=&_bmk_g_penal.;
         output;
         format Gini Gini_Penalizado 8.4;
     run;
