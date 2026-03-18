@@ -201,10 +201,12 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
     persist_champion=0);
 
     %local _phase_uc _phase_lc _cfg_n _active_workers _w _result_name
-        _monthly_name _task_name _log_path;
+        _monthly_name _task_name _log_path _task_prefix;
 
     %let _phase_uc=%upcase(%superq(phase));
     %let _phase_lc=%sysfunc(lowcase(%superq(phase)));
+    %if &_phase_uc.=TOPK %then %let _task_prefix=CTK;
+    %else %let _task_prefix=CTN;
 
     proc sql noprint;
         select count(*) into :_cfg_n trimmed from &input_cfg.;
@@ -259,7 +261,7 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
     %end;
     %else %do;
         %do _w=1 %to &_active_workers.;
-            %let _task_name=chall_&_phase_lc._&_w.;
+            %let _task_name=&_task_prefix.&_w.;
             signon &_task_name. sascmd="!sascmd -nosyntaxcheck -noterminal";
             %syslput _global_/like='_chall_%' remote=&_task_name.;
             %syslput _global_/like='chall_%' remote=&_task_name.;
@@ -295,12 +297,12 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
 
         waitfor _ALL_
             %do _w=1 %to &_active_workers.;
-                chall_&_phase_lc._&_w.
+                &_task_prefix.&_w.
             %end;
         ;
 
         %do _w=1 %to &_active_workers.;
-            signoff chall_&_phase_lc._&_w.;
+            signoff &_task_prefix.&_w.;
         %end;
     %end;
 
