@@ -96,6 +96,7 @@ Cada Método agrupa módulos lógicamente. Los steps de módulos están en `step
 | Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi**, **similitud** |
 | Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlación**, gini, **bootstrap**            |
 | Metodo 8 | 8.0        | `steps/methods/metod_8/` | **calibracion**                                            |
+| Metodo 9 | 9.0        | `steps/methods/metod_9/` | **challenge**                                              |
 
 Los sub-métodos organizan la selección en el UI y las carpetas de output (`reports/METOD1.1/`, `reports/METOD2.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`).
 
@@ -930,4 +931,96 @@ Parametros adicionales del step:
 **Cleanup**
 - El modulo elimina tablas temporales `casuser._cal_:` y `work._cal_:`.
 - Las tablas promovidas `_train_input` y `_oot_input` se dropean por
+  `run_module.sas` al finalizar cada invocacion.
+
+---
+
+## 7) Modulo: Challenge (Metodo 9.0)
+
+**Ruta**
+- `src/modules/challenge/`
+
+**API publica**
+- `%challenge_run(...)`
+- Parametros de entrada:
+  - `input_caslib=PROC`
+  - `train_table=_train_input`
+  - `oot_table=_oot_input`
+  - `output_caslib=OUT`
+  - `troncal_id`, `scope`, `run_id`
+
+**Nota arquitectonica**
+- Usa `run_module.sas` con `dual_input=1`.
+- En v1 implementa solo **Gradient Boosting**, pero deja `registry` y
+  `champion summary` en formato multi-algoritmo para futuras familias ML.
+
+**Inputs tipicos**
+- Dos datasets promovidos: TRAIN y OOT.
+- En modo `AUTO` resuelve desde `config.sas`:
+  - `id_var_id`
+  - `target`
+  - `byvar`
+  - score benchmark (`pd` o `xb`)
+  - `var_seg` cuando aplique
+  - `num_list/cat_list` por segmento con fallback a `num_unv/cat_unv`
+- El prechallenge solo carga columnas necesarias; no usa la tabla completa.
+- `dri_*` no participan en `METOD9` v1.
+
+**Parametros relevantes del step**
+- `chall_mode=AUTO|CUSTOM`
+- `chall_score_source=AUTO|PD|XB|CUSTOM`
+- `chall_top_k`
+- `chall_top_models`
+- `chall_penalty_lambda`
+- `chall_presample_enabled`
+- `chall_presample_max_cells`
+- `chall_partition_pct`
+- `chall_seed`
+- `chall_gb_stagnation`
+- `chall_gb_ntrees_cap`
+- `chall_custom_vars_num`
+- `chall_custom_vars_cat`
+- `chall_custom_target`
+- `chall_custom_score_var`
+
+La paralelizacion de `METOD9` queda fija en 5 workers, alineada con el
+legacy de Gradient Boosting. El step no expone override para esa cantidad.
+
+**Cobertura funcional**
+- prechallenge + presampling por volumen
+- particion interna train/valid con `PROC PARTITION`
+- benchmark base contra score original
+- autotune de `PROC GRADBOOST`
+- refit paralelo top-K y top-N con `signon/rsubmit/waitfor`
+- persistencia del ASTORE campeon por run
+- registry generico y champion summary
+
+**Tablas persistidas (.sas7bdat)**
+- AUTO:
+  - `chal_tX_<scope>_bmk.sas7bdat`
+  - `chal_tX_<scope>_eval.sas7bdat`
+  - `chal_tX_<scope>_topk.sas7bdat`
+  - `chal_tX_<scope>_topn.sas7bdat`
+  - `chal_tX_<scope>_mnly.sas7bdat`
+  - `chal_tX_<scope>_rgst.sas7bdat`
+  - `chal_tX_<scope>_chmp.sas7bdat`
+- CUSTOM:
+  - mismas tablas en `experiments/` con prefijo `cx_`
+
+**Reportes y modelos**
+- `outputs/runs/<run_id>/reports/METOD9/<prefix>.html`
+- `outputs/runs/<run_id>/reports/METOD9/<prefix>.xlsx`
+- `outputs/runs/<run_id>/images/METOD9/<prefix>_*.jpeg`
+- `outputs/runs/<run_id>/models/METOD9/<astore>.sashdat`
+
+**Logs**
+- El step principal usa el log estándar del framework.
+- Cada worker de refit escribe un `.log` dedicado en
+  `outputs/runs/<run_id>/logs/`.
+
+**Compatibilidad de contexto**: segmento y universo.
+
+**Cleanup**
+- El modulo elimina tablas temporales `casuser._chall_:` y `work._chall_:`.
+- Los inputs promovidos `_train_input` y `_oot_input` se dropean por
   `run_module.sas` al finalizar cada invocacion.

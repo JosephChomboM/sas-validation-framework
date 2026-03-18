@@ -61,6 +61,11 @@ log_utils.sas - Utilidades de logging por step via PROC PRINTTO
     %if %sysevalf(&step_rc. ne 0) %then %let _fw_status=ERROR;
     %let _fw_skip_flag=%sysfunc(ifc(%upcase(&_fw_status.)=SKIP,1,0));
 
+    %if %upcase(&_fw_status.)=SKIP %then %do;
+        %put NOTE: [fw_log_stop] step=&step_name. omitido de auditoria por status=SKIP.;
+        %return;
+    %end;
+
     %let _fw_user_id=%scan(&SYSUSERID., 1, @);
 
     %let _fw_dataset_name=;

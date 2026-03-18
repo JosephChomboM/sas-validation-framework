@@ -17,6 +17,7 @@ Método 5.2.1: replica
 Método 6: precision
 Método 7: monotonicidad
 Método 8: calibracion
+Método 9: challenge
 ========================================================================= */
 /* ========= Método 1.1 - Describe Universo ============================== */
 %let run_universe=&_id_run_universe.;
@@ -42,6 +43,9 @@ Método 8: calibracion
 /* ========= Método 8 - Calibracion ===================================== */
 %let run_calibracion=%sysfunc(coalescec(%superq(_id_run_calibracion), 0));
 
+/* ========= Método 9 - Challenge ======================================= */
+%let run_challenge=%sysfunc(coalescec(%superq(_id_run_challenge), 0));
+
 %put NOTE: [select_modules] Módulos habilitados:;
 %put NOTE: 1.1 → universe=&run_universe.;
 %put NOTE: 4.2 → estabilidad=&run_estabilidad. fillrate=&run_fillrate.
@@ -52,3 +56,4 @@ Método 8: calibracion
 %put NOTE: 6.0 → precision=&run_precision.;
 %put NOTE: 7.0 → monotonicidad=&run_monotonicidad.;
 %put NOTE: 8.0 → calibracion=&run_calibracion.;
+%put NOTE: 9.0 → challenge=&run_challenge.;

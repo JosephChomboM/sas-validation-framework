@@ -1,6 +1,6 @@
 # Framework SAS Viya (CAS) para Validación y Controles Automáticos
 
-Este repositorio contiene un framework modular en **SAS Viya / CAS** para preparar data (train/oot), ejecutar controles de validación (por ejemplo **Universe, Gini, PSI, Correlación**) y generar artefactos (reportes, tablas, logs) de forma **estandarizada y automatizable**.
+Este repositorio contiene un framework modular en **SAS Viya / CAS** para preparar data (train/oot), ejecutar controles de validación (por ejemplo **Universe, Gini, PSI, Correlación**), y correr módulos de challenge como **METOD9 Challenge (Gradient Boosting)**, generando artefactos (reportes, tablas, logs y modelos) de forma **estandarizada y automatizable**.
 
 El diseño prioriza:
 - Convenciones determinísticas de rutas y nombres para facilitar loops y paralelización.
@@ -121,6 +121,8 @@ project_root/
         step_missings.sas            # missings (4.2, futuro)
         step_psi.sas                 # psi (4.2, futuro)
         step_bootstrap.sas           # bootstrap (4.3)
+      metod_9/
+        step_challenge.sas           # challenge GB (9.0)
 
   outputs/
     runs/
@@ -130,12 +132,17 @@ project_root/
           METOD1.1/          # universe reports
           METOD4.2/          # PSI reports
           METOD4.3/          # correlación, bootstrap reports
+          METOD9/            # challenge reports
         images/
           METOD1.1/          # universe charts (JPEG)
           METOD4.2/          # PSI charts (PNG)
+          METOD9/            # challenge charts (JPEG)
         tables/
           METOD4.2/          # PSI tables (.sas7bdat)
           METOD4.3/          # correlación tables (.sas7bdat)
+          METOD9/            # challenge tables (.sas7bdat)
+        models/
+          METOD9/            # ASTOREs campeones por run
         experiments/           # outputs de análisis exploratorio (modo CUSTOM)
 ```
 
@@ -143,9 +150,9 @@ Notas:
 - `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las tablas de configuración en `casuser`. Además, `casuser` se usa para tablas temporales/intermedias de módulos (reemplazando `work`). Step 02 promueve las tablas de config para compatibilidad con background submit.
 - `steps/*.sas` modelan el frontend del flujo: un step de contexto unificado (scope + troncal + split + segmento + módulos) seguido de ejecución de módulos.
 - Cada módulo tiene su propio step en `steps/methods/metod_N/` que lee `&ctx_scope` para saber si iterar segmentos o base.
-- Los módulos se agrupan en sub-métodos: Método 1.1 (universe), Método 4.2 (estabilidad, fillrate, missings, psi) y Método 4.3 (bivariado, correlacion, gini, bootstrap). Los reportes se organizan en subcarpetas `METOD1.1/`, `METOD4.2/`, `METOD4.3/`.
+- Los módulos se agrupan en sub-métodos: Método 1.1 (universe), Método 4.2 (estabilidad, fillrate, missings, psi), Método 4.3 (bivariado, correlacion, gini, bootstrap) y Método 9.0 (challenge). Los reportes se organizan en subcarpetas `METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`.
 - Todo dato operativo persistente (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`). Tablas temporales de módulos se crean en `casuser` y se eliminan al finalizar.
-- Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`) en cada corrida, independientemente de `data_prep_enabled`. Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) se crean dinámicamente.
+- Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments|models`) en cada corrida, independientemente de `data_prep_enabled`. Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`) se crean dinámicamente.
 - `logs/` es una salida operativa del framework: `steps/02_load_config.sas`, `steps/03_create_folders.sas`, `steps/04_import_raw_data.sas`, `steps/05_partition_data.sas` y cada `steps/methods/step_*.sas` redireccionan el log SAS a un archivo dedicado por step con `PROC PRINTTO`, y restauran el destino por defecto al finalizar.
 - En paralelo al `.log`, cada cierre de step registra una fila en la tabla de auditoría `auditoria_ejecuciones_v3` bajo `/bcp/bcp-exploratorio-adr-vime/transform_vi_monitoring/monitoring_workflow_scoring_vi`, con tiempos, usuario, contexto, `step_name`, `metod_name` y estado (`OK`, `SKIP`, `ERROR`).
 - Step 03 crea `data/raw/`, `data/processed/`, y subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal. Solo se ejecuta durante data prep.

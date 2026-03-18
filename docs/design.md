@@ -95,10 +95,14 @@ Reglas:
 - `outputs/runs/<run_id>/images/METOD3` - segmentación charts
 - `outputs/runs/<run_id>/images/METOD4.2` - PSI charts
 - `outputs/runs/<run_id>/images/METOD4.3` - correlacion, bootstrap charts
+- `outputs/runs/<run_id>/images/METOD9` - challenge charts
 - `outputs/runs/<run_id>/tables`
 - `outputs/runs/<run_id>/tables/METOD3` - segmentación tables
 - `outputs/runs/<run_id>/tables/METOD4.2` - PSI tables
 - `outputs/runs/<run_id>/tables/METOD4.3` - correlacion, bootstrap tables
+- `outputs/runs/<run_id>/tables/METOD9` - challenge tables
+- `outputs/runs/<run_id>/models`
+- `outputs/runs/<run_id>/models/METOD9` - ASTOREs campeones por run
 - `outputs/runs/<run_id>/experiments` - outputs de análisis exploratorio (modo CUSTOM de módulos)
 
 ---
@@ -179,8 +183,9 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | -    | `steps/methods/metod_4/step_similitud.sas`   | Config + ejecución similitud                                                | `&simil_mode`, `&simil_n_groups`                                                                                                                                                                                       |
 | -    | `steps/methods/metod_4/step_bootstrap.sas`   | Config + ejecución bootstrap                                               | `&boot_mode`, `&boot_nrounds`, `&boot_seed`, `&boot_samprate`, `&boot_ponderada`                                                                                                                                      |
 | -    | `steps/methods/metod_4/step_gini.sas`        | Config + ejecución gini                                                     | `&gini_mode`, `&gini_score_source`, `&gini_with_missing`                                                                                                                                                              |
+| -    | `steps/methods/metod_9/step_challenge.sas`   | Config + ejecución challenge                                                | `&chall_mode`, `&chall_score_source`, `&chall_top_k`, `&chall_top_models`                                                                                                                                         |
 
-**Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments`). Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`) dentro de `reports/`, `images/` y `tables/` se crean dinámicamente por cada módulo cuando genera archivos.
+**Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments|models`). Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`) dentro de `reports/`, `images/`, `tables/` y `models/` se crean dinámicamente por cada módulo cuando genera archivos.
 
 La carpeta `logs/` es operativa: `steps/02_load_config.sas`, `steps/03_create_folders.sas`, `steps/04_import_raw_data.sas`, `steps/05_partition_data.sas` y cada `steps/methods/step_*.sas` redireccionan el log SAS de sesión a un archivo dedicado del step con `PROC PRINTTO ... NEW`, y luego restauran el log por defecto al terminar.
 
@@ -220,6 +225,7 @@ Ejemplos:
 | Metodo 3 | -          | `steps/methods/metod_3/` | **segmentacion**                         |
 | Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi**, **similitud** |
 | Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlacion**, gini, **bootstrap**         |
+| Metodo 9 | 9.0        | `steps/methods/metod_9/` | **challenge**                                           |
 
 Los sub-métodos definen la agrupación lógica para la selección en el UI y la organización de carpetas de output (`reports/METOD1.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`). Los step files viven en la carpeta de su método correspondiente.
 

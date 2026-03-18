@@ -80,7 +80,7 @@ Backend del step:
 	libname _mkout2 clear;
 
 	%let _base=&fw_root./outputs/runs/&run_id.;
-	%let _dirs=logs reports images tables manifests experiments;
+	%let _dirs=logs reports images tables manifests experiments models;
 	%let _nd=%sysfunc(countw(&_dirs., %str( )));
 
 	libname _mkrun "&_base.";
