@@ -2,6 +2,17 @@
 challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
 ========================================================================= */
 
+%macro _chall_drop_cas_table(cas_sess_name=conn, caslib_name=casuser,
+    table_name=);
+    %if %length(%superq(table_name))=0 %then %return;
+
+    proc cas;
+        session &cas_sess_name.;
+        table.dropTable / caslib="&caslib_name."
+            name="&table_name." quiet=true;
+    quit;
+%mend _chall_drop_cas_table;
+
 %macro _chall_worker_refit(phase=TOPK, session_index=1, shard_table=,
     result_table=, monthly_table=, persist_champion=0);
 
@@ -175,11 +186,17 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
         %end;
     %end;
 
+    %_chall_drop_cas_table(cas_sess_name=&_worker_sess.,
+        caslib_name=casuser, table_name=&result_table.);
+
     data casuser.&result_table.(copies=0 promote=yes);
         set work._chall_worker_results;
     run;
 
     %if &_phase_uc.=TOPN %then %do;
+        %_chall_drop_cas_table(cas_sess_name=&_worker_sess.,
+            caslib_name=casuser, table_name=&monthly_table.);
+
         data casuser.&monthly_table.(copies=0 promote=yes);
             set work._chall_worker_monthly;
         run;
@@ -234,6 +251,9 @@ challenge_parallel.sas - Paralelizacion y refit para METOD9 Challenge
     run;
 
     %do _w=1 %to &_active_workers.;
+        %_chall_drop_cas_table(cas_sess_name=conn, caslib_name=casuser,
+            table_name=_chall_cfg_&_phase_lc._w&_w.);
+
         data casuser._chall_cfg_&_phase_lc._w&_w.(copies=0 promote=yes);
             set work._chall_cfg_tagged(where=(worker_id=&_w.));
             drop worker_id;
