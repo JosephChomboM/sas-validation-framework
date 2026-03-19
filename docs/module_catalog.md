@@ -956,6 +956,10 @@ Parametros adicionales del step:
 - Los modulos de algoritmo actuales son `gradient_boosting` y
   `random_forest`.
 - `step_challenge.sas` debe ejecutarse despues de los steps de algoritmo.
+- Si al menos uno de los algoritmos soportados esta seleccionado,
+  `run_challenge` se activa automaticamente.
+- Si solo corre un algoritmo, el champion final coincide con el champion local
+  de ese algoritmo para el `scope` correspondiente.
 
 **Inputs tipicos**
 - Registries locales por algoritmo:

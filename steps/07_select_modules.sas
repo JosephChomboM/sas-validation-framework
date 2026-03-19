@@ -44,9 +44,11 @@ Método 9: challenge
 %let run_calibracion=%sysfunc(coalescec(%superq(_id_run_calibracion), 0));
 
 /* ========= Método 9 - Challenge ======================================= */
-%let run_challenge=%sysfunc(coalescec(%superq(_id_run_challenge), 0));
+%let _run_challenge_ui=%sysfunc(coalescec(%superq(_id_run_challenge), 0));
 %let run_gradient_boosting=%sysfunc(coalescec(%superq(_id_run_gradient_boosting), 0));
 %let run_random_forest=%sysfunc(coalescec(%superq(_id_run_random_forest), 0));
+%let run_challenge=%sysfunc(max(&_run_challenge_ui., &run_gradient_boosting.,
+    &run_random_forest.));
 
 %put NOTE: [select_modules] Módulos habilitados:;
 %put NOTE: 1.1 → universe=&run_universe.;
@@ -58,6 +60,6 @@ Método 9: challenge
 %put NOTE: 6.0 → precision=&run_precision.;
 %put NOTE: 7.0 → monotonicidad=&run_monotonicidad.;
 %put NOTE: 8.0 → calibracion=&run_calibracion.;
-%put NOTE: 9.0 → challenge=&run_challenge.
+%put NOTE: 9.0 → challenge=&run_challenge. (ui=&_run_challenge_ui.)
     gradient_boosting=&run_gradient_boosting.
     random_forest=&run_random_forest.;

@@ -12,19 +12,30 @@ challenge_report.sas - Reporte consolidado multi-algoritmo para METOD9
 %mend _chall_report_style;
 
 %macro _challenge_report(registry_data=work._chall_registry,
-    champion_data=work._chall_champion_summary,
+    champion_data=work._chall_selected_models,
+    global_data=work._chall_champion_summary,
     monthly_data=work._chall_monthly_compare, report_path=, images_path=,
     file_prefix=, model_low=0.4, model_high=0.5);
 
-    %local _monthly_exists _monthly_n;
+    %local _monthly_exists _monthly_n _global_exists _global_n;
     %let _monthly_exists=0;
     %let _monthly_n=0;
+    %let _global_exists=0;
+    %let _global_n=0;
 
     %if %sysfunc(exist(&monthly_data.)) %then %do;
         %let _monthly_exists=1;
         proc sql noprint;
             select count(*) into :_monthly_n trimmed
             from &monthly_data.;
+        quit;
+    %end;
+
+    %if %sysfunc(exist(&global_data.)) %then %do;
+        %let _global_exists=1;
+        proc sql noprint;
+            select count(*) into :_global_n trimmed
+            from &global_data.;
         quit;
     %end;
 
@@ -67,33 +78,51 @@ challenge_report.sas - Reporte consolidado multi-algoritmo para METOD9
     run;
     title;
 
-    ods excel options(sheet_name="CHAMPION" sheet_interval="now");
-    title "Challenge - Champion Final";
+    ods excel options(sheet_name="SELECTED_MODELS" sheet_interval="now");
+    title "Challenge - Modelos Seleccionados";
     proc report data=&champion_data. nowd missing;
-        columns Algo_Name Scope Segment_Label Model_Rank Gini_Train Gini_OOT
-            Gini_Penalizado Benchmark_Gini_Train Benchmark_Gini_OOT
-            Benchmark_Gini_Penalizado Improvement_Train Improvement_OOT
-            Improvement_Penalizado Astore_Name Models_Path;
+        columns Algo_Name Scope Seg_ID Segment_Label Var_Seg Model_Rank
+            Gini_Train Gini_OOT Gini_Penalizado Astore_Name Models_Path;
         define Algo_Name / display "Algoritmo";
         define Scope / display "Scope";
+        define Seg_ID / display "Seg ID";
         define Segment_Label / display "Segment";
+        define Var_Seg / display "Var Seg";
         define Model_Rank / display "Rank";
         define Gini_Train / display "GINI Train" format=8.4;
         define Gini_OOT / display "GINI OOT" format=8.4;
         define Gini_Penalizado / display "GINI Penalizado" format=8.4;
-        define Benchmark_Gini_Train / display "Benchmark Train" format=8.4;
-        define Benchmark_Gini_OOT / display "Benchmark OOT" format=8.4;
-        define Benchmark_Gini_Penalizado / display "Benchmark Penal." format=8.4;
-        define Improvement_Train / display "Mejora Train" format=8.4;
-        define Improvement_OOT / display "Mejora OOT" format=8.4;
-        define Improvement_Penalizado / display "Mejora Penal." format=8.4;
         define Astore_Name / display "ASTORE";
-        define Models_Path / display "Ruta Modelo";
-        %_chall_report_style(col=Improvement_Train, fmt=GainFmt)
-        %_chall_report_style(col=Improvement_OOT, fmt=GainFmt)
-        %_chall_report_style(col=Improvement_Penalizado, fmt=GainFmt)
+        define Models_Path / display "Ruta Modelo" width=80 flow;
     run;
     title;
+
+    %if &_global_exists.=1 and &_global_n. > 0 %then %do;
+        ods excel options(sheet_name="GLOBAL" sheet_interval="now");
+        title "Challenge - Resumen Global";
+        proc report data=&global_data. nowd missing;
+            columns Scope Champion_Mode N_Selected_Models Gini_Train Gini_OOT
+                Gini_Penalizado Benchmark_Gini_Train Benchmark_Gini_OOT
+                Benchmark_Gini_Penalizado Improvement_Train Improvement_OOT
+                Improvement_Penalizado;
+            define Scope / display "Scope";
+            define Champion_Mode / display "Champion Mode";
+            define N_Selected_Models / display "N Modelos";
+            define Gini_Train / display "GINI Train" format=8.4;
+            define Gini_OOT / display "GINI OOT" format=8.4;
+            define Gini_Penalizado / display "GINI Penalizado" format=8.4;
+            define Benchmark_Gini_Train / display "Benchmark Train" format=8.4;
+            define Benchmark_Gini_OOT / display "Benchmark OOT" format=8.4;
+            define Benchmark_Gini_Penalizado / display "Benchmark Penal." format=8.4;
+            define Improvement_Train / display "Mejora Train" format=8.4;
+            define Improvement_OOT / display "Mejora OOT" format=8.4;
+            define Improvement_Penalizado / display "Mejora Penal." format=8.4;
+            %_chall_report_style(col=Improvement_Train, fmt=GainFmt)
+            %_chall_report_style(col=Improvement_OOT, fmt=GainFmt)
+            %_chall_report_style(col=Improvement_Penalizado, fmt=GainFmt)
+        run;
+        title;
+    %end;
 
     %if &_monthly_exists.=1 and &_monthly_n. > 0 %then %do;
         ods excel options(sheet_name="MONTHLY" sheet_interval="now");

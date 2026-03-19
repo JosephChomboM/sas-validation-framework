@@ -10,14 +10,30 @@ Step de modulo: Challenge Champion Selector (METOD9)
 
 %macro _step_challenge;
 
-    %local _run_challenge _step_rc _step_status;
+    %local _run_challenge _run_gradient_boosting _run_random_forest
+        _step_rc _step_status;
     %let _step_rc=0;
     %let _step_status=OK;
     %if %symexist(run_challenge)=1 %then %let _run_challenge=&run_challenge.;
     %else %let _run_challenge=0;
+    %if %symexist(run_gradient_boosting)=1 %then
+        %let _run_gradient_boosting=&run_gradient_boosting.;
+    %else %let _run_gradient_boosting=0;
+    %if %symexist(run_random_forest)=1 %then
+        %let _run_random_forest=&run_random_forest.;
+    %else %let _run_random_forest=0;
 
     %fw_log_start(step_name=step_challenge, run_id=&run_id.,
         fw_root=&fw_root., log_stem=metod_9_step_challenge);
+
+    %if &_run_challenge. ne 1 and
+        (%eval(&_run_gradient_boosting.=1) or %eval(&_run_random_forest.=1))
+    %then %do;
+        %let _run_challenge=1;
+        %put NOTE: [step_challenge] Activado automaticamente porque hay
+            algoritmos ML seleccionados
+            (gb=&_run_gradient_boosting. rf=&_run_random_forest.).;
+    %end;
 
     %if &_run_challenge. ne 1 %then %do;
         %put NOTE: [step_challenge] Modulo deshabilitado
@@ -25,6 +41,13 @@ Step de modulo: Challenge Champion Selector (METOD9)
         %let _step_status=SKIP;
         %goto _step_challenge_end;
     %end;
+
+    %_create_caslib(cas_path=&fw_root./data/processed, caslib_name=PROC,
+        lib_caslib=PROC, global=Y, cas_sess_name=conn, term_global_sess=0,
+        subdirs_flg=1);
+    %_create_caslib(cas_path=&fw_root./outputs/runs/&run_id., caslib_name=OUT,
+        lib_caslib=OUT, global=Y, cas_sess_name=conn, term_global_sess=0,
+        subdirs_flg=1);
 
     %put NOTE: [step_challenge] Iniciando - scope=&ctx_scope.
         mode=&challenge_mode.;
@@ -57,6 +80,9 @@ Step de modulo: Challenge Champion Selector (METOD9)
     %put NOTE: [step_challenge] Completado (scope=&ctx_scope.
         mode=&challenge_mode.);
     %put NOTE:======================================================;
+
+    %_drop_caslib(caslib_name=OUT, cas_sess_name=conn, del_prom_tables=1);
+    %_drop_caslib(caslib_name=PROC, cas_sess_name=conn, del_prom_tables=1);
 
 %_step_challenge_end:
     %fw_log_stop(step_name=step_challenge, step_rc=&_step_rc.,

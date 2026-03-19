@@ -74,8 +74,21 @@ Step de modulo: Gradient Boosting Challenge (METOD9)
         %end;
     %end;
     %else %if %upcase(&ctx_scope.)=UNIVERSO %then %do;
-        %run_module(module=gradient_boosting, troncal_id=&ctx_troncal_id.,
-            split=, seg_id=, run_id=&run_id., dual_input=1);
+        %if &ctx_n_segments. > 0 %then %do;
+            %put NOTE: [step_gradient_boosting] UNIVERSO con segmentacion.
+                Se entrenaran challengers por segmento para el champion
+                global.;
+            %do _sg=1 %to &ctx_n_segments.;
+                %run_module(module=gradient_boosting,
+                    troncal_id=&ctx_troncal_id., split=, seg_id=&_sg.,
+                    run_id=&run_id., dual_input=1);
+            %end;
+        %end;
+        %else %do;
+            %run_module(module=gradient_boosting,
+                troncal_id=&ctx_troncal_id., split=, seg_id=,
+                run_id=&run_id., dual_input=1);
+        %end;
     %end;
     %else %do;
         %put ERROR: [step_gradient_boosting] ctx_scope=&ctx_scope.
