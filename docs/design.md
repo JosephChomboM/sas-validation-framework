@@ -183,7 +183,9 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | -    | `steps/methods/metod_4/step_similitud.sas`   | Config + ejecución similitud                                                | `&simil_mode`, `&simil_n_groups`                                                                                                                                                                                       |
 | -    | `steps/methods/metod_4/step_bootstrap.sas`   | Config + ejecución bootstrap                                               | `&boot_mode`, `&boot_nrounds`, `&boot_seed`, `&boot_samprate`, `&boot_ponderada`                                                                                                                                      |
 | -    | `steps/methods/metod_4/step_gini.sas`        | Config + ejecución gini                                                     | `&gini_mode`, `&gini_score_source`, `&gini_with_missing`                                                                                                                                                              |
-| -    | `steps/methods/metod_9/step_challenge.sas`   | Config + ejecución challenge                                                | `&chall_mode`, `&chall_score_source`, `&chall_top_k`, `&chall_top_models`                                                                                                                                         |
+| -    | `steps/methods/metod_9/step_gradient_boosting.sas` | Config + ejecución challenge Gradient Boosting                          | `&gb_mode`, `&gb_score_source`, `&gb_top_k`, `&gb_top_models`, `&gb_penalty_lambda`                                                                                                                               |
+| -    | `steps/methods/metod_9/step_random_forest.sas`     | Config + ejecución challenge Random Forest                              | `&rf_mode`, `&rf_score_source`, `&rf_top_k`, `&rf_top_models`, `&rf_penalty_lambda`                                                                                                                               |
+| -    | `steps/methods/metod_9/step_challenge.sas`         | Consolidación de registries + champion final multi-algoritmo           | `&challenge_mode`                                                                                                                                                                                                  |
 
 **Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments|models`). Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`) dentro de `reports/`, `images/`, `tables/` y `models/` se crean dinámicamente por cada módulo cuando genera archivos.
 
@@ -225,7 +227,7 @@ Ejemplos:
 | Metodo 3 | -          | `steps/methods/metod_3/` | **segmentacion**                         |
 | Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi**, **similitud** |
 | Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlacion**, gini, **bootstrap**         |
-| Metodo 9 | 9.0        | `steps/methods/metod_9/` | **challenge**                                           |
+| Metodo 9 | 9.0        | `steps/methods/metod_9/` | **gradient_boosting**, **random_forest**, **challenge** |
 
 Los sub-métodos definen la agrupación lógica para la selección en el UI y la organización de carpetas de output (`reports/METOD1.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`). Los step files viven en la carpeta de su método correspondiente.
 

@@ -20,8 +20,13 @@ challenge_champion.sas - Resumen de champion para METOD9
         where upcase(Dataset)='OOT';
     quit;
 
+    proc sort data=&registry.(where=(Is_Champion=1))
+        out=work._chall_champion_best;
+        by descending Gini_Penalizado descending Gini_OOT descending Gini_Train;
+    run;
+
     data &out.;
-        set &registry.(where=(Is_Champion=1));
+        set work._chall_champion_best(obs=1);
         Benchmark_Gini_Train=&_bmk_train.;
         Benchmark_Gini_OOT=&_bmk_oot.;
         Benchmark_Gini_Penalizado=&_bmk_penal.;
@@ -30,4 +35,8 @@ challenge_champion.sas - Resumen de champion para METOD9
         Improvement_Penalizado=Gini_Penalizado - Benchmark_Gini_Penalizado;
         format Benchmark_: Improvement_: 8.4;
     run;
+
+    proc datasets library=work nolist nowarn;
+        delete _chall_champion_best;
+    quit;
 %mend _chall_build_champion_summary;

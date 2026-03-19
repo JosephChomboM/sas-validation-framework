@@ -1,6 +1,6 @@
 # Framework SAS Viya (CAS) para Validación y Controles Automáticos
 
-Este repositorio contiene un framework modular en **SAS Viya / CAS** para preparar data (train/oot), ejecutar controles de validación (por ejemplo **Universe, Gini, PSI, Correlación**), y correr módulos de challenge como **METOD9 Challenge (Gradient Boosting)**, generando artefactos (reportes, tablas, logs y modelos) de forma **estandarizada y automatizable**.
+Este repositorio contiene un framework modular en **SAS Viya / CAS** para preparar data (train/oot), ejecutar controles de validación (por ejemplo **Universe, Gini, PSI, Correlación**), y correr módulos de challenge como **METOD9 Challenge** con algoritmos como **Gradient Boosting** y **Random Forest**, generando artefactos (reportes, tablas, logs y modelos) de forma **estandarizada y automatizable**.
 
 El diseño prioriza:
 - Convenciones determinísticas de rutas y nombres para facilitar loops y paralelización.
@@ -122,7 +122,9 @@ project_root/
         step_psi.sas                 # psi (4.2, futuro)
         step_bootstrap.sas           # bootstrap (4.3)
       metod_9/
-        step_challenge.sas           # challenge GB (9.0)
+        step_gradient_boosting.sas   # challenge por hiperparámetros GB
+        step_random_forest.sas       # challenge por hiperparámetros RF
+        step_challenge.sas           # champion final multi-algoritmo
 
   outputs/
     runs/
@@ -150,7 +152,7 @@ Notas:
 - `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las tablas de configuración en `casuser`. Además, `casuser` se usa para tablas temporales/intermedias de módulos (reemplazando `work`). Step 02 promueve las tablas de config para compatibilidad con background submit.
 - `steps/*.sas` modelan el frontend del flujo: un step de contexto unificado (scope + troncal + split + segmento + módulos) seguido de ejecución de módulos.
 - Cada módulo tiene su propio step en `steps/methods/metod_N/` que lee `&ctx_scope` para saber si iterar segmentos o base.
-- Los módulos se agrupan en sub-métodos: Método 1.1 (universe), Método 4.2 (estabilidad, fillrate, missings, psi), Método 4.3 (bivariado, correlacion, gini, bootstrap) y Método 9.0 (challenge). Los reportes se organizan en subcarpetas `METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`.
+- Los módulos se agrupan en sub-métodos: Método 1.1 (universe), Método 4.2 (estabilidad, fillrate, missings, psi), Método 4.3 (bivariado, correlacion, gini, bootstrap) y Método 9.0 (challenge multi-algoritmo). Los reportes se organizan en subcarpetas `METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`.
 - Todo dato operativo persistente (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`). Tablas temporales de módulos se crean en `casuser` y se eliminan al finalizar.
 - Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments|models`) en cada corrida, independientemente de `data_prep_enabled`. Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`) se crean dinámicamente.
 - `logs/` es una salida operativa del framework: `steps/02_load_config.sas`, `steps/03_create_folders.sas`, `steps/04_import_raw_data.sas`, `steps/05_partition_data.sas` y cada `steps/methods/step_*.sas` redireccionan el log SAS a un archivo dedicado por step con `PROC PRINTTO`, y restauran el destino por defecto al finalizar.
