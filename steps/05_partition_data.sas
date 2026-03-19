@@ -18,6 +18,10 @@
    %let _step_rc=0;
    %let _step_status=OK;
 
+   cas conn;
+   libname casuser cas caslib=casuser;
+   options casdatalimit=ALL;
+
    %fw_log_start(step_name=step-05_partition_data, run_id=&run_id.,
       fw_root=&fw_root., log_stem=05_partition_data);
 

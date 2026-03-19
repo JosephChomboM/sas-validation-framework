@@ -51,9 +51,27 @@ design.md §7.3 - Preparación idempotente:
 	/* -----------------------------------------------------------------
 	1) Leer cfg_troncales para iterar (config vive en casuser)
 	----------------------------------------------------------------- */
+    %let _n_troncales=0;
+    %if %sysfunc(exist(casuser.cfg_troncales)) = 0 %then %do;
+        %put ERROR: [fw_prepare_processed] No existe casuser.cfg_troncales. Ejecute Step 02 y verifique que casuser esté asignado en este step.;
+        %let fw_prepare_processed_rc=1;
+        %goto _fw_prepare_processed_cleanup;
+    %end;
+
 	proc sql noprint;
 		select count(*) into :_n_troncales trimmed from casuser.cfg_troncales;
 	quit;
+
+    %if %superq(_n_troncales) = %then %do;
+        %put ERROR: [fw_prepare_processed] No se pudo resolver el número de troncales desde casuser.cfg_troncales.;
+        %let fw_prepare_processed_rc=1;
+        %goto _fw_prepare_processed_cleanup;
+    %end;
+    %if &_n_troncales. = 0 %then %do;
+        %put ERROR: [fw_prepare_processed] casuser.cfg_troncales no contiene filas.;
+        %let fw_prepare_processed_rc=1;
+        %goto _fw_prepare_processed_cleanup;
+    %end;
 
     %let _cfg_has_flag_col=%_fw_ds_hasvar(data=casuser.cfg_troncales, var=flag_tcl);
     %if &_cfg_has_flag_col. = 0 %then %do;
