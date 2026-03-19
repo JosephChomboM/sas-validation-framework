@@ -126,7 +126,7 @@ challenge_report.sas - Reporte consolidado multi-algoritmo para METOD9
 
     %if &_monthly_exists.=1 and &_monthly_n. > 0 %then %do;
         ods excel options(sheet_name="MONTHLY" sheet_interval="now");
-        title "Challenge - Benchmark vs Top Models";
+        title "Challenge - Benchmark vs Champion";
         proc report data=&monthly_data. nowd missing;
             columns Periodo Model_Label Source N_Total N_Default Gini;
             define Periodo / display "Periodo";
@@ -150,7 +150,7 @@ challenge_report.sas - Reporte consolidado multi-algoritmo para METOD9
 
         ods graphics / imagename="&file_prefix._monthly" imagefmt=jpeg;
         proc sgplot data=work._chall_plot_monthly subpixel;
-            title "Challenge - Benchmark vs Top Models";
+            title "Challenge - Benchmark vs Champion";
             band x=Periodo lower=Band_Low upper=Band_Acep /
                 fillattrs=(color=cxF4CCCC) transparency=0.35;
             band x=Periodo lower=Band_Acep upper=Band_Sat /
