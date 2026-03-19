@@ -15,13 +15,21 @@ challenge_report.sas - Reporte consolidado multi-algoritmo para METOD9
     champion_data=work._chall_selected_models,
     global_data=work._chall_champion_summary,
     monthly_data=work._chall_monthly_compare, report_path=, images_path=,
-    file_prefix=, model_low=0.4, model_high=0.5);
+    file_prefix=, model_low=0.4, model_high=0.5, troncal_id=,
+    data_type=);
 
-    %local _monthly_exists _monthly_n _global_exists _global_n;
+    %local _monthly_exists _monthly_n _global_exists _global_n _plot_n
+        _plot_title;
     %let _monthly_exists=0;
     %let _monthly_n=0;
     %let _global_exists=0;
     %let _global_n=0;
+    %let _plot_n=0;
+    %let _plot_title=Gini Global Challenge;
+    %if %length(%superq(troncal_id)) > 0 %then
+        %let _plot_title=&_plot_title. - Troncal &troncal_id.;
+    %if %length(%superq(data_type)) > 0 %then
+        %let _plot_title=&_plot_title. - &data_type.;
 
     %if %sysfunc(exist(&monthly_data.)) %then %do;
         %let _monthly_exists=1;
@@ -142,25 +150,46 @@ challenge_report.sas - Reporte consolidado multi-algoritmo para METOD9
 
         data work._chall_plot_monthly;
             set &monthly_data.;
-            Band_Low=0;
-            Band_Acep=&model_low.;
-            Band_Sat=&model_high.;
-            Band_Top=1;
+            where upcase(Source)='CHAMPION';
+        run;
+
+        proc sql noprint;
+            select count(*) into :_plot_n trimmed
+            from work._chall_plot_monthly;
+        quit;
+
+        %if &_plot_n. = 0 %then %do;
+            data work._chall_plot_monthly;
+                set &monthly_data.;
+            run;
+        %end;
+
+        proc sort data=work._chall_plot_monthly;
+            by Periodo;
         run;
 
         ods graphics / imagename="&file_prefix._monthly" imagefmt=jpeg;
-        proc sgplot data=work._chall_plot_monthly subpixel;
-            title "Challenge - Benchmark vs Champion";
-            band x=Periodo lower=Band_Low upper=Band_Acep /
-                fillattrs=(color=cxF4CCCC) transparency=0.35;
-            band x=Periodo lower=Band_Acep upper=Band_Sat /
-                fillattrs=(color=cxFFF2CC) transparency=0.35;
-            band x=Periodo lower=Band_Sat upper=Band_Top /
-                fillattrs=(color=cxD9EAD3) transparency=0.35;
-            series x=Periodo y=Gini / group=Model_Label markers;
-            yaxis label="GINI" min=0 max=1 valuesformat=percent8.;
-            xaxis label="Periodo" type=discrete;
-            keylegend / position=bottom;
+        proc sgplot data=work._chall_plot_monthly;
+            title "&_plot_title.";
+            vbar Periodo / response=N_Total transparency=0.7 barwidth=0.5
+                name='bar' fillattrs=(color=gray)
+                legendlabel='Cuentas' datalabelfitpolicy=rotate;
+            vline Periodo / response=Gini markers
+                markerattrs=(symbol=circlefilled color=black size=10px)
+                lineattrs=(thickness=0 color=black)
+                name='line' legendlabel='Gini' y2axis;
+            refline &model_low. / axis=y2
+                lineattrs=(color=orange pattern=2 thickness=2)
+                labelloc=inside labelattrs=(color=orange)
+                name='acep' legendlabel='Aceptable';
+            refline &model_high. / axis=y2
+                lineattrs=(color=limegreen pattern=2 thickness=2)
+                labelloc=inside labelattrs=(color=limegreen)
+                name='sat' legendlabel='Satisfactorio';
+            yaxis grid label="Cuentas" min=0 offsetmin=0;
+            y2axis grid label="Gini" min=0 max=1;
+            xaxis display=all label="Periodo";
+            keylegend 'bar' 'line' 'acep' 'sat' / position=bottom noborder;
         run;
         title;
         ods graphics / reset=all;

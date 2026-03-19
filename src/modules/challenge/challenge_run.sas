@@ -25,8 +25,6 @@ Consolida resultados por algoritmo y selecciona el champion final.
 %macro _chall_final_load_inputs(troncal_id=, seg_id=,
     out_train=_chall_final_train, out_oot=_chall_final_oot);
 
-    %local _train_path _oot_path;
-
     %fw_path_processed(outvar=_train_path, troncal_id=&troncal_id.,
         split=train, seg_id=&seg_id.);
     %fw_path_processed(outvar=_oot_path, troncal_id=&troncal_id.,
@@ -58,7 +56,7 @@ Consolida resultados por algoritmo y selecciona el champion final.
         _segmented_universe _registry_appended _selected_appended
         _selected_n _scope_seg_id _champ_mode _copyvars _bmk_score_var
         _chall_seg_num _rows_train_base _rows_train_scored _rows_oot_base
-        _rows_oot_scored _sel_astore _sel_algo;
+        _rows_oot_scored _sel_astore _sel_algo _chall_plot_scope;
 
     %put NOTE:======================================================;
     %put NOTE: [challenge_run] INICIO - troncal=&troncal_id. scope=&scope.;
@@ -91,10 +89,12 @@ Consolida resultados por algoritmo y selecciona el champion final.
     %if %substr(&scope., 1, 3)=seg %then %do;
         %let _chall_seg_num=%sysfunc(inputn(%substr(&scope., 4), best.));
         %let _chall_scope_abbr=&scope.;
+        %let _chall_plot_scope=&scope.;
     %end;
     %else %do;
         %let _chall_seg_num=.;
         %let _chall_scope_abbr=base;
+        %let _chall_plot_scope=UNIVERSO;
     %end;
 
     %if %upcase(&_chall_model_type.)=BHV %then %do;
@@ -130,7 +130,7 @@ Consolida resultados por algoritmo y selecciona el champion final.
     %end;
 
     libname _challin "&_chall_tables_path.";
-    %let _algo_codes=gb dt rf;
+    %let _algo_codes=gb dt rf svm nn;
     %let _segmented_universe=0;
     %let _registry_appended=0;
     %let _selected_appended=0;
@@ -502,7 +502,8 @@ Consolida resultados por algoritmo y selecciona el champion final.
         monthly_data=work._chall_monthly_compare,
         report_path=&_chall_report_path., images_path=&_chall_images_path.,
         file_prefix=&_chall_report_prefix., model_low=&_model_low.,
-        model_high=&_model_high.);
+        model_high=&_model_high., troncal_id=&troncal_id.,
+        data_type=&_chall_plot_scope.);
 
     %_chall_final_drop_table(caslib=PROC, table=_chall_final_train);
     %_chall_final_drop_table(caslib=PROC, table=_chall_final_oot);

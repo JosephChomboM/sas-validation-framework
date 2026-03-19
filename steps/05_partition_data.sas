@@ -22,7 +22,13 @@
       fw_root=&fw_root., log_stem=05_partition_data);
 
    %if &partition_enabled. = 1 %then %do;
+      %let fw_prepare_processed_rc=0;
       %fw_prepare_processed(raw_table=&raw_table.);
+      %if %symexist(fw_prepare_processed_rc) and &fw_prepare_processed_rc. ne 0 %then %do;
+         %let _step_rc=&fw_prepare_processed_rc.;
+         %let _step_status=ERROR;
+         %goto _step05_exit;
+      %end;
    %end;
    %else %do;
       %let _step_status=SKIP;

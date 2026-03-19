@@ -25,6 +25,9 @@ design.md §7.3 - Preparación idempotente:
 - No deja tablas operativas en casuser.
 ========================================================================= */
 %macro fw_prepare_processed(raw_table=mydataset);
+    %global fw_prepare_processed_rc;
+    %local _cfg_has_flag_col _raw_has_flag;
+    %let fw_prepare_processed_rc=0;
 
 	%put NOTE:======================================================;
 	%put NOTE: [fw_prepare_processed] INICIO - raw_table=&raw_table.;
@@ -52,6 +55,13 @@ design.md §7.3 - Preparación idempotente:
 		select count(*) into :_n_troncales trimmed from casuser.cfg_troncales;
 	quit;
 
+    %let _cfg_has_flag_col=%_fw_ds_hasvar(data=casuser.cfg_troncales, var=flag_tcl);
+    %if &_cfg_has_flag_col. = 0 %then %do;
+        %put ERROR: [fw_prepare_processed] cfg_troncales debe incluir la columna flag_tcl. Deje el valor vacío si una troncal no requiere filtro por flag.;
+        %let fw_prepare_processed_rc=1;
+        %goto _fw_prepare_processed_cleanup;
+    %end;
+
 	%put NOTE: [fw_prepare_processed] Troncales a procesar: &_n_troncales.;
 
 	data _null_;
@@ -62,8 +72,9 @@ design.md §7.3 - Preparación idempotente:
 		call symputx(cats("_tr_tmax_", _n_), train_max_mes);
 		call symputx(cats("_tr_omin_", _n_), oot_min_mes);
 		call symputx(cats("_tr_omax_", _n_), oot_max_mes);
-		call symputx(cats("_tr_vseg_", _n_), strip(var_seg));
-		call symputx(cats("_tr_nseg_", _n_), n_segments);
+        call symputx(cats("_tr_vseg_", _n_), strip(var_seg));
+        call symputx(cats("_tr_nseg_", _n_), n_segments);
+        call symputx(cats("_tr_flag_", _n_), strip(flag_tcl));
 	run;
 
 	/* -----------------------------------------------------------------
@@ -79,10 +90,30 @@ design.md §7.3 - Preparación idempotente:
 		%let _omax=&&_tr_omax_&_t.;
 		%let _vseg=&&_tr_vseg_&_t.;
 		%let _nseg=&&_tr_nseg_&_t.;
+        %let _flag_tcl=&&_tr_flag_&_t.;
 
 		%put NOTE: -----------------------------------------------------;
 		%put NOTE: [fw_prepare_processed] Troncal &_tid. (byvar=&_byvar.);
 		%put NOTE: -----------------------------------------------------;
+
+        %if %superq(_flag_tcl) ne %then %do;
+            proc sql noprint;
+                select count(*) into :_raw_has_flag trimmed
+                from dictionary.columns
+                where upcase(libname) = 'RAW'
+                  and upcase(memname) = upcase("&raw_table.")
+                  and upcase(name) = upcase("&_flag_tcl.");
+            quit;
+            %if &_raw_has_flag. = 0 %then %do;
+                %put ERROR: [fw_prepare_processed] Troncal &_tid. usa flag_tcl=&_flag_tcl., pero la columna no existe en RAW.&raw_table..;
+                %let fw_prepare_processed_rc=1;
+                %goto _fw_prepare_processed_cleanup;
+            %end;
+            %put NOTE: [fw_prepare_processed] Troncal &_tid. filtrada por &_flag_tcl.=1.;
+        %end;
+        %else %do;
+            %put NOTE: [fw_prepare_processed] Troncal &_tid. sin flag_tcl. Se usa solo filtro por ventana temporal.;
+        %end;
 
 		/* ---- 2a) Crear base train y oot -------------------------------- */
 		%do _s=1 %to 2;
@@ -103,8 +134,16 @@ design.md §7.3 - Preparación idempotente:
 
 			/* Crear tabla CAS filtrada (temporal en CASLIB RAW) */
 			data RAW._tmp_base;
-				set RAW.&raw_table.(where=(&_byvar. >= &_mmin. and &_byvar. <=
-					&_mmax.));
+				set RAW.&raw_table.
+                    (
+                        where=(
+                            &_byvar. >= &_mmin.
+                            and &_byvar. <= &_mmax.
+                            %if %superq(_flag_tcl) ne %then %do;
+                                and &_flag_tcl. = 1
+                            %end;
+                        )
+                    );
 			run;
 
 			/* Contar obs para log */
@@ -166,17 +205,24 @@ design.md §7.3 - Preparación idempotente:
 	3) Cleanup: tablas temporales en CAS + CASLIBs + macrovariables.
 	Los .sashdat persisten en disco; solo liberamos memoria CAS.
 	----------------------------------------------------------------- */
+%_fw_prepare_processed_cleanup:
 	%_drop_caslib(caslib_name=RAW, cas_sess_name=conn, del_prom_tables=1);
 	%_drop_caslib(caslib_name=PROC, cas_sess_name=conn, del_prom_tables=1);
 
 	%do _t=1 %to &_n_troncales.;
 		%symdel _tr_id_&_t. _tr_byvar_&_t. _tr_tmin_&_t. _tr_tmax_&_t.
-			_tr_omin_&_t. _tr_omax_&_t. _tr_vseg_&_t. _tr_nseg_&_t. / nowarn;
+			_tr_omin_&_t. _tr_omax_&_t. _tr_vseg_&_t. _tr_nseg_&_t.
+            _tr_flag_&_t. / nowarn;
 	%end;
-	%symdel _n_troncales / nowarn;
+	%symdel _n_troncales _cfg_has_flag_col _raw_has_flag / nowarn;
 
 	%put NOTE:======================================================;
+    %if &fw_prepare_processed_rc. = 0 %then %do;
 	%put NOTE: [fw_prepare_processed] FIN;
+    %end;
+    %else %do;
+	%put ERROR: [fw_prepare_processed] FIN con errores.;
+    %end;
 	%put NOTE:======================================================;
 
 %mend fw_prepare_processed;

@@ -11,7 +11,7 @@ Step de modulo: Challenge Champion Selector (METOD9)
 %macro _step_challenge;
 
     %local _run_challenge _run_gradient_boosting _run_random_forest
-        _step_rc _step_status;
+        _run_decision_tree _step_rc _step_status;
     %let _step_rc=0;
     %let _step_status=OK;
     %if %symexist(run_challenge)=1 %then %let _run_challenge=&run_challenge.;
@@ -22,17 +22,22 @@ Step de modulo: Challenge Champion Selector (METOD9)
     %if %symexist(run_random_forest)=1 %then
         %let _run_random_forest=&run_random_forest.;
     %else %let _run_random_forest=0;
+    %if %symexist(run_decision_tree)=1 %then
+        %let _run_decision_tree=&run_decision_tree.;
+    %else %let _run_decision_tree=0;
 
     %fw_log_start(step_name=step_challenge, run_id=&run_id.,
         fw_root=&fw_root., log_stem=metod_9_step_challenge);
 
     %if &_run_challenge. ne 1 and
-        (%eval(&_run_gradient_boosting.=1) or %eval(&_run_random_forest.=1))
+        (%eval(&_run_gradient_boosting.=1) or %eval(&_run_random_forest.=1)
+        or %eval(&_run_decision_tree.=1))
     %then %do;
         %let _run_challenge=1;
         %put NOTE: [step_challenge] Activado automaticamente porque hay
             algoritmos ML seleccionados
-            (gb=&_run_gradient_boosting. rf=&_run_random_forest.).;
+            (gb=&_run_gradient_boosting. rf=&_run_random_forest.
+            dt=&_run_decision_tree.).;
     %end;
 
     %if &_run_challenge. ne 1 %then %do;

@@ -96,7 +96,7 @@ Cada Método agrupa módulos lógicamente. Los steps de módulos están en `step
 | Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi**, **similitud** |
 | Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlación**, gini, **bootstrap**            |
 | Metodo 8 | 8.0        | `steps/methods/metod_8/` | **calibracion**                                            |
-| Metodo 9 | 9.0        | `steps/methods/metod_9/` | **gradient_boosting**, **random_forest**, **challenge**    |
+| Metodo 9 | 9.0        | `steps/methods/metod_9/` | **gradient_boosting**, **decision_tree**, **random_forest**, **challenge**    |
 
 Los sub-métodos organizan la selección en el UI y las carpetas de output (`reports/METOD1.1/`, `reports/METOD2.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`).
 
@@ -953,8 +953,10 @@ Parametros adicionales del step:
 - `challenge` es la capa comun/final de `METOD9`.
 - Consolida registries generados por los modulos de algoritmo.
 - Elige el champion final por `scope` (`base` o `segNNN`).
-- Los modulos de algoritmo actuales son `gradient_boosting` y
-  `random_forest`.
+- Los modulos de algoritmo implementados son `gradient_boosting`,
+  `decision_tree` y `random_forest`.
+- Los slots `svm` y `neural_network` quedan reservados para crecimiento
+  futuro de `METOD9`.
 - `step_challenge.sas` debe ejecutarse despues de los steps de algoritmo.
 - Si al menos uno de los algoritmos soportados esta seleccionado,
   `run_challenge` se activa automaticamente.
@@ -964,6 +966,7 @@ Parametros adicionales del step:
 **Inputs tipicos**
 - Registries locales por algoritmo:
   - `gb_tX_<scope>_rgst`
+  - `dt_tX_<scope>_rgst`
   - `rf_tX_<scope>_rgst`
 - Benchmark base del primer algoritmo disponible.
 - Comparativo mensual del champion final:
@@ -980,12 +983,16 @@ propios hiperparametros.
 - consolidacion de registries multi-algoritmo
 - seleccion del champion final por `Gini_Penalizado`
 - desempate por `Gini_OOT` y luego `Gini_Train`
+- si el contexto es `SEGMENTO`, scorea con el champion real de ese segmento
+- si el contexto es `UNIVERSO` con segmentos, elige un champion por segmento y
+  calcula el Gini universo desde el append de scoreados segmentados
 - reporte final multi-algoritmo
 - comparativo benchmark vs champion final
 
 **Tablas persistidas (.sas7bdat)**
 - AUTO:
   - `gb_tX_<scope>_bmk/eval/topk/topn/mnly/rgst/chmp.sas7bdat`
+  - `dt_tX_<scope>_bmk/eval/topk/topn/mnly/rgst/chmp.sas7bdat`
   - `rf_tX_<scope>_bmk/eval/topk/topn/mnly/rgst/chmp.sas7bdat`
   - `chall_tX_<scope>_bmk.sas7bdat`
   - `chall_tX_<scope>_algc.sas7bdat`
@@ -998,6 +1005,7 @@ propios hiperparametros.
 **Reportes y modelos**
 - Algoritmos:
   - `gradient_boosting_troncal_X_<scope>.*`
+  - `decision_tree_troncal_X_<scope>.*`
   - `random_forest_troncal_X_<scope>.*`
 - Consolidado:
   - `challenge_troncal_X_<scope>.html`

@@ -395,7 +395,7 @@ function generateEmptyDataStep(name, lengthDefinition) {
 function generarSAS() {
 	const exportConfig = buildExportConfig();
 	const troncalLength =
-		"troncal_id 8 id_var_id $64 target $64 pd $64 xb $64 monto $64 byvar $64 model_type $8 tipo_producto $32 train_min_mes 8 train_max_mes 8 oot_min_mes 8 oot_max_mes 8 def_cld 8 num_unv $4000 cat_unv $4000 dri_num_unv $4000 dri_cat_unv $4000 var_seg $64 n_segments 8";
+		"troncal_id 8 id_var_id $64 target $64 pd $64 xb $64 monto $64 byvar $64 flag_tcl $64 model_type $8 tipo_producto $32 train_min_mes 8 train_max_mes 8 oot_min_mes 8 oot_max_mes 8 def_cld 8 num_unv $4000 cat_unv $4000 dri_num_unv $4000 dri_cat_unv $4000 var_seg $64 n_segments 8";
 	const segmentoLength =
 		"troncal_id 8 seg_id 8 num_list $4000 cat_list $4000 dri_num_list $4000 dri_cat_list $4000";
 
@@ -419,6 +419,7 @@ function generarSAS() {
 			sas += `	xb=${quoteSasString(troncal.xb)};\n`;
 			sas += `	monto=${quoteSasString(troncal.monto)};\n`;
 			sas += `	byvar=${quoteSasString(troncal.byvar)};\n`;
+			sas += `	flag_tcl=${quoteSasString(troncal.flag_tcl)};\n`;
 			sas += `	model_type=${quoteSasString(troncal.model_type)};\n`;
 			sas += `	tipo_producto=${quoteSasString(troncal.tipo_producto)};\n\n`;
 			sas += `	train_min_mes=${formatSasNumber(troncal.train_min_mes)};\n`;
@@ -518,6 +519,7 @@ function hydrateFromStructuredConfig(rawConfig) {
 		xb: normalizeText(troncal.xb),
 		monto: normalizeText(troncal.monto),
 		byvar: normalizeText(troncal.byvar),
+		flag_tcl: normalizeText(troncal.flag_tcl),
 		model_type: normalizeText(troncal.model_type),
 		tipo_producto: normalizeText(troncal.tipo_producto),
 		train_min_mes: normalizeText(troncal.train_min_mes),
@@ -750,6 +752,7 @@ function buildExportConfig() {
 		xb: normalizeText(troncal.xb),
 		monto: normalizeText(troncal.monto),
 		byvar: normalizeText(troncal.byvar),
+		flag_tcl: normalizeText(troncal.flag_tcl),
 		model_type: normalizeText(troncal.model_type),
 		tipo_producto: normalizeText(troncal.tipo_producto),
 		train_min_mes: toNumberOrNull(troncal.train_min_mes),
@@ -853,6 +856,13 @@ function showTroncal(troncalId) {
 							onchange="updateTroncalField(${troncalId}, 'byvar', this.value)"
 							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 							placeholder="" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Flag Troncal</label>
+						<input type="text" value="${escapeHtml(troncal.flag_tcl)}"
+							onchange="updateTroncalField(${troncalId}, 'flag_tcl', this.value)"
+							class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							placeholder="Ej: flag_tcl1" />
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Modelo</label>
@@ -2072,187 +2082,72 @@ function loadSegmentsTable(troncalId) {
 		}
 
 		function generarSAS() {
-			const nTroncales = configData.troncales.length;
-			let sas = "/* Generated SAS Macro Variables */\n\n";
-			// Encabezado: config general
-			sas +=
-				"/* ================================ Configuracion general ================================ */\n";
-			sas += `%let n_troncales = ${nTroncales};\n`;
-			sas += `%let master_table = ${configData.master_table};\n`;
-			sas += `%macro cut_dataname;\n`;
-			sas += `%if %length(&master_table) > 22 %then %do;\n`;
-			sas += "    %local librefstat;\n";
-			sas += "    %let copy_master = &master_table;\n";
-			sas += "    %let master_table = %substr(&master_table, 1, 22);\n";
-			sas +=
-				"    %put WARNING DEVELOPER: master_table renombrado = &master_table;\n";
-			sas += "    %let librefstat = %sysfunc(libref(maindata));\n";
-			sas += "    %if &librefstat ne 0 %then %do;\n";
-			sas += '        libname maindata "&_root_path/Data";\n';
-			sas += "    %end;\n";
-			sas += "    %if %sysfunc(exist(maindata.&copy_master)) %then %do;\n";
-			sas += "        proc datasets library=maindata nolist;\n";
-			sas += "            change &copy_master = &master_table;\n";
-			sas += "        run;\n";
-			sas += "    %end;\n";
-			sas += "%end;\n";
-			sas += "%mend;\n";
-			sas += "%cut_dataname;\n";
-			sas += `%let caslib_mmgr = ${configData.caslib_mmgr_front};\n`;
-			sas += `%let _container_path = ${configData.container_path};\n`;
-			sas += `%let tipo_modelo = ${configData.tipo_modelo};\n`;
-			sas += `%let tipo_producto = ${configData.tipo_producto};\n`;
-			// Algorithm flags
-			sas += "/* ================ Algorithm Flags ================ */\n";
-			updateConfigData(); // Ensure algorithm_flags exists
-			sas += `%let gb_flg = ${configData.algorithm_flags.gb_flg ? "1" : "0"
-				};\n`;
-			sas += `%let nn_flg = ${configData.algorithm_flags.nn_flg ? "1" : "0"
-				};\n`;
-			sas += `%let rf_flg = ${configData.algorithm_flags.rf_flg ? "1" : "0"
-				};\n`;
-			sas += `%let dt_flg = ${configData.algorithm_flags.dt_flg ? "1" : "0"
-				};\n`;
-			sas += `%let svm_flg = ${configData.algorithm_flags.svm_flg ? "1" : "0"
-				};\n\n`;
-			// flags concatenadas
-			const flags = configData.troncales
-				.map((t) => t.flag.trim())
-				.filter((f) => f)
-				.join(" ");
-			sas += `%let flag_tcl = ${flags};\n\n`;
+			const exportConfig = buildExportConfig();
+			const troncalLength =
+				"troncal_id 8 id_var_id $64 target $64 pd $64 xb $64 monto $64 byvar $64 flag_tcl $64 model_type $8 tipo_producto $32 train_min_mes 8 train_max_mes 8 oot_min_mes 8 oot_max_mes 8 def_cld 8 num_unv $4000 cat_unv $4000 dri_num_unv $4000 dri_cat_unv $4000 var_seg $64 n_segments 8";
+			const segmentoLength =
+				"troncal_id 8 seg_id 8 num_list $4000 cat_list $4000 dri_num_list $4000 dri_cat_list $4000";
 
-			// Troncal x Troncal
-			configData.troncales.forEach((troncal) => {
-				const i = troncal.id;
-				sas += `/* ================================ Troncal ${i} ================================ */\n`;
-				sas += `%let troncal_${i} = ${troncal.cod};\n`;
-				sas += `%let target_${i} = ${troncal.target};\n`;
-				sas += `%let pd_${i} = ${troncal.pd};\n`;
-				sas += `%let xb_${i} = ${troncal.xb};\n`;
-				sas += `%let monto_${i} = ${troncal.monto};\n`;
-				sas += `%let byvar_${i} = ${troncal.byvar};\n\n`;
+			let sas = "/* ======================= CONFIG.SAS =======================\n";
+			sas += "Generado desde frontend.html.\n";
+			sas += "Construye casuser.cfg_troncales y casuser.cfg_segmentos.\n";
+			sas += "================================================================ */\n\n";
+			sas += "/* ---------- casuser.cfg_troncales ---------- */\n";
 
-				// train_tcl_i y oot_tcl_i con &master_table
-				sas += `%let train_tcl_${i} = tro${i}_train&master_table;\n`;
-				sas += `%let oot_tcl_${i} = tro${i}_oot&master_table;\n\n`;
+			if (exportConfig.cfg_troncales.length === 0) {
+				sas += `${generateEmptyDataStep("cfg_troncales", troncalLength)}\n\n`;
+			} else {
+				sas += "data casuser.cfg_troncales;\n";
+				sas += `	length ${troncalLength};\n\n`;
+				exportConfig.cfg_troncales.forEach((troncal) => {
+					sas += `	/* ---------------- Troncal ${troncal.troncal_id} ---------------- */\n`;
+					sas += `	troncal_id=${troncal.troncal_id};\n`;
+					sas += `	id_var_id=${quoteSasString(troncal.id_var_id)};\n`;
+					sas += `	target=${quoteSasString(troncal.target)};\n`;
+					sas += `	pd=${quoteSasString(troncal.pd)};\n`;
+					sas += `	xb=${quoteSasString(troncal.xb)};\n`;
+					sas += `	monto=${quoteSasString(troncal.monto)};\n`;
+					sas += `	byvar=${quoteSasString(troncal.byvar)};\n`;
+					sas += `	flag_tcl=${quoteSasString(troncal.flag_tcl)};\n`;
+					sas += `	model_type=${quoteSasString(troncal.model_type)};\n`;
+					sas += `	tipo_producto=${quoteSasString(troncal.tipo_producto)};\n\n`;
+					sas += `	train_min_mes=${formatSasNumber(troncal.train_min_mes)};\n`;
+					sas += `	train_max_mes=${formatSasNumber(troncal.train_max_mes)};\n`;
+					sas += `	oot_min_mes=${formatSasNumber(troncal.oot_min_mes)};\n`;
+					sas += `	oot_max_mes=${formatSasNumber(troncal.oot_max_mes)};\n`;
+					sas += `	def_cld=${formatSasNumber(troncal.def_cld)};\n\n`;
+					sas += `	num_unv=${quoteSasString(troncal.num_unv)};\n`;
+					sas += `	cat_unv=${quoteSasString(troncal.cat_unv)};\n`;
+					sas += `	dri_num_unv=${quoteSasString(troncal.dri_num_unv)};\n`;
+					sas += `	dri_cat_unv=${quoteSasString(troncal.dri_cat_unv)};\n\n`;
+					sas += `	var_seg=${quoteSasString(troncal.var_seg)};\n`;
+					sas += `	n_segments=${troncal.n_segments};\n\n`;
+					sas += "	output;\n\n";
+				});
+				sas += "run;\n\n";
+			}
 
-				sas += `%let train_min_mes_${i} = ${troncal.trainMinMes};\n`;
-				sas += `%let train_max_mes_${i} = ${troncal.trainMaxMes};\n`;
-				sas += `%let oot_min_mes_${i} = ${troncal.ootMinMes};\n`;
-				sas += `%let oot_max_mes_${i} = ${troncal.ootMaxMes};\n`;
-				sas += `%let def_cld_${i} = ${troncal.defCld};\n`;
-				sas += `%let astore_${i} = ${troncal.astore};\n`;
-				sas += `%let trans_table_${i} = ${troncal.trans};\n`;
-				sas += `%let hiperparam_table_${i} = ${troncal.hiperparam};\n`;
-				sas += `%let num_rounds_${i} = ${troncal.numrounds};\n`;
-				sas += `%let threshold_${i} = ${troncal.threshold};\n`;
-				sas += `%let universeMMGR_${i} = ${troncal.universeMMGR};\n\n`;
+			sas += "/* ---------- casuser.cfg_segmentos ---------- */\n";
+			if (exportConfig.cfg_segmentos.length === 0) {
+				sas += generateEmptyDataStep("cfg_segmentos", segmentoLength);
+			} else {
+				sas += "data casuser.cfg_segmentos;\n";
+				sas += `	length ${segmentoLength};\n\n`;
+				exportConfig.cfg_segmentos.forEach((segmento) => {
+					sas += `	/* Troncal ${segmento.troncal_id}, seg ${segmento.seg_id} */\n`;
+					sas += `	troncal_id=${segmento.troncal_id};\n`;
+					sas += `	seg_id=${segmento.seg_id};\n`;
+					sas += `	num_list=${quoteSasString(segmento.num_list)};\n`;
+					sas += `	cat_list=${quoteSasString(segmento.cat_list)};\n`;
+					sas += `	dri_num_list=${quoteSasString(segmento.dri_num_list)};\n`;
+					sas += `	dri_cat_list=${quoteSasString(segmento.dri_cat_list)};\n`;
+					sas += "	output;\n\n";
+				});
+				sas += "run;";
+			}
 
-				// All Universe
-				sas += `/* ================ All universe ================ */\n`;
-				sas += `%let num_unv_${i} = ${troncal.universeNum};\n`;
-				sas += `%let cat_unv_${i} = ${troncal.universeCat};\n`;
-				sas += `%let dri_num_unv_${i} = ${troncal.universeDriNum};\n`;
-				sas += `%let dri_cat_unv_${i} = ${troncal.universeDriCat};\n\n`;
-
-				sas += `%let var_seg_${i} = ${troncal.varSegmentadora};\n`;
-				// Segmentos
-				if (troncal.segmentos.length >= 2) {
-					sas += `%let n_segs_tro_${i} = ${troncal.segmentos.length};\n\n`;
-					troncal.segmentos.forEach((seg) => {
-						sas += `/* ================ Segmento ${seg.id} ================ */\n`;
-						sas += `%let num_seg_${i}_${seg.id} = ${seg.variablesNum};\n`;
-						sas += `%let cat_seg_${i}_${seg.id} = ${seg.variablesCat};\n`;
-						sas += `%let dri_num_seg_${i}_${seg.id} = ${seg.driversNum};\n`;
-						sas += `%let dri_cat_seg_${i}_${seg.id} = ${seg.driversCat};\n`;
-
-						// Add model type
-						sas += `%let model_type_seg_${i}_${seg.id} = ${seg.modelType || ""
-							};\n\n`;
-
-						// Add model parameters as data step tables based on model type
-						if (seg.modelType && seg.modelParams) {
-							if (seg.modelType === "gb") {
-								sas += `/* Create table for Gradient Boosting parameters */\n`;
-								sas += `data work.params_tro${i}_seg${seg.id};\n`;
-								sas += `length parametro $30 valor $32;\n`;
-								sas += `input parametro $ valor;\n`;
-								sas += `datalines;\n`;
-								sas += `mmgr_table_replica ${seg.modelParams.mmgr_table_replica || ""
-									}\n`;
-								sas += `mmgr_table_compare ${seg.modelParams.mmgr_table_compare || ""
-									}\n`;
-								sas += `seed ${seg.modelParams.seed || "NULL"}\n`;
-								sas += `maxbranch ${seg.modelParams.maxbranch || "NULL"}\n`;
-								sas += `lasso ${seg.modelParams.l1 || "NULL"}\n`;
-								sas += `ridge ${seg.modelParams.l2 || "NULL"}\n`;
-								sas += `learningrate ${seg.modelParams.learningrate || "NULL"
-									}\n`;
-								sas += `maxdepth ${seg.modelParams.maxdepth || "NULL"}\n`;
-								sas += `minleafsize ${seg.modelParams.minleafsize || "NULL"
-									}\n`;
-								sas += `ntrees ${seg.modelParams.ntrees || "NULL"}\n`;
-								sas += `numbin ${seg.modelParams.numbin || "NULL"}\n`;
-								sas += `samplingrate ${seg.modelParams.samplingrate || "NULL"
-									}\n`;
-								sas += `vars_to_try ${seg.modelParams.varstotry || "NULL"}\n`;
-								sas += `partition_var ${seg.modelParams.partition_var || "NULL"
-									}\n`;
-								sas += `;\n`;
-								sas += `run;\n\n`;
-							} else if (seg.modelType === "nn") {
-								sas += `/* Create table for Neural Network parameters */\n`;
-								sas += `data work.params_tro${i}_seg${seg.id};\n`;
-								sas += `    hidden = "${seg.modelParams.hidden || ""}";\n`;
-								sas += `    iterations = ${seg.modelParams.iter || "NULL"
-									};\n`;
-								sas += `    learningrate = ${seg.modelParams.learningrate || "NULL"
-									};\n`;
-								sas += `    dropout = ${seg.modelParams.dropout || "NULL"
-									};\n`;
-								sas += `    seed = ${seg.modelParams.seed || "NULL"};\n`;
-								sas += `run;\n\n`;
-							} else if (seg.modelType === "rf") {
-								sas += `/* Create table for Random Forest parameters */\n`;
-								sas += `data work.params_tro${i}_seg${seg.id};\n`;
-								sas += `    ntrees = ${seg.modelParams.ntrees || "NULL"};\n`;
-								sas += `    varstotry = ${seg.modelParams.varstotry || "NULL"
-									};\n`;
-								sas += `    maxdepth = ${seg.modelParams.maxdepth || "NULL"
-									};\n`;
-								sas += `    seed = ${seg.modelParams.seed || "NULL"};\n`;
-								sas += `    minleafsize = ${seg.modelParams.minleafsize || "NULL"
-									};\n`;
-								sas += `run;\n\n`;
-							} else if (seg.modelType === "dt") {
-								sas += `/* Create table for Decision Tree parameters */\n`;
-								sas += `data work.params_tro${i}_seg${seg.id};\n`;
-								sas += `    maxdepth = ${seg.modelParams.maxdepth || "NULL"
-									};\n`;
-								sas += `    minleafsize = ${seg.modelParams.minleafsize || "NULL"
-									};\n`;
-								sas += `    maxbranch = ${seg.modelParams.maxbranch || "NULL"
-									};\n`;
-								sas += `    seed = ${seg.modelParams.seed || "NULL"};\n`;
-								sas += `run;\n\n`;
-							} else if (seg.modelType === "svm") {
-								sas += `/* Create table for SVM parameters */\n`;
-								sas += `data work.params_tro${i}_seg${seg.id};\n`;
-								sas += `    kernel = "${seg.modelParams.kernel || "linear"
-									}";\n`;
-								sas += `    c = ${seg.modelParams.c || "NULL"};\n`;
-								sas += `    gamma = ${seg.modelParams.gamma || "NULL"};\n`;
-								sas += `    degree = ${seg.modelParams.degree || "NULL"};\n`;
-								sas += `    seed = ${seg.modelParams.seed || "NULL"};\n`;
-								sas += `run;\n\n`;
-							}
-						}
-					});
-				}
-			});
-			// Colocamos en el textarea del modal (si está abierto)
 			document.getElementById("output").value = sas;
+			return sas;
 		}
 
 		/* ==================== MODAL SAS: MOSTRAR/CERRAR Y DESCARGAR ==================== */
@@ -2280,7 +2175,7 @@ function loadSegmentsTable(troncalId) {
 			aSas.click();
 
 			// 3) Descargar JSON
-			const json = JSON.stringify(configData, null, 2);
+			const json = JSON.stringify(buildExportConfig(), null, 2);
 			const jsonBlob = new Blob([json], {
 				type: "application/json;charset=utf-8;",
 			});
@@ -2298,63 +2193,19 @@ function loadSegmentsTable(troncalId) {
 			const reader = new FileReader();
 			reader.onload = function (e) {
 				try {
-					configData = JSON.parse(e.target.result);
-					// Reflejar la master_table y validator_name
-					document.getElementById("masterTableInput").value =
-						configData.master_table || "";
-					document.getElementById("containerInput").value =
-						configData.caslib_mmgr || "";						
-					document.getElementById("containerInput").value =
-						configData.container_path || "";
-					
-					//document.getElementById('validatorNameInput').value = configData.validator_name || "";
-					// Update algorithm checkboxes
-					updateConfigData(); // Ensure algorithm_flags exists
-					document.getElementById("gbCheck").checked =
-						configData.algorithm_flags?.gb_flg === true;
-					document.getElementById("nnCheck").checked =
-						configData.algorithm_flags?.nn_flg === true;
-					document.getElementById("rfCheck").checked =
-						configData.algorithm_flags?.rf_flg === true;
-					document.getElementById("dtCheck").checked =
-						configData.algorithm_flags?.dt_flg === true;
-					document.getElementById("svmCheck").checked =
-						configData.algorithm_flags?.svm_flg === true;
-
-					// Llenar combos de modelo/producto
-					const modeloSelect = document.getElementById("tipoModeloSelect");
-					const productoSelect =
-						document.getElementById("tipoProductoSelect");
-					modeloSelect.value = configData.tipo_modelo || "";
-
-					// Rellenar producto
-					productoSelect.innerHTML = `<option value="">-- Seleccione --</option>`;
-					if (configData.tipo_modelo === "APPLICANT") {
-						["BT", "CEF", "EP"].forEach((opt) => {
-							const option = document.createElement("option");
-							option.value = opt;
-							option.textContent = opt;
-							productoSelect.appendChild(option);
-						});
-					} else if (configData.tipo_modelo === "BHV") {
-						["TC", "OTRO"].forEach((opt) => {
-							const option = document.createElement("option");
-							option.value = opt;
-							option.textContent = opt;
-							productoSelect.appendChild(option);
-						});
+					const rawConfig = JSON.parse(e.target.result);
+					const structuredConfig =
+						hydrateFromStructuredConfig(rawConfig) ?? hydrateFromLegacyConfig(rawConfig);
+					if (!structuredConfig) {
+						throw new Error("Formato no soportado");
 					}
-					productoSelect.value = configData.tipo_producto || "";
 
-					// Troncales
-					updateStructureTree();
-					if (configData.troncales.length > 0) {
-						switchTab("troncal-1");
-					}
-					showToast("Configuración cargada", "success");
-					autoGenerateSAS();
+					configData = { troncales: structuredConfig };
+					activeTab = configData.troncales.length ? "troncal-1" : null;
+					renderApp();
+					showToast("Configuración cargada correctamente.", "success");
 				} catch (err) {
-					showToast("Error al cargar la configuración", "error");
+					showToast("No se pudo cargar la configuración. Verifique el formato del JSON.", "error");
 				}
 			};
 			reader.readAsText(file);
@@ -2435,6 +2286,7 @@ function createEmptyTroncal(troncalId) {
 		xb: "",
 		monto: "",
 		byvar: "",
+		flag_tcl: "",
 		model_type: "",
 		tipo_producto: "",
 		train_min_mes: "",

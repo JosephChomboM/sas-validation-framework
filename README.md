@@ -123,7 +123,10 @@ project_root/
         step_bootstrap.sas           # bootstrap (4.3)
       metod_9/
         step_gradient_boosting.sas   # challenge por hiperparámetros GB
+        step_decision_tree.sas       # challenge por hiperparámetros DT
         step_random_forest.sas       # challenge por hiperparámetros RF
+        step_svm.sas                 # slot reservado futuro
+        step_neural_network.sas      # slot reservado futuro
         step_challenge.sas           # champion final multi-algoritmo
 
   outputs/
@@ -150,10 +153,13 @@ project_root/
 
 Notas:
 - `config.sas` define troncales/segmentos (DATA steps CAS). `casuser.cfg_troncales` y `casuser.cfg_segmentos` son las tablas de configuración en `casuser`. Además, `casuser` se usa para tablas temporales/intermedias de módulos (reemplazando `work`). Step 02 promueve las tablas de config para compatibilidad con background submit.
+- `casuser.cfg_troncales.flag_tcl` es un campo opcional por troncal. Si viene vacío, la partición usa solo la ventana temporal; si viene poblado, Step 05 agrega ese filtro (`flag_tcl = 1`) al materializar `processed`.
 - `steps/*.sas` modelan el frontend del flujo: un step de contexto unificado (scope + troncal + split + segmento + módulos) seguido de ejecución de módulos.
 - Cada módulo tiene su propio step en `steps/methods/metod_N/` que lee `&ctx_scope` para saber si iterar segmentos o base.
 - Los módulos se agrupan en sub-métodos: Método 1.1 (universe), Método 4.2 (estabilidad, fillrate, missings, psi), Método 4.3 (bivariado, correlacion, gini, bootstrap) y Método 9.0 (challenge multi-algoritmo). Los reportes se organizan en subcarpetas `METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`.
-- En `METOD9`, los steps de algoritmo (`step_gradient_boosting`, `step_random_forest`) generan su campeón local por scope. Luego `step_challenge` consolida esos ganadores y elige el champion final. Si al menos un algoritmo ML está seleccionado, `run_challenge` se activa automáticamente.
+- En `METOD9`, los steps de algoritmo implementados (`step_gradient_boosting`, `step_decision_tree`, `step_random_forest`) generan su campeón local por scope. Luego `step_challenge` consolida esos ganadores y elige el champion final. Si al menos un algoritmo ML está seleccionado, `run_challenge` se activa automáticamente.
+- En `SEGMENTO`, `step_challenge` scorea con el champion real de ese segmento. En `UNIVERSO` con segmentos, selecciona un champion por segmento y calcula el Gini universo desde el append de scoreados segmentados.
+- `step_svm` y `step_neural_network` quedan creados como slots reservados para futuras metodologías; hoy solo registran que la estructura existe pero no ejecutan entrenamiento.
 - Todo dato operativo persistente (raw, processed, outputs) usa CASLIBs PATH-based (ver `docs/caslib_lifecycle.md`). Tablas temporales de módulos se crean en `casuser` y se eliminan al finalizar.
 - Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments|models`) en cada corrida, independientemente de `data_prep_enabled`. Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`) se crean dinámicamente.
 - `logs/` es una salida operativa del framework: `steps/02_load_config.sas`, `steps/03_create_folders.sas`, `steps/04_import_raw_data.sas`, `steps/05_partition_data.sas` y cada `steps/methods/step_*.sas` redireccionan el log SAS a un archivo dedicado por step con `PROC PRINTTO`, y restauran el destino por defecto al finalizar.
