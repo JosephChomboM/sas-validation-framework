@@ -76,6 +76,49 @@ Se ejecuta dentro de un contexto ODS ya abierto (Excel + listing).
 
 %mend _psi_plot_tendencia;
 
+%macro _psi_render_detalle(data=, byvar=, title_text=, footnote_text=);
+    proc print data=&data. noobs label
+        style(column)={backgroundcolor=PsiSignif.};
+        title "&title_text.";
+        footnote "&footnote_text.";
+        %if %length(%superq(byvar)) > 0 %then %do;
+            var Variable &byvar. Tipo PSI;
+        %end;
+        %else %do;
+            var Variable Tipo PSI;
+        %end;
+    run;
+    title;
+    footnote;
+%mend _psi_render_detalle;
+
+%macro _psi_render_wide(data=);
+    proc print data=&data. noobs
+        style(column)={backgroundcolor=PsiSignif.};
+        title "CUBO PSI: Variable x Mes";
+    run;
+    title;
+    footnote;
+%mend _psi_render_wide;
+
+%macro _psi_render_resumen(data=, byvar=, title_text=);
+    proc print data=&data. noobs;
+        title "&title_text.";
+        var Variable;
+        var PSI_Total / style(data)={backgroundcolor=PsiSignif.};
+        %if %length(%superq(byvar)) > 0 %then %do;
+            var PSI_Min PSI_Max PSI_Mean PSI_Std Meses_Verde Meses_Amarillo
+                Meses_Rojo Total_Meses Pct_Meses_Rojo;
+            var PSI_Primer_Mes / style(data)={backgroundcolor=PsiSignif.};
+            var PSI_Ultimo_Mes / style(data)={backgroundcolor=PsiSignif.};
+            var Tendencia Alerta_Tendencia;
+        %end;
+        var Semaforo_Total;
+    run;
+    title;
+    footnote;
+%mend _psi_render_resumen;
+
 /* =====================================================================
 %_psi_report - Generador principal de reportes (HTML + Excel + JPEG)
 Lee tablas de casuser (CAS) generadas por _psi_compute.
@@ -134,29 +177,25 @@ archivos JPEG independientes (vía ods listing gpath).
         run;
     %end;
 
+    ods listing gpath="&images_path.";
+
     /* ==================================================================
-    1) HTML report (tablas solamente)
+    1) HTML report completo
     ================================================================== */
     ods graphics on;
     ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
 
-    proc print data=_psi_detalle_rpt noobs label
-        style(column)={backgroundcolor=PsiSignif.};
-        title "&_detalle_title.";
-        footnote "&_detalle_footnote.";
-        %if %length(%superq(byvar)) > 0 %then %do;
-            var Variable &byvar. Tipo PSI;
-        %end;
-        %else %do;
-            var Variable Tipo PSI;
-        %end;
-    run;
+    %_psi_render_detalle(data=_psi_detalle_rpt, byvar=&byvar.,
+        title_text=&_detalle_title., footnote_text=&_detalle_footnote.);
+    %_psi_render_wide(data=casuser._psi_cubo_wide);
+    %_psi_render_resumen(data=casuser._psi_resumen, byvar=&byvar.,
+        title_text=&_resumen_title.);
 
-    proc print data=casuser._psi_resumen noobs
-        style(column)={backgroundcolor=PsiSignif.};
-        title "&_resumen_title.";
-    run;
+    %if %length(%superq(byvar)) > 0 %then %do;
+        %_psi_plot_tendencia(data=casuser._psi_cubo, byvar=&byvar.,
+            file_prefix=&file_prefix.);
+    %end;
 
     ods html5 close;
     ods graphics / reset=all;
@@ -168,55 +207,26 @@ archivos JPEG independientes (vía ods listing gpath).
     2) Excel report (tablas + gráficos en hoja "Graficos")
     ================================================================== */
     ods graphics on;
-    ods listing gpath="&images_path.";
-
     ods excel file="&report_path./&file_prefix..xlsx"
         options(sheet_name="PSI_Detalle" sheet_interval="none"
         embedded_titles="yes");
 
     /* ---- Hoja 1: PSI Detalle ------------------------------------------ */
-    proc print data=_psi_detalle_rpt noobs label
-        style(column)={backgroundcolor=PsiSignif.};
-        title "&_detalle_title.";
-        footnote "&_detalle_footnote.";
-        %if %length(%superq(byvar)) > 0 %then %do;
-            var Variable &byvar. Tipo PSI;
-        %end;
-        %else %do;
-            var Variable Tipo PSI;
-        %end;
-    run;
-    title;
-    footnote;
+    %_psi_render_detalle(data=_psi_detalle_rpt, byvar=&byvar.,
+        title_text=&_detalle_title., footnote_text=&_detalle_footnote.);
 
     /* ---- Hoja 2: PSI Cubo Wide ---------------------------------------- */
     ods excel options(sheet_name="PSI_Cubo_Wide" sheet_interval="now"
         embedded_titles="yes");
 
-    proc print data=casuser._psi_cubo_wide noobs
-        style(column)={backgroundcolor=PsiSignif.};
-        title "CUBO PSI: Variable x Mes";
-    run;
-    title;
+    %_psi_render_wide(data=casuser._psi_cubo_wide);
 
     /* ---- Hoja 3: Resumen ---------------------------------------------- */
     ods excel options(sheet_name="Resumen" sheet_interval="now"
         embedded_titles="yes");
 
-    proc print data=casuser._psi_resumen noobs;
-        title "&_resumen_title.";
-        var Variable;
-        var PSI_Total / style(data)={backgroundcolor=PsiSignif.};
-        %if %length(%superq(byvar)) > 0 %then %do;
-            var PSI_Min PSI_Max PSI_Mean PSI_Std Meses_Verde Meses_Amarillo
-                Meses_Rojo Total_Meses Pct_Meses_Rojo;
-            var PSI_Primer_Mes / style(data)={backgroundcolor=PsiSignif.};
-            var PSI_Ultimo_Mes / style(data)={backgroundcolor=PsiSignif.};
-            var Tendencia Alerta_Tendencia;
-        %end;
-        var Semaforo_Total;
-    run;
-    title;
+    %_psi_render_resumen(data=casuser._psi_resumen, byvar=&byvar.,
+        title_text=&_resumen_title.);
 
     /* ---- Hoja 4: Graficos (tendencia temporal) ------------------------ */
     %if %length(%superq(byvar)) > 0 %then %do;
