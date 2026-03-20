@@ -85,17 +85,52 @@ archivos JPEG independientes (vía ods listing gpath).
 %macro _psi_report(report_path=, images_path=, file_prefix=, byvar=);
 
     /* ---- Crear directorios METOD4.2 si no existen ----------------------- */
-    %local _dir_rc;
+    %local _dir_rc _detalle_title _detalle_footnote _resumen_title;
     %let _dir_rc=%sysfunc(dcreate(METOD4.2, &report_path./../));
     %let _dir_rc=%sysfunc(dcreate(., &report_path.));
     %let _dir_rc=%sysfunc(dcreate(METOD4.2, &images_path./../));
     %let _dir_rc=%sysfunc(dcreate(., &images_path.));
+    %let _detalle_title=CUBO PSI: Detalle por Variable y Periodo;
+    %let _detalle_footnote=Tipo: Mensual = PSI de ese mes vs TRAIN | Total = PSI OOT completo vs TRAIN;
+    %let _resumen_title=Resumen de Estabilidad PSI;
 
     /* ---- Formato semáforo PSI ------------------------------------------ */
     proc format;
         value PsiSignif -0.0 -< 0.1="lightgreen" 0.1 -< 0.25="yellow" 0.25 -<
             9999="red" ;
     run;
+
+    %if %length(%superq(byvar)) > 0 %then %do;
+        proc sql;
+            create table _psi_variables_rpt as select distinct Variable from
+                casuser._psi_cubo;
+
+            create table _psi_meses_rpt as select distinct &byvar. from
+                casuser._psi_cubo where Tipo="Mensual" order by &byvar.;
+
+            create table _psi_detalle_mensual_rpt as select v.Variable,
+                m.&byvar., p.PSI format=10.6, "Mensual" as Tipo length=15 from
+                _psi_variables_rpt v cross join _psi_meses_rpt m left join
+                casuser._psi_cubo p on v.Variable=p.Variable and m.&byvar.=
+                p.&byvar. and p.Tipo="Mensual";
+
+            create table _psi_detalle_total_rpt as select Variable, &byvar., PSI,
+                Tipo from casuser._psi_cubo where Tipo="Total";
+        quit;
+
+        data _psi_detalle_rpt;
+            set _psi_detalle_mensual_rpt _psi_detalle_total_rpt;
+        run;
+
+        proc sort data=_psi_detalle_rpt;
+            by Variable &byvar.;
+        run;
+    %end;
+    %else %do;
+        data _psi_detalle_rpt;
+            set casuser._psi_cubo;
+        run;
+    %end;
 
     /* ==================================================================
     1) HTML report (tablas solamente)
@@ -104,11 +139,10 @@ archivos JPEG independientes (vía ods listing gpath).
     ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
 
-    proc print data=casuser._psi_cubo noobs label
+    proc print data=_psi_detalle_rpt noobs label
         style(column)={backgroundcolor=PsiSignif.};
-        title "CUBO PSI: Detalle por Variable y Periodo - &file_prefix.";
-        footnote
-            "Tipo: Mensual = PSI de ese mes vs TRAIN | Total = PSI OOT completo vs TRAIN";
+        title "&_detalle_title.";
+        footnote "&_detalle_footnote.";
         %if %length(%superq(byvar)) > 0 %then %do;
             var Variable &byvar. Tipo PSI;
         %end;
@@ -119,7 +153,7 @@ archivos JPEG independientes (vía ods listing gpath).
 
     proc print data=casuser._psi_resumen noobs
         style(column)={backgroundcolor=PsiSignif.};
-        title "Resumen de Estabilidad PSI - &file_prefix.";
+        title "&_resumen_title.";
     run;
 
     ods html5 close;
@@ -139,11 +173,10 @@ archivos JPEG independientes (vía ods listing gpath).
         embedded_titles="yes");
 
     /* ---- Hoja 1: PSI Detalle ------------------------------------------ */
-    proc print data=casuser._psi_cubo noobs label
+    proc print data=_psi_detalle_rpt noobs label
         style(column)={backgroundcolor=PsiSignif.};
-        title "CUBO PSI: Detalle por Variable y Periodo";
-        footnote
-            "Tipo: Mensual = PSI de ese mes vs TRAIN | Total = PSI OOT completo vs TRAIN";
+        title "&_detalle_title.";
+        footnote "&_detalle_footnote.";
         %if %length(%superq(byvar)) > 0 %then %do;
             var Variable &byvar. Tipo PSI;
         %end;
@@ -169,7 +202,7 @@ archivos JPEG independientes (vía ods listing gpath).
         embedded_titles="yes");
 
     proc print data=casuser._psi_resumen noobs;
-        title "Resumen de Estabilidad PSI";
+        title "&_resumen_title.";
         var Variable;
         var PSI_Total / style(data)={backgroundcolor=PsiSignif.};
         %if %length(%superq(byvar)) > 0 %then %do;
@@ -188,13 +221,18 @@ archivos JPEG independientes (vía ods listing gpath).
         ods excel options(sheet_name="Graficos" sheet_interval="now"
             embedded_titles="yes");
 
-        %_psi_plot_tendencia( data=casuser._psi_cubo, byvar=&byvar.,
+        %_psi_plot_tendencia( data=_psi_detalle_rpt, byvar=&byvar.,
             file_prefix=&file_prefix. );
     %end;
 
     ods excel close;
     ods graphics / reset=all;
     ods graphics off;
+
+    proc datasets lib=work nolist nowarn;
+        delete _psi_variables_rpt _psi_meses_rpt _psi_detalle_mensual_rpt
+            _psi_detalle_total_rpt _psi_detalle_rpt;
+    quit;
 
     %put NOTE: [psi_report] HTML=> &report_path./&file_prefix..html;
     %put NOTE: [psi_report] Excel=> &report_path./&file_prefix..xlsx;
