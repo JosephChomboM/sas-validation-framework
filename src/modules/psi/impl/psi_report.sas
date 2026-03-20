@@ -101,19 +101,21 @@ archivos JPEG independientes (vía ods listing gpath).
     run;
 
     %if %length(%superq(byvar)) > 0 %then %do;
+        proc transpose data=casuser._psi_cubo_wide out=_psi_detalle_tmp
+            name=_mes_col;
+            by Variable;
+            var mes_:;
+        run;
+
+        data _psi_detalle_mensual_rpt;
+            set _psi_detalle_tmp(rename=(COL1=PSI));
+            length Tipo $15;
+            &byvar.=input(scan(_mes_col, 2, '_'), best32.);
+            Tipo="Mensual";
+            keep Variable &byvar. Tipo PSI;
+        run;
+
         proc sql;
-            create table _psi_variables_rpt as select distinct Variable from
-                casuser._psi_cubo;
-
-            create table _psi_meses_rpt as select distinct &byvar. from
-                casuser._psi_cubo where Tipo="Mensual" order by &byvar.;
-
-            create table _psi_detalle_mensual_rpt as select v.Variable,
-                m.&byvar., p.PSI format=10.6, "Mensual" as Tipo length=15 from
-                _psi_variables_rpt v cross join _psi_meses_rpt m left join
-                casuser._psi_cubo p on v.Variable=p.Variable and m.&byvar.=
-                p.&byvar. and p.Tipo="Mensual";
-
             create table _psi_detalle_total_rpt as select Variable, &byvar., PSI,
                 Tipo from casuser._psi_cubo where Tipo="Total";
         quit;
@@ -221,7 +223,7 @@ archivos JPEG independientes (vía ods listing gpath).
         ods excel options(sheet_name="Graficos" sheet_interval="now"
             embedded_titles="yes");
 
-        %_psi_plot_tendencia( data=_psi_detalle_rpt, byvar=&byvar.,
+        %_psi_plot_tendencia( data=casuser._psi_cubo, byvar=&byvar.,
             file_prefix=&file_prefix. );
     %end;
 
@@ -230,8 +232,8 @@ archivos JPEG independientes (vía ods listing gpath).
     ods graphics off;
 
     proc datasets lib=work nolist nowarn;
-        delete _psi_variables_rpt _psi_meses_rpt _psi_detalle_mensual_rpt
-            _psi_detalle_total_rpt _psi_detalle_rpt;
+        delete _psi_detalle_tmp _psi_detalle_mensual_rpt _psi_detalle_total_rpt
+            _psi_detalle_rpt;
     quit;
 
     %put NOTE: [psi_report] HTML=> &report_path./&file_prefix..html;
