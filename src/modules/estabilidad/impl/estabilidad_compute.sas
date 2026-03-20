@@ -25,24 +25,34 @@ Genera tabla + grafico de barras (N) + linea (promedio).
     /* Agregar por periodo: N, mean, missing via FEDSQL */
     proc fedsql sessref=conn noprint;
         create table casuser._estab_cont {options replace=true} as select
-            &byvar., count(*) as N_Obs, sum(case when &var. is not null then 1
-            else 0 end) as N, avg(cast(&var. as double)) as prom, sum(case when
-            &var. is null then 1 else 0 end) as MISSING from &data. group by
-            &byvar.;
+            "%upcase(&var.)" as Variable, &byvar., count(*) as N_Obs,
+            sum(case when &var. is not null then 1 else 0 end) as N,
+            avg(cast(&var. as double)) as prom, sum(case when &var. is null then
+            1 else 0 end) as MISSING from &data. group by &byvar.;
+    quit;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={caslib="casuser", name="_estab_cont",
+                orderby={"Variable", "&byvar."}, groupby={}},
+            casout={caslib="casuser", name="_estab_cont", replace=true};
     quit;
 
     proc print data=casuser._estab_cont noobs;
+        var &byvar. N_Obs N prom MISSING;
         title "Estabilidad de la variable - &var.";
     run;
 
     proc sgplot data=casuser._estab_cont subpixel noautolegend;
-        yaxis label="Cantidad de registros (N)" discreteorder=data;
+        yaxis label="Cantidad de registros (N)";
         y2axis label="Promedio &var.";
         vbar &byvar. / response=N nooutline barwidth=0.4
             fillattrs=(color=lightblue);
         vline &byvar. / response=prom markers markerattrs=(symbol=circlefilled
             color=black) y2axis lineattrs=(color=black);
-        xaxis label="&byvar." valueattrs=(size=8pt);
+        xaxis type=discrete discreteorder=data label="&byvar."
+            valueattrs=(size=8pt);
     run;
     title;
 
@@ -73,19 +83,33 @@ CAS-to-CAS).
     quit;
 
     proc sql noprint;
-        create table work._estab_disc_pct as select a.&byvar., a.&var., a.N,
-            (a.N * 100.0) / b.total as Porcentaje from work._estab_disc_cnt a
-            inner join ( select &byvar., sum(N) as total from
-            work._estab_disc_cnt group by &byvar. ) b on a.&byvar.=b.&byvar.;
+        create table work._estab_disc_pct as select "%upcase(&var.)" as
+            Variable length=128, a.&byvar., a.&var., a.N, (a.N * 100.0) /
+            b.total as Porcentaje from work._estab_disc_cnt a inner join (
+            select &byvar., sum(N) as total from work._estab_disc_cnt group by
+            &byvar. ) b on a.&byvar.=b.&byvar.;
     quit;
 
-    proc print data=work._estab_disc_pct noobs;
+    data casuser._estab_disc_pct;
+        set work._estab_disc_pct;
+    run;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={caslib="casuser", name="_estab_disc_pct",
+                orderby={"Variable", "&byvar.", "&var."}, groupby={}},
+            casout={caslib="casuser", name="_estab_disc_pct", replace=true};
+    quit;
+
+    proc print data=casuser._estab_disc_pct noobs;
+        var &byvar. &var. N Porcentaje;
         title "Estabilidad de la variable - &var.";
     run;
 
-    proc sgplot data=work._estab_disc_pct;
+    proc sgplot data=casuser._estab_disc_pct;
         vbar &byvar. / response=Porcentaje group=&var. groupdisplay=cluster;
-        xaxis display=(nolabel);
+        xaxis type=discrete discreteorder=data display=(nolabel);
         yaxis max=100 label="Porcentaje (%)";
     run;
     title;
@@ -93,6 +117,10 @@ CAS-to-CAS).
     /* Cleanup work staging */
     proc datasets library=work nolist nowarn;
         delete _estab_disc_stg _estab_disc_cnt _estab_disc_pct;
+    quit;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _estab_disc_pct;
     quit;
 
 %mend _estab_var_discreto;
