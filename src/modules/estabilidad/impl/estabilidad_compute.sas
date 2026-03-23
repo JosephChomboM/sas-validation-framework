@@ -25,7 +25,7 @@ Genera tabla + grafico de barras (N) + linea (promedio).
     /* Agregar por periodo: N, mean, missing via FEDSQL */
     proc fedsql sessref=conn noprint;
         create table casuser._estab_cont {options replace=true} as select
-            '%upcase(&var.)' as Variable length 128, Muestra, &byvar.,
+            '%upcase(&var.)' as Variable, Muestra, &byvar.,
             count(*) as N_Obs, count(&var.) as N,
             avg(cast(&var. as double)) as prom,
             count(*) - count(&var.) as MISSING from &data.
@@ -52,7 +52,7 @@ Genera tabla + grafico de barras (N) + linea (promedio).
             datacontrastcolors=(black cx1f497d);
         vbar &byvar. / response=N group=Muestra groupdisplay=cluster nooutline
             barwidth=0.7 transparency=0.15;
-        series x=&byvar. y=prom / group=Muestra markers y2axis
+        vline &byvar. / response=prom group=Muestra y2axis markers
             lineattrs=(thickness=2);
         xaxis type=discrete discreteorder=data label="&byvar."
             valueattrs=(size=8pt);
@@ -80,25 +80,31 @@ CAS-to-CAS).
         if missing(&var.) then &var.='MISSING';
     run;
 
+    data casuser._estab_disc_stg;
+        set work._estab_disc_stg;
+    run;
+
     /* Distribucion por periodo y categoria */
-    proc sql noprint;
-        create table work._estab_disc_cnt as select Muestra, &byvar., &var.,
-            count(*) as N from work._estab_disc_stg group by Muestra, &byvar.,
-            &var.;
+    proc fedsql sessref=conn noprint;
+        create table casuser._estab_disc_cnt {options replace=true} as select
+            Muestra, &byvar., &var., count(*) as N
+            from casuser._estab_disc_stg
+            group by Muestra, &byvar., &var.;
     quit;
 
-    proc sql noprint;
-        create table work._estab_disc_pct as select '%upcase(&var.)' as
-            Variable length=128, a.Muestra, a.&byvar., a.&var., a.N, (a.N * 100.0)
-            / b.total as Porcentaje from work._estab_disc_cnt a inner join (
-            select Muestra, &byvar., sum(N) as total from work._estab_disc_cnt
-            group by Muestra, &byvar. ) b on a.Muestra=b.Muestra and
+    proc fedsql sessref=conn noprint;
+        create table casuser._estab_disc_pct {options replace=true} as select
+            '%upcase(&var.)' as Variable, a.Muestra, a.&byvar., a.&var., a.N,
+            (a.N * 100.0) / b.total as Porcentaje
+            from casuser._estab_disc_cnt a
+            inner join (
+                select Muestra, &byvar., sum(N) as total
+                from casuser._estab_disc_cnt
+                group by Muestra, &byvar.
+            ) b
+            on a.Muestra=b.Muestra and
             a.&byvar.=b.&byvar.;
     quit;
-
-    data casuser._estab_disc_pct;
-        set work._estab_disc_pct;
-    run;
 
     proc cas;
         session conn;
@@ -123,22 +129,32 @@ CAS-to-CAS).
         _cum_pct=Upper;
     run;
 
-    proc sgpanel data=work._estab_disc_area noautolegend;
-        panelby Muestra / columns=2 onepanel novarname;
+    proc sgplot data=work._estab_disc_area(where=(Muestra='TRAIN'))
+        noautolegend;
+        title "Estabilidad de la variable - &var. (TRAIN)";
         band x=&byvar. lower=Lower upper=Upper / group=&var.;
-        colaxis type=discrete discreteorder=data display=(nolabel);
-        rowaxis max=100 label="Porcentaje (%)";
+        xaxis type=discrete discreteorder=data display=(nolabel);
+        yaxis max=100 label="Porcentaje (%)";
+        keylegend / title="Categoria";
+    run;
+
+    proc sgplot data=work._estab_disc_area(where=(Muestra='OOT'))
+        noautolegend;
+        title "Estabilidad de la variable - &var. (OOT)";
+        band x=&byvar. lower=Lower upper=Upper / group=&var.;
+        xaxis type=discrete discreteorder=data display=(nolabel);
+        yaxis max=100 label="Porcentaje (%)";
         keylegend / title="Categoria";
     run;
     title;
 
     /* Cleanup work staging */
     proc datasets library=work nolist nowarn;
-        delete _estab_disc_stg _estab_disc_cnt _estab_disc_pct _estab_disc_area;
+        delete _estab_disc_stg _estab_disc_area;
     quit;
 
     proc datasets library=casuser nolist nowarn;
-        delete _estab_disc_pct;
+        delete _estab_disc_stg _estab_disc_cnt _estab_disc_pct;
     quit;
 
 %mend _estab_var_discreto;
