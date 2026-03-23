@@ -29,7 +29,7 @@ al terminar. work se limpia al final.
    NOTA: dev= y oot= deben ser tablas en work (sin prefijo de libreria).
    Todas las tablas temporales se crean en work.
    ===================================================================== */
-%macro _psi_calc(dev=, oot=, var=, n_buckets=10, flg_continue=1);
+%macro _psi_calc(dev=, oot=, oot_where=, var=, n_buckets=10, flg_continue=1);
 
     %local rnd n_cortes i;
     %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
@@ -77,7 +77,12 @@ al terminar. work se limpia al final.
 
             /* Asignar buckets a OOT usando los mismos cortes */
             data _oot_bucket_&rnd.;
-                set &oot.(keep=&var.);
+                %if %length(%superq(oot_where)) > 0 %then %do;
+                    set &oot.(where=(&oot_where.) keep=&var.);
+                %end;
+                %else %do;
+                    set &oot.(keep=&var.);
+                %end;
                 if missing(&var.) then bucket=0;
                 %do i=1 %to &n_cortes.;
                     %if &i.=1 %then %do;
@@ -99,7 +104,12 @@ al terminar. work se limpia al final.
             run;
 
             data _oot_bucket_&rnd.;
-                set &oot.(keep=&var.);
+                %if %length(%superq(oot_where)) > 0 %then %do;
+                    set &oot.(where=(&oot_where.) keep=&var.);
+                %end;
+                %else %do;
+                    set &oot.(keep=&var.);
+                %end;
                 bucket=1;
             run;
         %end;
@@ -114,7 +124,12 @@ al terminar. work se limpia al final.
         run;
 
         data _oot_bucket_&rnd.;
-            set &oot.(keep=&var.);
+            %if %length(%superq(oot_where)) > 0 %then %do;
+                set &oot.(where=(&oot_where.) keep=&var.);
+            %end;
+            %else %do;
+                set &oot.(keep=&var.);
+            %end;
             bucket=&var.;
         run;
 
@@ -291,8 +306,9 @@ al terminar. work se limpia al final.
             %let c=%scan(&meses_oot., &m., %str( ));
 
             %do %while(%length(&c.) > 0);
-                %_psi_calc( dev=_psi_dev, oot=_psi_oot(where=(&byvar.=&c.)),
-                    var=&v_aux., n_buckets=&n_buckets., flg_continue=%eval(1 -
+                %_psi_calc( dev=_psi_dev, oot=_psi_oot,
+                    oot_where=&byvar.=&c., var=&v_aux.,
+                    n_buckets=&n_buckets., flg_continue=%eval(1 -
                     &es_categorica.) );
 
                 proc sql;
@@ -336,49 +352,12 @@ al terminar. work se limpia al final.
             group by Variable, &byvar., Tipo;
         quit;
 
-        proc sort data=_psi_cubo_base;
-            by Variable &byvar.;
-        run;
-
         %let hay_mensual=0;
 
         proc sql noprint;
             select count(*) into :hay_mensual trimmed from _psi_cubo_base where
                 Tipo="Mensual";
         quit;
-
-        %if &hay_mensual. > 0 %then %do;
-            %let _psi_old_validvarname=%sysfunc(getoption(validvarname));
-            options validvarname=any;
-
-            proc transpose data=_psi_cubo_base(where=(Tipo="Mensual"))
-                out=_psi_cubo_wide(drop=_NAME_);
-                by Variable;
-                id &byvar.;
-                var PSI;
-            run;
-
-            proc sql;
-                create table _psi_wide_tmp as select a.*, b.PSI as
-                    PSI_Total format=10.6 from _psi_cubo_wide a left join
-                    _psi_cubo_base(where=(Tipo="Total")) b on a.Variable=
-                    b.Variable;
-            quit;
-
-            options validvarname=&_psi_old_validvarname.;
-
-            proc datasets lib=work nolist nowarn;
-                delete _psi_cubo_wide;
-                change _psi_wide_tmp=_psi_cubo_wide;
-            quit;
-        %end;
-        %else %do;
-            proc sql;
-                create table _psi_cubo_wide as select Variable, PSI as
-                    PSI_Total format=10.6 from _psi_cubo_base where
-                    Tipo="Total";
-            quit;
-        %end;
 
         /* ---- 7) Resumen con estadisticas y alertas --------------------- */
         proc sql;
@@ -427,35 +406,109 @@ al terminar. work se limpia al final.
     %else %do;
         /* Sin byvar: solo cubo wide con Total y resumen simplificado */
         proc sql;
-            create table _psi_cubo_wide as select Variable, PSI as
-                PSI_Total format=10.6 from _psi_cubo where Tipo="Total";
+            create table _psi_cubo_base as
+            select Variable, Periodo, max(PSI) as PSI format=10.6, Tipo
+            from _psi_cubo
+            group by Variable, Periodo, Tipo;
         quit;
 
         proc sql;
             create table _psi_resumen as select Variable, PSI as PSI_Total
                 format=10.6, case when PSI < 0.10 then 'VERDE' when PSI < 0.25
                 then 'AMARILLO' else 'ROJO' end as Semaforo_Total length=10 from
-                _psi_cubo where Tipo="Total";
+                _psi_cubo_base where Tipo="Total";
         quit;
     %end;
 
     /* ---- 8) Copiar resultados finales a casuser (CAS) ------------------ */
     data casuser._psi_cubo;
-        set _psi_cubo;
-    run;
-
-    data casuser._psi_cubo_wide;
-        set _psi_cubo_wide;
+        set _psi_cubo_base;
     run;
 
     data casuser._psi_resumen;
         set _psi_resumen;
     run;
 
+    %if %length(%superq(byvar)) > 0 %then %do;
+        proc cas;
+            session conn;
+            table.partition /
+                table={caslib="casuser", name="_psi_cubo",
+                    groupby={"Variable"}, orderby={"&byvar.", "Tipo"}},
+                casout={caslib="casuser", name="_psi_cubo", replace=true};
+        quit;
+    %end;
+    %else %do;
+        proc cas;
+            session conn;
+            table.partition /
+                table={caslib="casuser", name="_psi_cubo",
+                    groupby={"Variable"}, orderby={"Periodo", "Tipo"}},
+                casout={caslib="casuser", name="_psi_cubo", replace=true};
+        quit;
+    %end;
+
+    %if %length(%superq(byvar)) > 0 %then %do;
+        %if &hay_mensual. > 0 %then %do;
+            proc fedsql sessref=conn;
+                create table casuser._psi_cubo_mensual {options replace=true} as
+                select Variable, &byvar., PSI
+                from casuser._psi_cubo
+                where Tipo='Mensual';
+            quit;
+
+            proc cas;
+                session conn;
+                transpose.transpose /
+                    table={name="_psi_cubo_mensual", caslib="casuser"},
+                    casout={name="_psi_cubo_wide_base", caslib="casuser",
+                        replace=true},
+                    transpose={"PSI"},
+                    id={"&byvar."},
+                    groupby={"Variable"};
+            quit;
+
+            proc fedsql sessref=conn;
+                create table casuser._psi_cubo_wide {options replace=true} as
+                select a.*, b.PSI as PSI_Total
+                from casuser._psi_cubo_wide_base a
+                left join casuser._psi_cubo b
+                    on a.Variable=b.Variable and b.Tipo='Total';
+            quit;
+        %end;
+        %else %do;
+            proc fedsql sessref=conn;
+                create table casuser._psi_cubo_wide {options replace=true} as
+                select Variable, PSI as PSI_Total
+                from casuser._psi_cubo
+                where Tipo='Total';
+            quit;
+        %end;
+    %end;
+    %else %do;
+        proc fedsql sessref=conn;
+            create table casuser._psi_cubo_wide {options replace=true} as
+            select Variable, PSI as PSI_Total
+            from casuser._psi_cubo
+            where Tipo='Total';
+        quit;
+    %end;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={caslib="casuser", name="_psi_cubo_wide",
+                groupby={}, orderby={"Variable"}},
+            casout={caslib="casuser", name="_psi_cubo_wide", replace=true};
+        table.partition /
+            table={caslib="casuser", name="_psi_resumen",
+                groupby={}, orderby={"Variable"}},
+            casout={caslib="casuser", name="_psi_resumen", replace=true};
+    quit;
+
     /* ---- 9) Cleanup work ----------------------------------------------- */
     proc datasets lib=work nolist nowarn;
-        delete _psi_dev _psi_oot _psi_cubo _psi_cubo_base _psi_cubo_wide
-            _psi_resumen;
+        delete _psi_dev _psi_oot _psi_cubo _psi_cubo_base _psi_resumen;
     quit;
 
     %put NOTE: [psi_compute] Computo completado. Tablas en casuser:;

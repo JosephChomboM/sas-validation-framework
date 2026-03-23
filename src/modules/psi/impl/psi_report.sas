@@ -127,8 +127,6 @@ archivos JPEG independientes (vía ods listing gpath).
 ===================================================================== */
 %macro _psi_report(report_path=, images_path=, file_prefix=, byvar=);
 
-    %local _psi_old_validvarname;
-
     /* ---- Crear directorios METOD4.2 si no existen ----------------------- */
     %local _dir_rc _detalle_title _detalle_footnote _resumen_title;
     %let _dir_rc=%sysfunc(dcreate(METOD4.2, &report_path./../));
@@ -145,44 +143,31 @@ archivos JPEG independientes (vía ods listing gpath).
             9999="red" ;
     run;
 
+    proc fedsql sessref=conn;
+        create table casuser._psi_detalle_rpt {options replace=true} as
+        select *
+        from casuser._psi_cubo;
+    quit;
+
     %if %length(%superq(byvar)) > 0 %then %do;
-        %let _psi_old_validvarname=%sysfunc(getoption(validvarname));
-        options validvarname=any;
-
-        proc transpose data=casuser._psi_cubo_wide out=_psi_detalle_tmp
-            name=_mes_col;
-            by Variable;
-            var _numeric_;
-        run;
-
-        options validvarname=&_psi_old_validvarname.;
-
-        data _psi_detalle_mensual_rpt;
-            set _psi_detalle_tmp(rename=(COL1=PSI));
-            length Tipo $15;
-            if upcase(_mes_col)="PSI_TOTAL" then delete;
-            &byvar.=input(_mes_col, best32.);
-            Tipo="Mensual";
-            keep Variable &byvar. Tipo PSI;
-        run;
-
-        proc sql;
-            create table _psi_detalle_total_rpt as select Variable, &byvar., PSI,
-                Tipo from casuser._psi_cubo where Tipo="Total";
+        proc cas;
+            session conn;
+            table.partition /
+                table={caslib="casuser", name="_psi_detalle_rpt",
+                    groupby={"Variable"}, orderby={"&byvar.", "Tipo"}},
+                casout={caslib="casuser", name="_psi_detalle_rpt",
+                    replace=true};
         quit;
-
-        data _psi_detalle_rpt;
-            set _psi_detalle_mensual_rpt _psi_detalle_total_rpt;
-        run;
-
-        proc sort data=_psi_detalle_rpt;
-            by Variable &byvar.;
-        run;
     %end;
     %else %do;
-        data _psi_detalle_rpt;
-            set casuser._psi_cubo;
-        run;
+        proc cas;
+            session conn;
+            table.partition /
+                table={caslib="casuser", name="_psi_detalle_rpt",
+                    groupby={"Variable"}, orderby={"Periodo", "Tipo"}},
+                casout={caslib="casuser", name="_psi_detalle_rpt",
+                    replace=true};
+        quit;
     %end;
 
     ods listing gpath="&images_path.";
@@ -194,7 +179,7 @@ archivos JPEG independientes (vía ods listing gpath).
     ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
 
-    %_psi_render_detalle(data=_psi_detalle_rpt, byvar=&byvar.,
+    %_psi_render_detalle(data=casuser._psi_detalle_rpt, byvar=&byvar.,
         title_text=&_detalle_title., footnote_text=&_detalle_footnote.);
     %_psi_render_wide(data=casuser._psi_cubo_wide);
     %_psi_render_resumen(data=casuser._psi_resumen, byvar=&byvar.,
@@ -220,7 +205,7 @@ archivos JPEG independientes (vía ods listing gpath).
         embedded_titles="yes");
 
     /* ---- Hoja 1: PSI Detalle ------------------------------------------ */
-    %_psi_render_detalle(data=_psi_detalle_rpt, byvar=&byvar.,
+    %_psi_render_detalle(data=casuser._psi_detalle_rpt, byvar=&byvar.,
         title_text=&_detalle_title., footnote_text=&_detalle_footnote.);
 
     /* ---- Hoja 2: PSI Cubo Wide ---------------------------------------- */
@@ -249,9 +234,8 @@ archivos JPEG independientes (vía ods listing gpath).
     ods graphics / reset=all;
     ods graphics off;
 
-    proc datasets lib=work nolist nowarn;
-        delete _psi_detalle_tmp _psi_detalle_mensual_rpt _psi_detalle_total_rpt
-            _psi_detalle_rpt;
+    proc datasets library=casuser nolist nowarn;
+        delete _psi_detalle_rpt;
     quit;
 
     %put NOTE: [psi_report] HTML=> &report_path./&file_prefix..html;
