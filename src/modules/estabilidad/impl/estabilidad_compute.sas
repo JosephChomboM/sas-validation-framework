@@ -76,13 +76,9 @@ CAS-to-CAS).
 %macro _estab_var_discreto(data=, var=, byvar=);
 
     /* Copiar a work y recodificar missings */
-    data work._estab_disc_stg;
+    data casuser._estab_disc_stg;
         set &data.;
         if missing(&var.) then &var.='MISSING';
-    run;
-
-    data casuser._estab_disc_stg;
-        set work._estab_disc_stg;
     run;
 
     /* Distribucion por periodo y categoria */
@@ -120,7 +116,7 @@ CAS-to-CAS).
         title "Estabilidad de la variable - &var. (TRAIN y OOT)";
     run;
 
-    data work._estab_disc_area;
+    data casuser._estab_disc_area;
         set casuser._estab_disc_pct;
         by Variable &byvar. Muestra &var.;
         length Eje_X $32;
@@ -132,7 +128,7 @@ CAS-to-CAS).
         Eje_X=cats(put(&byvar., best.-l), '_', Muestra);
     run;
 
-    proc sgplot data=work._estab_disc_area noautolegend;
+    proc sgplot data=casuser._estab_disc_area noautolegend;
         title "Estabilidad de la variable - &var. (TRAIN y OOT)";
         band x=Eje_X lower=Lower upper=Upper / group=&var.
             transparency=0.20;

@@ -38,8 +38,9 @@ Compatibilidad: segmento y universo.
     %let _fill_rc=0;
 
     %local _fill_vars_num _fill_vars_cat _fill_byvar _fill_target
-        _fill_def_cld _fill_is_custom _scope_abbr _report_path _images_path
-        _tables_path _file_prefix _tbl_prefix _seg_num _dir_rc;
+        _fill_def_cld _fill_oot_max_mes _fill_is_custom _scope_abbr
+        _report_path _images_path _tables_path _file_prefix _tbl_prefix
+        _seg_num _dir_rc;
 
     %put NOTE:======================================================;
     %put NOTE: [fillrate_run] INICIO;
@@ -54,6 +55,7 @@ Compatibilidad: segmento y universo.
     %let _fill_byvar=;
     %let _fill_target=;
     %let _fill_def_cld=;
+    %let _fill_oot_max_mes=;
     %let _fill_is_custom=0;
 
     /* Resolver campos estructurales desde config */
@@ -64,7 +66,12 @@ Compatibilidad: segmento y universo.
             casuser.cfg_troncales where troncal_id=&troncal_id.;
         select strip(put(def_cld, best.)) into :_fill_def_cld trimmed from
             casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(oot_max_mes, best.)) into :_fill_oot_max_mes trimmed
+            from casuser.cfg_troncales where troncal_id=&troncal_id.;
     quit;
+
+    %if %length(%superq(_fill_oot_max_mes))=0 %then
+        %let _fill_oot_max_mes=&_fill_def_cld.;
 
     /* CUSTOM: variables manuales + target/def_cld opcionales */
     %if %upcase(&fill_mode.)=CUSTOM %then %do;
@@ -130,6 +137,7 @@ Compatibilidad: segmento y universo.
     %put NOTE: [fillrate_run] byvar=&_fill_byvar.;
     %put NOTE: [fillrate_run] target=&_fill_target.;
     %put NOTE: [fillrate_run] def_cld=&_fill_def_cld.;
+    %put NOTE: [fillrate_run] oot_max_mes=&_fill_oot_max_mes.;
 
     %if %substr(&scope., 1, 3)=seg %then %let _scope_abbr=&scope.;
     %else %let _scope_abbr=base;
@@ -169,7 +177,8 @@ Compatibilidad: segmento y universo.
 
     %_fillrate_report(input_caslib=&input_caslib., train_table=&train_table.,
         oot_table=&oot_table., byvar=&_fill_byvar., target=&_fill_target.,
-        def_cld=&_fill_def_cld., vars_num=&_fill_vars_num.,
+        def_cld=&_fill_def_cld., oot_max_mes=&_fill_oot_max_mes.,
+        vars_num=&_fill_vars_num.,
         vars_cat=&_fill_vars_cat., report_path=&_report_path.,
         images_path=&_images_path., file_prefix=&_file_prefix.);
 

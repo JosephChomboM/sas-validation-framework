@@ -158,7 +158,7 @@ Notas:
 
 %mend _fill_monthly_compute;
 
-%macro _fill_plot_monthly(data=, byvar=, split_label=, image_stub=);
+%macro _fill_plot_monthly(data=, byvar=, image_stub=);
 
     %local _nvars _i _var;
 
@@ -172,13 +172,15 @@ Notas:
     %do _i=1 %to &_nvars.;
         %let _var=&&_fill_plot_v&_i.;
         ods graphics / imagename="&image_stub._&_i." imagefmt=jpeg;
-        title "&split_label.: Fillrate mensual - &_var.";
+        title "Fillrate completo - &_var.";
 
         proc sgplot data=&data.(where=(Variable="&_var."));
             series x=&byvar. y=Fillrate /
-                lineattrs=(color=crimson thickness=2);
+                group=Muestra
+                lineattrs=(thickness=2);
             xaxis type=discrete label="&byvar.";
             yaxis label="Fillrate (%)" min=0 max=100;
+            keylegend / title="Muestra";
         run;
 
         title;

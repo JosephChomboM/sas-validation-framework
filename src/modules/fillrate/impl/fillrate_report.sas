@@ -2,8 +2,7 @@
 fillrate_report.sas - Reportes para Fillrate vs Gini
 
 Genera:
-- <report_path>/<prefix>_train.html
-- <report_path>/<prefix>_oot.html
+- <report_path>/<prefix>.html
 - <report_path>/<prefix>.xlsx
 - <images_path>/<prefix>_*.jpeg
 
@@ -12,31 +11,44 @@ Tambien deja en casuser:
 - _fill_monthly_all
 ========================================================================= */
 %macro _fillrate_report(input_caslib=, train_table=, oot_table=, byvar=,
-    target=, def_cld=, vars_num=, vars_cat=, report_path=, images_path=,
-    file_prefix=);
+    target=, def_cld=, oot_max_mes=, vars_num=, vars_cat=, report_path=,
+    images_path=, file_prefix=);
 
-    %local _has_trn_general _has_oot_general _start_sheet;
+    %local _has_general _start_sheet;
 
     %put NOTE: [fillrate_report] Generando reportes...;
     %put NOTE: [fillrate_report] byvar=&byvar. target=&target.
         def_cld=&def_cld.;
+    %put NOTE: [fillrate_report] oot_max_mes=&oot_max_mes.;
 
     proc fedsql sessref=conn;
-        create table casuser._fill_train {options replace=true} as
+        create table casuser._fill_train_gini {options replace=true} as
             select * from &input_caslib..&train_table.
             where &byvar. <= &def_cld.;
     quit;
 
     proc fedsql sessref=conn;
-        create table casuser._fill_oot {options replace=true} as
+        create table casuser._fill_oot_gini {options replace=true} as
             select * from &input_caslib..&oot_table.
             where &byvar. <= &def_cld.;
     quit;
 
+    proc fedsql sessref=conn;
+        create table casuser._fill_train_full {options replace=true} as
+            select * from &input_caslib..&train_table.
+            where &byvar. <= &oot_max_mes.;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._fill_oot_full {options replace=true} as
+            select * from &input_caslib..&oot_table.
+            where &byvar. <= &oot_max_mes.;
+    quit;
+
     %if %length(%superq(vars_num)) > 0 %then %do;
-        %_fill_general_compute(data=casuser._fill_train, vars_num=&vars_num.,
+        %_fill_general_compute(data=casuser._fill_train_gini, vars_num=&vars_num.,
             target=&target., out=work._fill_general_train);
-        %_fill_general_compute(data=casuser._fill_oot, vars_num=&vars_num.,
+        %_fill_general_compute(data=casuser._fill_oot_gini, vars_num=&vars_num.,
             target=&target., out=work._fill_general_oot);
     %end;
     %else %do;
@@ -52,34 +64,48 @@ Tambien deja en casuser:
         run;
     %end;
 
-    %_fill_monthly_compute(data=casuser._fill_train, byvar=&byvar.,
+    %_fill_monthly_compute(data=casuser._fill_train_full, byvar=&byvar.,
         vars_num=&vars_num., vars_cat=&vars_cat., out=work._fill_monthly_train);
-    %_fill_monthly_compute(data=casuser._fill_oot, byvar=&byvar.,
+    %_fill_monthly_compute(data=casuser._fill_oot_full, byvar=&byvar.,
         vars_num=&vars_num., vars_cat=&vars_cat., out=work._fill_monthly_oot);
 
     data casuser._fill_general_all;
-        length Split $5;
+        length Muestra $5;
         set work._fill_general_train(in=_trn) work._fill_general_oot(in=_oot);
-        if _trn then Split="TRAIN";
-        else if _oot then Split="OOT";
+        if _trn then Muestra="TRAIN";
+        else if _oot then Muestra="OOT";
     run;
 
-    data casuser._fill_monthly_all;
-        length Split $5;
-        set work._fill_monthly_train(in=_trn) work._fill_monthly_oot(in=_oot);
-        if _trn then Split="TRAIN";
-        else if _oot then Split="OOT";
-    run;
-
-    proc sql noprint;
-        select count(*) into :_has_trn_general trimmed from
-            work._fill_general_train;
-        select count(*) into :_has_oot_general trimmed from
-            work._fill_general_oot;
+    proc cas;
+        session conn;
+        table.partition /
+            table={caslib="casuser", name="_fill_general_all",
+                groupby={"Variable"}, orderby={"Muestra"}},
+            casout={caslib="casuser", name="_fill_general_all", replace=true};
     quit;
 
-    %if &_has_trn_general. > 0 %then %let _start_sheet=TRAIN_General;
-    %else %let _start_sheet=TRAIN_Monthly;
+    data casuser._fill_monthly_all;
+        length Muestra $5;
+        set work._fill_monthly_train(in=_trn) work._fill_monthly_oot(in=_oot);
+        if _trn then Muestra="TRAIN";
+        else if _oot then Muestra="OOT";
+    run;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={caslib="casuser", name="_fill_monthly_all",
+                groupby={"Variable"}, orderby={"&byvar.", "Muestra"}},
+            casout={caslib="casuser", name="_fill_monthly_all", replace=true};
+    quit;
+
+    proc sql noprint;
+        select count(*) into :_has_general trimmed from
+            work._fill_general_train;
+    quit;
+
+    %if &_has_general. > 0 %then %let _start_sheet=Fillrate_Gini;
+    %else %let _start_sheet=Fillrate_Completo;
 
     ods graphics on;
     ods listing gpath="&images_path.";
@@ -87,16 +113,14 @@ Tambien deja en casuser:
         options(sheet_name="&_start_sheet." sheet_interval="none"
         embedded_titles="yes");
 
-    /* ==================================================================
-    TRAIN
-    ================================================================== */
-    ods html5 file="&report_path./&file_prefix._train.html"
+    ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
 
-    %if &_has_trn_general. > 0 %then %do;
-        title "TRAIN: Fillrate vs Gini";
-        proc print data=work._fill_general_train noobs label;
+    %if &_has_general. > 0 %then %do;
+        title "Fillrate vs Gini (default cerrado)";
+        proc print data=casuser._fill_general_all noobs label;
             label Variable="Variable"
+                Muestra="Muestra"
                 Var_Type="Tipo"
                 N_Total="N Total"
                 N_Filled="N Filled"
@@ -106,71 +130,30 @@ Tambien deja en casuser:
                 Gini="Gini";
         run;
         title;
-        ods excel options(sheet_name="TRAIN_Monthly" sheet_interval="now"
+        ods excel options(sheet_name="Fillrate_Completo" sheet_interval="now"
             embedded_titles="yes");
     %end;
 
-    title "TRAIN: Fillrate mensual";
-    proc print data=work._fill_monthly_train noobs label;
+    title "Fillrate completo hasta fecha maxima OOT";
+    proc print data=casuser._fill_monthly_all noobs label;
         label Variable="Variable"
+            Muestra="Muestra"
             Var_Type="Tipo"
             N_Total="N Total"
             N_Filled="N Filled"
             Fillrate="Fillrate (%)";
     run;
-    %_fill_plot_monthly(data=work._fill_monthly_train, byvar=&byvar.,
-        split_label=TRAIN, image_stub=&file_prefix._trn_fill);
+    %_fill_plot_monthly(data=casuser._fill_monthly_all, byvar=&byvar.,
+        image_stub=&file_prefix._fill);
     title;
 
-    ods html5 close;
-    ods graphics / reset=all;
-
-    /* ==================================================================
-    OOT
-    ================================================================== */
-    ods html5 file="&report_path./&file_prefix._oot.html"
-        options(bitmap_mode="inline");
-
-    %if &_has_oot_general. > 0 %then %do;
-        ods excel options(sheet_name="OOT_General" sheet_interval="now"
-            embedded_titles="yes");
-        title "OOT: Fillrate vs Gini";
-        proc print data=work._fill_general_oot noobs label;
-            label Variable="Variable"
-                Var_Type="Tipo"
-                N_Total="N Total"
-                N_Filled="N Filled"
-                Fillrate="Fillrate (%)"
-                N_Gini="N Gini"
-                Smdcr_Raw="_SMDCR_"
-                Gini="Gini";
-        run;
-        title;
-    %end;
-
-    ods excel options(sheet_name="OOT_Monthly" sheet_interval="now"
-        embedded_titles="yes");
-    title "OOT: Fillrate mensual";
-    proc print data=work._fill_monthly_oot noobs label;
-        label Variable="Variable"
-            Var_Type="Tipo"
-            N_Total="N Total"
-            N_Filled="N Filled"
-            Fillrate="Fillrate (%)";
-    run;
-    %_fill_plot_monthly(data=work._fill_monthly_oot, byvar=&byvar.,
-        split_label=OOT, image_stub=&file_prefix._oot_fill);
-    title;
-
-    ods html5 close;
     ods excel close;
+    ods html5 close;
     ods graphics / reset=all;
     ods graphics off;
 
-    %put NOTE: [fillrate_report] HTML TRAIN =>
-        &report_path./&file_prefix._train.html;
-    %put NOTE: [fillrate_report] HTML OOT =>
-        &report_path./&file_prefix._oot.html;
+    %put NOTE: [fillrate_report] HTML =>
+        &report_path./&file_prefix..html;
     %put NOTE: [fillrate_report] Excel =>
         &report_path./&file_prefix..xlsx;
 
