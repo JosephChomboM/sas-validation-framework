@@ -73,48 +73,20 @@ Compatibilidad: segmento y universo.
     %if %length(%superq(_fill_oot_max_mes))=0 %then
         %let _fill_oot_max_mes=&_fill_def_cld.;
 
-    /* CUSTOM: variables manuales + target/def_cld opcionales */
-    %if %upcase(&fill_mode.)=CUSTOM %then %do;
-        %let _fill_is_custom=1;
+    /* Resolver variables por defecto desde config */
+    %if %substr(&scope., 1, 3)=seg %then %do;
+        %let _seg_num=%sysfunc(inputn(%substr(&scope., 4), best.));
+        %put NOTE: [fillrate_run] Resolviendo variables por defecto desde
+            cfg_segmentos (troncal=&troncal_id. seg=&_seg_num.).;
 
-        %if %length(%superq(fill_custom_vars_num)) > 0 %then
-            %let _fill_vars_num=&fill_custom_vars_num.;
-        %if %length(%superq(fill_custom_vars_cat)) > 0 %then
-            %let _fill_vars_cat=&fill_custom_vars_cat.;
-        %if %length(%superq(fill_custom_target)) > 0 %then
-            %let _fill_target=&fill_custom_target.;
-        %if %length(%superq(fill_custom_def_cld)) > 0 %then
-            %let _fill_def_cld=&fill_custom_def_cld.;
-
-        %put NOTE: [fillrate_run] Modo CUSTOM activado.;
-        %if %length(%superq(fill_custom_vars_num))=0 and
-            %length(%superq(fill_custom_vars_cat))=0 %then %put NOTE:
-            [fillrate_run] Sin listas custom; se usan variables desde config.;
-    %end;
-
-    /* Resolver variables desde config si no vinieron por custom */
-    %if %length(%superq(_fill_vars_num))=0 or
-        %length(%superq(_fill_vars_cat))=0 %then %do;
-        %if &_fill_is_custom.=0 %then
-            %put NOTE: [fillrate_run] Modo AUTO - resolviendo vars desde config.;
-        %else %put NOTE: [fillrate_run] Complementando variables desde config.;
-
-        %if %substr(&scope., 1, 3)=seg %then %do;
-            %let _seg_num=%sysfunc(inputn(%substr(&scope., 4), best.));
-
-            proc sql noprint;
-                %if %length(%superq(_fill_vars_num))=0 %then %do;
-                    select strip(num_list) into :_fill_vars_num trimmed from
-                        casuser.cfg_segmentos where troncal_id=&troncal_id. and
-                        seg_id=&_seg_num.;
-                %end;
-                %if %length(%superq(_fill_vars_cat))=0 %then %do;
-                    select strip(cat_list) into :_fill_vars_cat trimmed from
-                        casuser.cfg_segmentos where troncal_id=&troncal_id. and
-                        seg_id=&_seg_num.;
-                %end;
-            quit;
-        %end;
+        proc sql noprint;
+            select strip(num_list) into :_fill_vars_num trimmed from
+                casuser.cfg_segmentos where troncal_id=&troncal_id. and
+                seg_id=&_seg_num.;
+            select strip(cat_list) into :_fill_vars_cat trimmed from
+                casuser.cfg_segmentos where troncal_id=&troncal_id. and
+                seg_id=&_seg_num.;
+        quit;
     %end;
 
     %if %length(%superq(_fill_vars_num))=0 %then %do;
@@ -129,6 +101,26 @@ Compatibilidad: segmento y universo.
             select strip(cat_unv) into :_fill_vars_cat trimmed from
                 casuser.cfg_troncales where troncal_id=&troncal_id.;
         quit;
+    %end;
+
+    /* CUSTOM: override opcional sobre defaults de config */
+    %if %upcase(&fill_mode.)=CUSTOM %then %do;
+        %let _fill_is_custom=1;
+        %put NOTE: [fillrate_run] Modo CUSTOM activado.;
+
+        %if %length(%superq(fill_custom_vars_num)) > 0 %then
+            %let _fill_vars_num=&fill_custom_vars_num.;
+        %if %length(%superq(fill_custom_vars_cat)) > 0 %then
+            %let _fill_vars_cat=&fill_custom_vars_cat.;
+        %if %length(%superq(fill_custom_target)) > 0 %then
+            %let _fill_target=&fill_custom_target.;
+        %if %length(%superq(fill_custom_def_cld)) > 0 %then
+            %let _fill_def_cld=&fill_custom_def_cld.;
+
+        %if %length(%superq(fill_custom_vars_num))=0 and
+            %length(%superq(fill_custom_vars_cat))=0 %then %put NOTE:
+            [fillrate_run] Sin listas custom; se conservan variables desde
+            config.sas.;
     %end;
 
     %put NOTE: [fillrate_run] Variables resueltas:;

@@ -21,8 +21,9 @@ NOTA IMPORTANTE:
 /* fill_mode:
 AUTO   -> usa variables de cfg_segmentos/cfg_troncales + target/byvar/def_cld
           desde config.sas. Outputs a reports/images/tables.
-CUSTOM -> usa fill_custom_vars_num/cat y permite override de target/def_cld.
-          Outputs a experiments/. */
+CUSTOM -> toma por defecto las variables de config.sas y permite override
+          opcional de vars_num/vars_cat/target/def_cld. Outputs a
+          experiments/. */
 %let fill_mode=AUTO;
 
 /* Variables personalizadas (solo si fill_mode=CUSTOM) */
