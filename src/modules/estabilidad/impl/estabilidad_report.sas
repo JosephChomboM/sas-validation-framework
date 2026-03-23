@@ -36,12 +36,12 @@ Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
     %let _dir_rc=%sysfunc(dcreate(METOD4.2, &images_path./../));
     %let _dir_rc=%sysfunc(dcreate(., &images_path.));
 
-    data casuser._estab_all;
-        length Split $5;
-        set casuser._estab_train(in=_trn) casuser._estab_oot(in=_oot);
-        if _trn then Split="TRAIN";
-        else if _oot then Split="OOT";
-    run;
+    proc fedsql sessref=conn noprint;
+        create table casuser._estab_all {options replace=true} as
+            select "TRAIN" as Split, * from casuser._estab_train
+            union all
+            select "OOT" as Split, * from casuser._estab_oot;
+    quit;
 
     /* ==================================================================
     Reporte combinado TRAIN + OOT

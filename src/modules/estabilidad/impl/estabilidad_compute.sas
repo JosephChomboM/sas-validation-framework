@@ -26,16 +26,16 @@ Genera tabla + grafico de barras (N) + linea (promedio).
     proc fedsql sessref=conn noprint;
         create table casuser._estab_cont {options replace=true} as select
             "%upcase(&var.)" as Variable, Split, &byvar., count(*) as N_Obs,
-            sum(case when &var. is not null then 1 else 0 end) as N,
-            avg(cast(&var. as double)) as prom, sum(case when &var. is null then
-            1 else 0 end) as MISSING from &data. group by Split, &byvar.;
+            count(&var.) as N, avg(cast(&var. as double)) as prom,
+            count(*) - count(&var.) as MISSING from &data.
+            group by Split, &byvar.;
     quit;
 
     proc cas;
         session conn;
         table.partition /
             table={caslib="casuser", name="_estab_cont",
-                orderby={"Variable", "&byvar.", "Split"}, groupby={}},
+                groupby={"Variable"}, orderby={"&byvar.", "Split"}},
             casout={caslib="casuser", name="_estab_cont", replace=true};
     quit;
 
@@ -103,7 +103,7 @@ CAS-to-CAS).
         session conn;
         table.partition /
             table={caslib="casuser", name="_estab_disc_pct",
-                orderby={"Variable", "&byvar.", "Split", "&var."}, groupby={}},
+                groupby={"Variable"}, orderby={"&byvar.", "Split", "&var."}},
             casout={caslib="casuser", name="_estab_disc_pct", replace=true};
     quit;
 
@@ -112,9 +112,19 @@ CAS-to-CAS).
         title "Estabilidad de la variable - &var. (TRAIN vs OOT)";
     run;
 
-    proc sgpanel data=casuser._estab_disc_pct;
+    data work._estab_disc_area;
+        set casuser._estab_disc_pct;
+        by Variable &byvar. Split &var.;
+        retain _cum_pct 0;
+        if first.Split or first.&byvar. then _cum_pct=0;
+        Lower=_cum_pct;
+        Upper=_cum_pct + Porcentaje;
+        _cum_pct=Upper;
+    run;
+
+    proc sgpanel data=work._estab_disc_area noautolegend;
         panelby Split / columns=2 onepanel novarname;
-        vbar &byvar. / response=Porcentaje group=&var. groupdisplay=cluster;
+        band x=&byvar. lower=Lower upper=Upper / group=&var.;
         colaxis type=discrete discreteorder=data display=(nolabel);
         rowaxis max=100 label="Porcentaje (%)";
         keylegend / title="Categoria";
@@ -123,7 +133,7 @@ CAS-to-CAS).
 
     /* Cleanup work staging */
     proc datasets library=work nolist nowarn;
-        delete _estab_disc_stg _estab_disc_cnt _estab_disc_pct;
+        delete _estab_disc_stg _estab_disc_cnt _estab_disc_pct _estab_disc_area;
     quit;
 
     proc datasets library=casuser nolist nowarn;
@@ -139,30 +149,56 @@ para categoricas.
 ===================================================================== */
 %macro _estab_variables(data=, byvar=, vars_num=, vars_cat=);
 
-    %local c v z v_cat;
+    %local _i _v _type _nvars c z v v_cat;
 
-    /* Procesar variables numericas */
-    %if %length(&vars_num.) > 0 %then %do;
+    data work._estab_var_queue;
+        length Variable $128 Var_Type $3;
         %let c=1;
         %let v=%scan(&vars_num., &c., %str( ));
         %do %while(%length(&v.) > 0);
-            %put NOTE: [estabilidad] Procesando variable numerica: &v.;
-            %_estab_var_continuo(data=&data., var=&v., byvar=&byvar.);
+            Variable="%upcase(&v.)";
+            Var_Type="NUM";
+            output;
             %let c=%eval(&c. + 1);
             %let v=%scan(&vars_num., &c., %str( ));
         %end;
-    %end;
 
-    /* Procesar variables categoricas */
-    %if %length(&vars_cat.) > 0 %then %do;
         %let z=1;
         %let v_cat=%scan(&vars_cat., &z., %str( ));
         %do %while(%length(&v_cat.) > 0);
-            %put NOTE: [estabilidad] Procesando variable categorica: &v_cat.;
-            %_estab_var_discreto(data=&data., var=&v_cat., byvar=&byvar.);
+            Variable="%upcase(&v_cat.)";
+            Var_Type="CAT";
+            output;
             %let z=%eval(&z. + 1);
             %let v_cat=%scan(&vars_cat., &z., %str( ));
         %end;
+        stop;
+    run;
+
+    proc sort data=work._estab_var_queue nodupkey;
+        by Variable;
+    run;
+
+    data _null_;
+        set work._estab_var_queue end=_eof;
+        call symputx(cats('_estab_var_', _n_), Variable, 'L');
+        call symputx(cats('_estab_type_', _n_), Var_Type, 'L');
+        if _eof then call symputx('_nvars', _n_, 'L');
+    run;
+
+    %if %length(%superq(_nvars))=0 %then %let _nvars=0;
+
+    %do _i=1 %to &_nvars.;
+        %let _v=&&_estab_var_&_i.;
+        %let _type=&&_estab_type_&_i.;
+        %put NOTE: [estabilidad] Procesando variable &_type.: &_v.;
+        %if &_type.=NUM %then %_estab_var_continuo(data=&data., var=&_v.,
+            byvar=&byvar.);
+        %else %_estab_var_discreto(data=&data., var=&_v., byvar=&byvar.);
     %end;
+
+    proc datasets library=work nolist nowarn;
+        delete _estab_var_queue;
+    quit;
 
 %mend _estab_variables;
