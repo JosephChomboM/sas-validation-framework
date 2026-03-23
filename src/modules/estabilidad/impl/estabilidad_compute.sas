@@ -25,8 +25,9 @@ Genera tabla + grafico de barras (N) + linea (promedio).
     /* Agregar por periodo: N, mean, missing via FEDSQL */
     proc fedsql sessref=conn noprint;
         create table casuser._estab_cont {options replace=true} as select
-            "%upcase(&var.)" as Variable, Muestra, &byvar., count(*) as N_Obs,
-            count(&var.) as N, avg(cast(&var. as double)) as prom,
+            '%upcase(&var.)' as Variable length 128, Muestra, &byvar.,
+            count(*) as N_Obs, count(&var.) as N,
+            avg(cast(&var. as double)) as prom,
             count(*) - count(&var.) as MISSING from &data.
             group by Muestra, &byvar.;
     quit;
@@ -87,7 +88,7 @@ CAS-to-CAS).
     quit;
 
     proc sql noprint;
-        create table work._estab_disc_pct as select "%upcase(&var.)" as
+        create table work._estab_disc_pct as select '%upcase(&var.)' as
             Variable length=128, a.Muestra, a.&byvar., a.&var., a.N, (a.N * 100.0)
             / b.total as Porcentaje from work._estab_disc_cnt a inner join (
             select Muestra, &byvar., sum(N) as total from work._estab_disc_cnt
