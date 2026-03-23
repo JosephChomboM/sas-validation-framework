@@ -25,23 +25,23 @@ Genera tabla + grafico de barras (N) + linea (promedio).
     /* Agregar por periodo: N, mean, missing via FEDSQL */
     proc fedsql sessref=conn noprint;
         create table casuser._estab_cont {options replace=true} as select
-            "%upcase(&var.)" as Variable, Split, &byvar., count(*) as N_Obs,
+            "%upcase(&var.)" as Variable, Muestra, &byvar., count(*) as N_Obs,
             count(&var.) as N, avg(cast(&var. as double)) as prom,
             count(*) - count(&var.) as MISSING from &data.
-            group by Split, &byvar.;
+            group by Muestra, &byvar.;
     quit;
 
     proc cas;
         session conn;
         table.partition /
             table={caslib="casuser", name="_estab_cont",
-                groupby={"Variable"}, orderby={"&byvar.", "Split"}},
+                groupby={"Variable"}, orderby={"&byvar.", "Muestra"}},
             casout={caslib="casuser", name="_estab_cont", replace=true};
     quit;
 
     proc print data=casuser._estab_cont noobs;
-        var Split &byvar. N_Obs N prom MISSING;
-        title "Estabilidad de la variable - &var. (TRAIN vs OOT)";
+        var Muestra &byvar. N_Obs N prom MISSING;
+        title "Estabilidad de la variable - &var. (TRAIN y OOT)";
     run;
 
     proc sgplot data=casuser._estab_cont subpixel noautolegend;
@@ -49,13 +49,13 @@ Genera tabla + grafico de barras (N) + linea (promedio).
         y2axis label="Promedio &var.";
         styleattrs datacolors=(lightblue cx4f81bd)
             datacontrastcolors=(black cx1f497d);
-        vbar &byvar. / response=N group=Split groupdisplay=cluster nooutline
+        vbar &byvar. / response=N group=Muestra groupdisplay=cluster nooutline
             barwidth=0.7 transparency=0.15;
-        series x=&byvar. y=prom / group=Split markers y2axis
+        series x=&byvar. y=prom / group=Muestra markers y2axis
             lineattrs=(thickness=2);
         xaxis type=discrete discreteorder=data label="&byvar."
             valueattrs=(size=8pt);
-        keylegend / title="Split";
+        keylegend / title="Muestra";
     run;
     title;
 
@@ -81,17 +81,17 @@ CAS-to-CAS).
 
     /* Distribucion por periodo y categoria */
     proc sql noprint;
-        create table work._estab_disc_cnt as select Split, &byvar., &var.,
-            count(*) as N from work._estab_disc_stg group by Split, &byvar.,
+        create table work._estab_disc_cnt as select Muestra, &byvar., &var.,
+            count(*) as N from work._estab_disc_stg group by Muestra, &byvar.,
             &var.;
     quit;
 
     proc sql noprint;
         create table work._estab_disc_pct as select "%upcase(&var.)" as
-            Variable length=128, a.Split, a.&byvar., a.&var., a.N, (a.N * 100.0)
+            Variable length=128, a.Muestra, a.&byvar., a.&var., a.N, (a.N * 100.0)
             / b.total as Porcentaje from work._estab_disc_cnt a inner join (
-            select Split, &byvar., sum(N) as total from work._estab_disc_cnt
-            group by Split, &byvar. ) b on a.Split=b.Split and
+            select Muestra, &byvar., sum(N) as total from work._estab_disc_cnt
+            group by Muestra, &byvar. ) b on a.Muestra=b.Muestra and
             a.&byvar.=b.&byvar.;
     quit;
 
@@ -103,27 +103,27 @@ CAS-to-CAS).
         session conn;
         table.partition /
             table={caslib="casuser", name="_estab_disc_pct",
-                groupby={"Variable"}, orderby={"&byvar.", "Split", "&var."}},
+                groupby={"Variable"}, orderby={"&byvar.", "Muestra", "&var."}},
             casout={caslib="casuser", name="_estab_disc_pct", replace=true};
     quit;
 
     proc print data=casuser._estab_disc_pct noobs;
-        var Split &byvar. &var. N Porcentaje;
-        title "Estabilidad de la variable - &var. (TRAIN vs OOT)";
+        var Muestra &byvar. &var. N Porcentaje;
+        title "Estabilidad de la variable - &var. (TRAIN y OOT)";
     run;
 
     data work._estab_disc_area;
         set casuser._estab_disc_pct;
-        by Variable &byvar. Split &var.;
+        by Variable &byvar. Muestra &var.;
         retain _cum_pct 0;
-        if first.Split or first.&byvar. then _cum_pct=0;
+        if first.Muestra or first.&byvar. then _cum_pct=0;
         Lower=_cum_pct;
         Upper=_cum_pct + Porcentaje;
         _cum_pct=Upper;
     run;
 
     proc sgpanel data=work._estab_disc_area noautolegend;
-        panelby Split / columns=2 onepanel novarname;
+        panelby Muestra / columns=2 onepanel novarname;
         band x=&byvar. lower=Lower upper=Upper / group=&var.;
         colaxis type=discrete discreteorder=data display=(nolabel);
         rowaxis max=100 label="Porcentaje (%)";
@@ -149,15 +149,15 @@ para categoricas.
 ===================================================================== */
 %macro _estab_variables(data=, byvar=, vars_num=, vars_cat=);
 
-    %local _i _v _type _nvars c z v v_cat;
+    %local _i _v _tipo _nvars c z v v_cat;
 
-    data work._estab_var_queue;
-        length Variable $128 Var_Type $3;
+    data work._estab_cola_vars;
+        length Variable $128 Tipo_Variable $3;
         %let c=1;
         %let v=%scan(&vars_num., &c., %str( ));
         %do %while(%length(&v.) > 0);
             Variable="%upcase(&v.)";
-            Var_Type="NUM";
+            Tipo_Variable="NUM";
             output;
             %let c=%eval(&c. + 1);
             %let v=%scan(&vars_num., &c., %str( ));
@@ -167,7 +167,7 @@ para categoricas.
         %let v_cat=%scan(&vars_cat., &z., %str( ));
         %do %while(%length(&v_cat.) > 0);
             Variable="%upcase(&v_cat.)";
-            Var_Type="CAT";
+            Tipo_Variable="CAT";
             output;
             %let z=%eval(&z. + 1);
             %let v_cat=%scan(&vars_cat., &z., %str( ));
@@ -175,14 +175,14 @@ para categoricas.
         stop;
     run;
 
-    proc sort data=work._estab_var_queue nodupkey;
+    proc sort data=work._estab_cola_vars nodupkey;
         by Variable;
     run;
 
     data _null_;
-        set work._estab_var_queue end=_eof;
+        set work._estab_cola_vars end=_eof;
         call symputx(cats('_estab_var_', _n_), Variable, 'L');
-        call symputx(cats('_estab_type_', _n_), Var_Type, 'L');
+        call symputx(cats('_estab_tipo_', _n_), Tipo_Variable, 'L');
         if _eof then call symputx('_nvars', _n_, 'L');
     run;
 
@@ -190,15 +190,15 @@ para categoricas.
 
     %do _i=1 %to &_nvars.;
         %let _v=&&_estab_var_&_i.;
-        %let _type=&&_estab_type_&_i.;
-        %put NOTE: [estabilidad] Procesando variable &_type.: &_v.;
-        %if &_type.=NUM %then %_estab_var_continuo(data=&data., var=&_v.,
+        %let _tipo=&&_estab_tipo_&_i.;
+        %put NOTE: [estabilidad] Procesando variable &_tipo.: &_v.;
+        %if &_tipo.=NUM %then %_estab_var_continuo(data=&data., var=&_v.,
             byvar=&byvar.);
         %else %_estab_var_discreto(data=&data., var=&_v., byvar=&byvar.);
     %end;
 
     proc datasets library=work nolist nowarn;
-        delete _estab_var_queue;
+        delete _estab_cola_vars;
     quit;
 
 %mend _estab_variables;

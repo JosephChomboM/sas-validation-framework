@@ -38,9 +38,9 @@ Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
 
     proc fedsql sessref=conn noprint;
         create table casuser._estab_all {options replace=true} as
-            select "TRAIN" as Split, * from casuser._estab_train
+            select 'TRAIN' as Muestra, * from casuser._estab_train
             union all
-            select "OOT" as Split, * from casuser._estab_oot;
+            select 'OOT' as Muestra, * from casuser._estab_oot;
     quit;
 
     /* ==================================================================
@@ -56,7 +56,7 @@ Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
         embedded_titles="yes");
     ods graphics / imagename="&file_prefix._estab" imagefmt=jpeg;
 
-    title "Analisis de Estabilidad Temporal - TRAIN vs OOT";
+    title "Analisis de Estabilidad Temporal - TRAIN y OOT";
 
     %_estab_variables(data=casuser._estab_all, byvar=&byvar.,
         vars_num=&vars_num., vars_cat=&vars_cat.);
