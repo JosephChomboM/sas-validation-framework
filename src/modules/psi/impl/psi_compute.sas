@@ -186,8 +186,8 @@ al terminar. work se limpia al final.
 %macro _psi_compute( input_caslib=, train_table=, oot_table=, vars_num=,
     vars_cat=, byvar=, n_buckets=10, mensual=1 );
 
-    %local n v m c z v_aux v_cat es_categorica num_valores lista_var meses_oot
-        n_meses hay_mensual;
+    %local n v m c z v_aux v_cat es_categorica num_valores lista_var
+        lista_var_uni item meses_oot n_meses hay_mensual _psi_old_validvarname;
 
     %put NOTE: [psi_compute] Iniciando computo PSI...;
     %put NOTE: [psi_compute] vars_num=&vars_num.;
@@ -205,6 +205,18 @@ al terminar. work se limpia al final.
         %let z=%eval(&z. + 1);
         %let v_cat=%scan(&vars_cat., &z., %str( ));
     %end;
+
+    %let lista_var_uni=;
+    %let z=1;
+    %let item=%scan(&lista_var., &z., %str( ));
+    %do %while(%length(&item.) > 0);
+        %if %index(%str( )%superq(lista_var_uni)%str( ),
+            %str( )%superq(item)%str( ))=0 %then
+            %let lista_var_uni=&lista_var_uni. &item.;
+        %let z=%eval(&z. + 1);
+        %let item=%scan(&lista_var., &z., %str( ));
+    %end;
+    %let lista_var=&lista_var_uni.;
 
     /* ---- 2) Copiar tablas CAS a work para procesamiento local ----------
        CAS no soporta INSERT INTO, PROC SORT in-place, PROC TRANSPOSE
@@ -279,13 +291,7 @@ al terminar. work se limpia al final.
             %let c=%scan(&meses_oot., &m., %str( ));
 
             %do %while(%length(&c.) > 0);
-
-                data _psi_oot_mes;
-                    set _psi_oot;
-                    where &byvar.=&c.;
-                run;
-
-                %_psi_calc( dev=_psi_dev, oot=_psi_oot_mes,
+                %_psi_calc( dev=_psi_dev, oot=_psi_oot(where=(&byvar.=&c.)),
                     var=&v_aux., n_buckets=&n_buckets., flg_continue=%eval(1 -
                     &es_categorica.) );
 
@@ -322,21 +328,31 @@ al terminar. work se limpia al final.
 
     /* ---- 6) Crear CUBO formato wide (Variable x Mes) ------------------- */
     %if %length(%superq(byvar)) > 0 %then %do;
+        proc sql;
+            create table _psi_cubo_base as
+            select Variable, &byvar., max(PSI) as PSI format=10.6,
+                Tipo
+            from _psi_cubo
+            group by Variable, &byvar., Tipo;
+        quit;
 
-        proc sort data=_psi_cubo;
+        proc sort data=_psi_cubo_base;
             by Variable &byvar.;
         run;
 
         %let hay_mensual=0;
 
         proc sql noprint;
-            select count(*) into :hay_mensual trimmed from _psi_cubo where
+            select count(*) into :hay_mensual trimmed from _psi_cubo_base where
                 Tipo="Mensual";
         quit;
 
         %if &hay_mensual. > 0 %then %do;
-            proc transpose data=_psi_cubo(where=(Tipo="Mensual"))
-                out=_psi_cubo_wide(drop=_NAME_) prefix=mes_;
+            %let _psi_old_validvarname=%sysfunc(getoption(validvarname));
+            options validvarname=any;
+
+            proc transpose data=_psi_cubo_base(where=(Tipo="Mensual"))
+                out=_psi_cubo_wide(drop=_NAME_);
                 by Variable;
                 id &byvar.;
                 var PSI;
@@ -345,9 +361,11 @@ al terminar. work se limpia al final.
             proc sql;
                 create table _psi_wide_tmp as select a.*, b.PSI as
                     PSI_Total format=10.6 from _psi_cubo_wide a left join
-                    _psi_cubo(where=(Tipo="Total")) b on a.Variable=
+                    _psi_cubo_base(where=(Tipo="Total")) b on a.Variable=
                     b.Variable;
             quit;
+
+            options validvarname=&_psi_old_validvarname.;
 
             proc datasets lib=work nolist nowarn;
                 delete _psi_cubo_wide;
@@ -357,7 +375,7 @@ al terminar. work se limpia al final.
         %else %do;
             proc sql;
                 create table _psi_cubo_wide as select Variable, PSI as
-                    PSI_Total format=10.6 from _psi_cubo where
+                    PSI_Total format=10.6 from _psi_cubo_base where
                     Tipo="Total";
             quit;
         %end;
@@ -378,7 +396,7 @@ al terminar. work se limpia al final.
                 sum(case when Tipo="Mensual" then 1 else 0 end) as Total_Meses,
                 max(case when Tipo="Mensual" then &byvar. else . end) as
                 Ultimo_Mes, min(case when Tipo="Mensual" then &byvar. else .
-                end) as Primer_Mes from _psi_cubo group by Variable;
+                end) as Primer_Mes from _psi_cubo_base group by Variable;
         quit;
 
         /* Agregar tendencia y alertas */
@@ -394,8 +412,8 @@ al terminar. work se limpia al final.
                 end as Alerta_Tendencia length=15, case when a.Total_Meses > 0
                 then a.Meses_Rojo / a.Total_Meses else 0 end as Pct_Meses_Rojo
                 format=percent8.1 from _psi_resumen a left join
-                _psi_cubo b on a.Variable=b.Variable and a.Primer_Mes=
-                b.&byvar. and b.Tipo="Mensual" left join _psi_cubo c on
+                _psi_cubo_base b on a.Variable=b.Variable and a.Primer_Mes=
+                b.&byvar. and b.Tipo="Mensual" left join _psi_cubo_base c on
                 a.Variable=c.Variable and a.Ultimo_Mes=c.&byvar. and
                 c.Tipo="Mensual";
         quit;
@@ -436,7 +454,7 @@ al terminar. work se limpia al final.
 
     /* ---- 9) Cleanup work ----------------------------------------------- */
     proc datasets lib=work nolist nowarn;
-        delete _psi_dev _psi_oot _psi_oot_mes _psi_cubo _psi_cubo_wide
+        delete _psi_dev _psi_oot _psi_cubo _psi_cubo_base _psi_cubo_wide
             _psi_resumen;
     quit;
 

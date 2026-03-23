@@ -127,6 +127,8 @@ archivos JPEG independientes (vía ods listing gpath).
 ===================================================================== */
 %macro _psi_report(report_path=, images_path=, file_prefix=, byvar=);
 
+    %local _psi_old_validvarname;
+
     /* ---- Crear directorios METOD4.2 si no existen ----------------------- */
     %local _dir_rc _detalle_title _detalle_footnote _resumen_title;
     %let _dir_rc=%sysfunc(dcreate(METOD4.2, &report_path./../));
@@ -144,16 +146,22 @@ archivos JPEG independientes (vía ods listing gpath).
     run;
 
     %if %length(%superq(byvar)) > 0 %then %do;
+        %let _psi_old_validvarname=%sysfunc(getoption(validvarname));
+        options validvarname=any;
+
         proc transpose data=casuser._psi_cubo_wide out=_psi_detalle_tmp
             name=_mes_col;
             by Variable;
-            var mes_:;
+            var _numeric_;
         run;
+
+        options validvarname=&_psi_old_validvarname.;
 
         data _psi_detalle_mensual_rpt;
             set _psi_detalle_tmp(rename=(COL1=PSI));
             length Tipo $15;
-            &byvar.=input(scan(_mes_col, 2, '_'), best32.);
+            if upcase(_mes_col)="PSI_TOTAL" then delete;
+            &byvar.=input(_mes_col, best32.);
             Tipo="Mensual";
             keep Variable &byvar. Tipo PSI;
         run;
