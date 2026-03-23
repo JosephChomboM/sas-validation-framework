@@ -78,7 +78,7 @@ al terminar. work se limpia al final.
             /* Asignar buckets a OOT usando los mismos cortes */
             data _oot_bucket_&rnd.;
                 %if %length(%superq(oot_where)) > 0 %then %do;
-                    set &oot.(where=(&oot_where.) keep=&var.);
+                    set &oot.(where=(&oot_where.));
                 %end;
                 %else %do;
                     set &oot.(keep=&var.);
@@ -105,7 +105,7 @@ al terminar. work se limpia al final.
 
             data _oot_bucket_&rnd.;
                 %if %length(%superq(oot_where)) > 0 %then %do;
-                    set &oot.(where=(&oot_where.) keep=&var.);
+                    set &oot.(where=(&oot_where.));
                 %end;
                 %else %do;
                     set &oot.(keep=&var.);
@@ -125,7 +125,7 @@ al terminar. work se limpia al final.
 
         data _oot_bucket_&rnd.;
             %if %length(%superq(oot_where)) > 0 %then %do;
-                set &oot.(where=(&oot_where.) keep=&var.);
+                set &oot.(where=(&oot_where.));
             %end;
             %else %do;
                 set &oot.(keep=&var.);
