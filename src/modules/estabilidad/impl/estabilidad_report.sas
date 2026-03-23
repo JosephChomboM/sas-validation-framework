@@ -3,9 +3,8 @@ estabilidad_report.sas - Generacion de reportes HTML + Excel + JPEG
 para Estabilidad Temporal
 
 Genera:
-<report_path>/<prefix>_train.html  - HTML con graficos TRAIN (inline)
-<report_path>/<prefix>_oot.html    - HTML con graficos OOT (inline)
-<report_path>/<prefix>.xlsx        - Excel multi-hoja (TRAIN + OOT)
+<report_path>/<prefix>.html        - HTML combinado TRAIN + OOT (inline)
+<report_path>/<prefix>.xlsx        - Excel combinado TRAIN + OOT
 <images_path>/<prefix>_*.jpeg      - Graficos como JPEG independientes
 
 Tablas temporales se crean en casuser (CAS) via PROC FEDSQL.
@@ -37,57 +36,44 @@ Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
     %let _dir_rc=%sysfunc(dcreate(METOD4.2, &images_path./../));
     %let _dir_rc=%sysfunc(dcreate(., &images_path.));
 
+    data casuser._estab_all;
+        length Split $5;
+        set casuser._estab_train(in=_trn) casuser._estab_oot(in=_oot);
+        if _trn then Split="TRAIN";
+        else if _oot then Split="OOT";
+    run;
+
     /* ==================================================================
-    TRAIN: HTML + primera hoja Excel + JPEG images
+    Reporte combinado TRAIN + OOT
     ================================================================== */
     ods graphics on;
     ods listing gpath="&images_path.";
 
-    ods html5 file="&report_path./&file_prefix._train.html"
+    ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
     ods excel file="&report_path./&file_prefix..xlsx"
-        options(sheet_name="TRAIN_Estabilidad" sheet_interval="none"
+        options(sheet_name="Estabilidad" sheet_interval="none"
         embedded_titles="yes");
-    ods graphics / imagename="&file_prefix._trn_estab" imagefmt=jpeg;
+    ods graphics / imagename="&file_prefix._estab" imagefmt=jpeg;
 
-    title "TRAIN: Analisis de Estabilidad Temporal";
+    title "Analisis de Estabilidad Temporal - TRAIN vs OOT";
 
-    %_estab_variables(data=casuser._estab_train, byvar=&byvar.,
+    %_estab_variables(data=casuser._estab_all, byvar=&byvar.,
         vars_num=&vars_num., vars_cat=&vars_cat.);
 
     title;
     ods html5 close;
-    ods graphics / reset=all;
-
-    /* ==================================================================
-    OOT: HTML + segunda hoja Excel
-    ================================================================== */
-    ods html5 file="&report_path./&file_prefix._oot.html"
-        options(bitmap_mode="inline");
-    ods excel options(sheet_name="OOT_Estabilidad" sheet_interval="now"
-        embedded_titles="yes");
-    ods graphics / imagename="&file_prefix._oot_estab" imagefmt=jpeg;
-
-    title "OOT: Analisis de Estabilidad Temporal";
-
-    %_estab_variables(data=casuser._estab_oot, byvar=&byvar.,
-        vars_num=&vars_num., vars_cat=&vars_cat.);
-
-    title;
     ods excel close;
-    ods html5 close;
     ods graphics / reset=all;
     ods graphics off;
 
     /* ---- Cleanup tablas temporales CAS --------------------------------- */
     proc datasets library=casuser nolist nowarn;
-        delete _estab_train _estab_oot;
+        delete _estab_train _estab_oot _estab_all;
     quit;
 
-    %put NOTE: [estabilidad_report] HTML TRAIN=>
-        &report_path./&file_prefix._train.html;
-    %put NOTE: [estabilidad_report] HTML OOT=>
-        &report_path./&file_prefix._oot.html;
+    %put NOTE: [estabilidad_report] HTML=>
+        &report_path./&file_prefix..html;
     %put NOTE: [estabilidad_report] Excel=> &report_path./&file_prefix..xlsx;
     %put NOTE: [estabilidad_report] Images=> &images_path./;
 

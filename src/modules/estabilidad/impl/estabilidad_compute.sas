@@ -25,34 +25,37 @@ Genera tabla + grafico de barras (N) + linea (promedio).
     /* Agregar por periodo: N, mean, missing via FEDSQL */
     proc fedsql sessref=conn noprint;
         create table casuser._estab_cont {options replace=true} as select
-            "%upcase(&var.)" as Variable, &byvar., count(*) as N_Obs,
+            "%upcase(&var.)" as Variable, Split, &byvar., count(*) as N_Obs,
             sum(case when &var. is not null then 1 else 0 end) as N,
             avg(cast(&var. as double)) as prom, sum(case when &var. is null then
-            1 else 0 end) as MISSING from &data. group by &byvar.;
+            1 else 0 end) as MISSING from &data. group by Split, &byvar.;
     quit;
 
     proc cas;
         session conn;
         table.partition /
             table={caslib="casuser", name="_estab_cont",
-                orderby={"Variable", "&byvar."}, groupby={}},
+                orderby={"Variable", "&byvar.", "Split"}, groupby={}},
             casout={caslib="casuser", name="_estab_cont", replace=true};
     quit;
 
     proc print data=casuser._estab_cont noobs;
-        var &byvar. N_Obs N prom MISSING;
-        title "Estabilidad de la variable - &var.";
+        var Split &byvar. N_Obs N prom MISSING;
+        title "Estabilidad de la variable - &var. (TRAIN vs OOT)";
     run;
 
     proc sgplot data=casuser._estab_cont subpixel noautolegend;
         yaxis label="Cantidad de registros (N)";
         y2axis label="Promedio &var.";
-        vbar &byvar. / response=N nooutline barwidth=0.4
-            fillattrs=(color=lightblue);
-        vline &byvar. / response=prom markers markerattrs=(symbol=circlefilled
-            color=black) y2axis lineattrs=(color=black);
+        styleattrs datacolors=(lightblue cx4f81bd)
+            datacontrastcolors=(black cx1f497d);
+        vbar &byvar. / response=N group=Split groupdisplay=cluster nooutline
+            barwidth=0.7 transparency=0.15;
+        series x=&byvar. y=prom / group=Split markers y2axis
+            lineattrs=(thickness=2);
         xaxis type=discrete discreteorder=data label="&byvar."
             valueattrs=(size=8pt);
+        keylegend / title="Split";
     run;
     title;
 
@@ -78,16 +81,18 @@ CAS-to-CAS).
 
     /* Distribucion por periodo y categoria */
     proc sql noprint;
-        create table work._estab_disc_cnt as select &byvar., &var., count(*) as
-            N from work._estab_disc_stg group by &byvar., &var.;
+        create table work._estab_disc_cnt as select Split, &byvar., &var.,
+            count(*) as N from work._estab_disc_stg group by Split, &byvar.,
+            &var.;
     quit;
 
     proc sql noprint;
         create table work._estab_disc_pct as select "%upcase(&var.)" as
-            Variable length=128, a.&byvar., a.&var., a.N, (a.N * 100.0) /
-            b.total as Porcentaje from work._estab_disc_cnt a inner join (
-            select &byvar., sum(N) as total from work._estab_disc_cnt group by
-            &byvar. ) b on a.&byvar.=b.&byvar.;
+            Variable length=128, a.Split, a.&byvar., a.&var., a.N, (a.N * 100.0)
+            / b.total as Porcentaje from work._estab_disc_cnt a inner join (
+            select Split, &byvar., sum(N) as total from work._estab_disc_cnt
+            group by Split, &byvar. ) b on a.Split=b.Split and
+            a.&byvar.=b.&byvar.;
     quit;
 
     data casuser._estab_disc_pct;
@@ -98,19 +103,21 @@ CAS-to-CAS).
         session conn;
         table.partition /
             table={caslib="casuser", name="_estab_disc_pct",
-                orderby={"Variable", "&byvar.", "&var."}, groupby={}},
+                orderby={"Variable", "&byvar.", "Split", "&var."}, groupby={}},
             casout={caslib="casuser", name="_estab_disc_pct", replace=true};
     quit;
 
     proc print data=casuser._estab_disc_pct noobs;
-        var &byvar. &var. N Porcentaje;
-        title "Estabilidad de la variable - &var.";
+        var Split &byvar. &var. N Porcentaje;
+        title "Estabilidad de la variable - &var. (TRAIN vs OOT)";
     run;
 
-    proc sgplot data=casuser._estab_disc_pct;
+    proc sgpanel data=casuser._estab_disc_pct;
+        panelby Split / columns=2 onepanel novarname;
         vbar &byvar. / response=Porcentaje group=&var. groupdisplay=cluster;
-        xaxis type=discrete discreteorder=data display=(nolabel);
-        yaxis max=100 label="Porcentaje (%)";
+        colaxis type=discrete discreteorder=data display=(nolabel);
+        rowaxis max=100 label="Porcentaje (%)";
+        keylegend / title="Categoria";
     run;
     title;
 
