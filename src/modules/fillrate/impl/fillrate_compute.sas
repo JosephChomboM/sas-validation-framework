@@ -176,9 +176,8 @@ Notas:
 
         proc sgplot data=&data.(where=(Variable="&_var."));
             series x=&byvar. y=Fillrate /
-                markers
                 lineattrs=(color=crimson thickness=2);
-            xaxis label="&byvar.";
+            xaxis type=discrete label="&byvar.";
             yaxis label="Fillrate (%)" min=0 max=100;
         run;
 

@@ -441,8 +441,7 @@ Pattern B: PROC MEANS output, PROC APPEND, PROC PRINT en work.
 
         /* Diferencia porcentual (evitar division por cero) */
         %if %sysevalf(&mediana_train. ^= 0) %then %do;
-            %let diferencia_pct = %sysevalf(100 * &mae. /
-                %sysfunc(abs(&mediana_train.)));
+            %let diferencia_pct = %sysevalf(100 * &mae. / %sysfunc(abs(&mediana_train.)));
         %end;
         %else %if %sysevalf(&mediana_oot. = 0) %then %do;
             %let diferencia_pct = 0;
