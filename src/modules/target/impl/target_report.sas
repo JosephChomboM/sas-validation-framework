@@ -1,50 +1,37 @@
 /* =========================================================================
-target_report.sas - Reporte combinado TRAIN y OOT para Target
+target_report.sas - Reporte consolidado TRAIN + OOT para Target
+
+Genera un unico HTML y un unico Excel para cada contexto, con metricas y
+graficos consolidados entre TRAIN y OOT.
 ========================================================================= */
+
 %macro _target_report(input_caslib=, train_table=, oot_table=, byvar=, target=,
-    monto_var=, def_cld=0, report_path=, images_path=, file_prefix=);
+    monto_var=, def_cld=0, has_monto=0, report_path=, images_path=,
+    file_prefix=);
 
-    %local _dir_rc _has_monto;
+    %put NOTE: [target_report] Generando reporte consolidado TRAIN + OOT.;
+    %put NOTE: [target_report] byvar=&byvar. target=&target. def_cld=&def_cld.;
+    %put NOTE: [target_report] has_monto=&has_monto.;
 
-    %put NOTE: [target_report] Generando reporte combinado TRAIN/OOT.;
-    %put NOTE: [target_report] def_cld=&def_cld.;
-
-    %let _dir_rc=%sysfunc(dcreate(METOD2.1, &report_path./../));
-    %let _dir_rc=%sysfunc(dcreate(., &report_path.));
-    %let _dir_rc=%sysfunc(dcreate(METOD2.1, &images_path./../));
-    %let _dir_rc=%sysfunc(dcreate(., &images_path.));
-
-    %let _has_monto=0;
-    %if %length(%superq(monto_var)) > 0 %then %let _has_monto=1;
-
-    %_target_prepare_base(train_data=&input_caslib..&train_table.,
-        oot_data=&input_caslib..&oot_table., byvar=&byvar., def_cld=&def_cld.);
-    %_target_build_describe(target=&target., byvar=&byvar.);
-    %_target_build_bandas(target=&target., byvar=&byvar.);
-
-    %if &_has_monto.=1 %then %do;
-        %_target_build_ponderado_promedio(target=&target., monto=&monto_var.,
-            byvar=&byvar.);
-        %_target_build_ponderado_suma(target=&target., monto=&monto_var.,
-            byvar=&byvar.);
-    %end;
+    %_target_compute(input_caslib=&input_caslib., train_table=&train_table.,
+        oot_table=&oot_table., byvar=&byvar., target=&target.,
+        monto_var=&monto_var., def_cld=&def_cld., has_monto=&has_monto.);
 
     ods graphics on;
     ods listing gpath="&images_path.";
 
+    ods excel file="&report_path./&file_prefix..xlsx"
+        options(sheet_name="RD" sheet_interval="none" embedded_titles="yes");
     ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
-    ods excel file="&report_path./&file_prefix..xlsx"
-        options(sheet_name="Target" sheet_interval="none"
-        embedded_titles="yes");
 
-    ods graphics / imagename="&file_prefix._describe" imagefmt=jpeg;
-    title "Evolutivo del target - TRAIN y OOT";
+    ods graphics / imagename="&file_prefix._rd" imagefmt=jpeg;
+    title "Evolutivo del target consolidado";
     proc sgplot data=casuser._tgt_describe;
         series x=&byvar. y=avg_target / group=Muestra markers
             lineattrs=(thickness=2);
-        xaxis type=discrete label="&byvar.";
-        yaxis label="Promedio del target";
+        xaxis type=discrete label="Periodo";
+        yaxis label="RD";
         keylegend / title="Muestra";
     run;
     title;
@@ -54,158 +41,161 @@ target_report.sas - Reporte combinado TRAIN y OOT para Target
         var Muestra &byvar. N avg_target;
         label Muestra="Muestra"
             &byvar.="Periodo"
-            N="N"
-            avg_target="AVG_TARGET";
+            N="N Target"
+            avg_target="RD";
+        format avg_target percent10.4;
     run;
     title;
 
-    title "Materialidad del target";
+    ods excel options(sheet_name="Materialidad" sheet_interval="now"
+        embedded_titles="yes");
+    title "Materialidad del target por muestra";
+    proc freqtab data=casuser._tgt_base;
+        tables Muestra * &byvar. * &target. / norow nocol nopercent nocum;
+    run;
+    title;
+
+    title "Materialidad resumida";
     proc print data=casuser._tgt_materialidad noobs label;
         var Muestra &byvar. Valor_Target N;
         label Muestra="Muestra"
             &byvar.="Periodo"
-            Valor_Target="Valor target"
-            N="N";
+            Valor_Target="Valor Target"
+            N="Frecuencia";
     run;
     title;
 
-    title "Diferencia relativa del target";
+    ods excel options(sheet_name="DiferenciaRel" sheet_interval="now"
+        embedded_titles="yes");
+    title "Diferencia relativa";
     proc print data=casuser._tgt_diff_rel noobs label;
         var Muestra Metric Value;
         label Muestra="Muestra"
             Metric="Metrica"
             Value="Valor";
+        format Value percent10.4;
     run;
     title;
 
-    ods excel options(sheet_name="Bandas" sheet_interval="now"
+    ods excel options(sheet_name="Bandas_RD" sheet_interval="now"
         embedded_titles="yes");
-    ods graphics / imagename="&file_prefix._bandas" imagefmt=jpeg;
-    title "Bandas del target con referencia TRAIN";
+    ods graphics / imagename="&file_prefix._bandas_rd" imagefmt=jpeg;
+    title "RD con bandas TRAIN";
     proc sgplot data=casuser._tgt_bandas;
         band x=&byvar. lower=lower_band upper=upper_band /
             transparency=0.45 fillattrs=(color=cxD9D9D9)
             legendlabel="Bandas TRAIN +/- 2 desv";
         series x=&byvar. y=avg_target / group=Muestra markers
             lineattrs=(thickness=2);
-        series x=&byvar. y=global_avg /
-            lineattrs=(color=red pattern=shortdash thickness=2)
-            legendlabel="Promedio global TRAIN";
-        xaxis type=discrete label="&byvar.";
-        yaxis label="Promedio del target";
+        refline &_tgt_global_avg. /
+            lineattrs=(color=red pattern=shortdash thickness=2);
+        xaxis type=discrete label="Periodo";
+        yaxis label="RD";
         keylegend / title="Serie";
     run;
     title;
 
-    title "Tabla de bandas del target";
+    title "Tabla de bandas RD";
     proc print data=casuser._tgt_bandas noobs label;
         var Muestra &byvar. avg_target lower_band upper_band global_avg;
         label Muestra="Muestra"
             &byvar.="Periodo"
-            avg_target="AVG_TARGET"
-            lower_band="LOWER_BAND"
-            upper_band="UPPER_BAND"
-            global_avg="GLOBAL_AVG";
+            avg_target="RD"
+            lower_band="Limite Inferior"
+            upper_band="Limite Superior"
+            global_avg="Promedio TRAIN";
+        format avg_target lower_band upper_band global_avg percent10.4;
     run;
     title;
 
-    %if &_has_monto.=1 %then %do;
-        %if %sysfunc(exist(casuser._tgt_pond_prom_bandas,DATA)) %then %do;
-            ods excel options(sheet_name="PondProm" sheet_interval="now"
-                embedded_titles="yes");
-            ods graphics / imagename="&file_prefix._pond_prom" imagefmt=jpeg;
-            title "Target ponderado por monto promedio";
-            proc sgplot data=casuser._tgt_pond_prom_bandas;
-                band x=&byvar. lower=lower_band upper=upper_band /
-                    transparency=0.45 fillattrs=(color=cxD9D9D9)
-                    legendlabel="Bandas TRAIN +/- 2 desv";
-                series x=&byvar. y=avg_target_pond / group=Muestra markers
-                    lineattrs=(thickness=2);
-                series x=&byvar. y=global_mean /
-                    lineattrs=(color=red pattern=shortdash thickness=2)
-                    legendlabel="Promedio global TRAIN";
-                xaxis type=discrete label="&byvar.";
-                yaxis label="Target ponderado promedio";
-                keylegend / title="Serie";
-            run;
-            title;
+    %if &has_monto.=1 %then %do;
+        ods excel options(sheet_name="PondProm" sheet_interval="now"
+            embedded_titles="yes");
+        ods graphics / imagename="&file_prefix._pond_prom" imagefmt=jpeg;
+        title "RD ponderado por monto";
+        proc sgplot data=casuser._tgt_pond_prom_bandas;
+            band x=&byvar. lower=lower_band upper=upper_band /
+                transparency=0.45 fillattrs=(color=cxD9D9D9)
+                legendlabel="Bandas TRAIN +/- 2 desv";
+            series x=&byvar. y=avg_target_pond / group=Muestra markers
+                lineattrs=(thickness=2);
+            refline &_tgt_global_pond_mean. /
+                lineattrs=(color=red pattern=shortdash thickness=2);
+            xaxis type=discrete label="Periodo";
+            yaxis label="RD ponderado";
+            keylegend / title="Serie";
+        run;
+        title;
 
-            proc print data=casuser._tgt_pond_prom_bandas noobs label;
-                var Muestra &byvar. avg_target_pond lower_band upper_band
-                    global_mean;
-                label Muestra="Muestra"
-                    &byvar.="Periodo"
-                    avg_target_pond="AVG_TARGET_POND"
-                    lower_band="LOWER_BAND"
-                    upper_band="UPPER_BAND"
-                    global_mean="GLOBAL_MEAN";
-            run;
-        %end;
+        proc print data=casuser._tgt_pond_prom_bandas noobs label;
+            var Muestra &byvar. avg_target_pond lower_band upper_band global_mean;
+            label Muestra="Muestra"
+                &byvar.="Periodo"
+                avg_target_pond="RD Ponderado"
+                lower_band="Limite Inferior"
+                upper_band="Limite Superior"
+                global_mean="Promedio TRAIN";
+            format avg_target_pond lower_band upper_band global_mean percent10.4;
+        run;
 
-        %if %sysfunc(exist(casuser._tgt_sum_pond_bandas,DATA)) %then %do;
-            ods excel options(sheet_name="PondSuma" sheet_interval="now"
-                embedded_titles="yes");
-            ods graphics / imagename="&file_prefix._pond_suma" imagefmt=jpeg;
-            title "Target ponderado por suma de monto";
-            proc sgplot data=casuser._tgt_sum_pond_bandas;
-                band x=&byvar. lower=lower_band upper=upper_band /
-                    transparency=0.45 fillattrs=(color=cxD9D9D9)
-                    legendlabel="Bandas TRAIN +/- 2 desv";
-                series x=&byvar. y=sum_target_pond / group=Muestra markers
-                    lineattrs=(thickness=2);
-                series x=&byvar. y=global_mean /
-                    lineattrs=(color=red pattern=shortdash thickness=2)
-                    legendlabel="Promedio global TRAIN";
-                xaxis type=discrete label="&byvar.";
-                yaxis label="Target ponderado suma";
-                keylegend / title="Serie";
-            run;
-            title;
+        ods excel options(sheet_name="PondSuma" sheet_interval="now"
+            embedded_titles="yes");
+        ods graphics / imagename="&file_prefix._pond_suma" imagefmt=jpeg;
+        title "Suma ponderada por monto";
+        proc sgplot data=casuser._tgt_sum_pond_bandas;
+            band x=&byvar. lower=lower_band upper=upper_band /
+                transparency=0.45 fillattrs=(color=cxD9D9D9)
+                legendlabel="Bandas TRAIN +/- 2 desv";
+            series x=&byvar. y=sum_target_pond / group=Muestra markers
+                lineattrs=(thickness=2);
+            refline &_tgt_global_sum_mean. /
+                lineattrs=(color=red pattern=shortdash thickness=2);
+            xaxis type=discrete label="Periodo";
+            yaxis label="Suma ponderada";
+            keylegend / title="Serie";
+        run;
+        title;
 
-            proc print data=casuser._tgt_sum_pond_bandas noobs label;
-                var Muestra &byvar. sum_target_pond total_monto lower_band
-                    upper_band global_mean;
-                label Muestra="Muestra"
-                    &byvar.="Periodo"
-                    sum_target_pond="SUM_TARGET_POND"
-                    total_monto="TOTAL_MONTO"
-                    lower_band="LOWER_BAND"
-                    upper_band="UPPER_BAND"
-                    global_mean="GLOBAL_MEAN";
-            run;
-        %end;
+        proc print data=casuser._tgt_sum_pond_bandas noobs label;
+            var Muestra &byvar. sum_target_pond total_monto lower_band upper_band global_mean;
+            label Muestra="Muestra"
+                &byvar.="Periodo"
+                sum_target_pond="Suma Target*Monto"
+                total_monto="Monto Total"
+                lower_band="Limite Inferior"
+                upper_band="Limite Superior"
+                global_mean="Promedio TRAIN";
+            format sum_target_pond total_monto lower_band upper_band global_mean comma18.2;
+        run;
 
-        %if %sysfunc(exist(casuser._tgt_ratio_bandas,DATA)) %then %do;
-            ods excel options(sheet_name="Ratio" sheet_interval="now"
-                embedded_titles="yes");
-            ods graphics / imagename="&file_prefix._ratio" imagefmt=jpeg;
-            title "Ratio target sobre monto";
-            proc sgplot data=casuser._tgt_ratio_bandas;
-                band x=&byvar. lower=lower_band upper=upper_band /
-                    transparency=0.45 fillattrs=(color=cxD9D9D9)
-                    legendlabel="Bandas TRAIN +/- 2 desv";
-                series x=&byvar. y=ratio_default_monto / group=Muestra markers
-                    lineattrs=(thickness=2);
-                series x=&byvar. y=global_mean /
-                    lineattrs=(color=red pattern=shortdash thickness=2)
-                    legendlabel="Promedio global TRAIN";
-                xaxis type=discrete label="&byvar.";
-                yaxis label="Ratio target / monto";
-                keylegend / title="Serie";
-            run;
-            title;
+        ods excel options(sheet_name="RatioMonto" sheet_interval="now"
+            embedded_titles="yes");
+        ods graphics / imagename="&file_prefix._ratio" imagefmt=jpeg;
+        title "Ratio target sobre monto";
+        proc sgplot data=casuser._tgt_ratio_bandas;
+            band x=&byvar. lower=lower_band upper=upper_band /
+                transparency=0.45 fillattrs=(color=cxD9D9D9)
+                legendlabel="Bandas TRAIN +/- 2 desv";
+            series x=&byvar. y=ratio_default_monto / group=Muestra markers
+                lineattrs=(thickness=2);
+            refline &_tgt_global_ratio_mean. /
+                lineattrs=(color=red pattern=shortdash thickness=2);
+            xaxis type=discrete label="Periodo";
+            yaxis label="Ratio";
+            keylegend / title="Serie";
+        run;
+        title;
 
-            proc print data=casuser._tgt_ratio_bandas noobs label;
-                var Muestra &byvar. ratio_default_monto lower_band upper_band
-                    global_mean;
-                label Muestra="Muestra"
-                    &byvar.="Periodo"
-                    ratio_default_monto="RATIO_DEFAULT_MONTO"
-                    lower_band="LOWER_BAND"
-                    upper_band="UPPER_BAND"
-                    global_mean="GLOBAL_MEAN";
-            run;
-        %end;
+        proc print data=casuser._tgt_ratio_bandas noobs label;
+            var Muestra &byvar. ratio_default_monto lower_band upper_band global_mean;
+            label Muestra="Muestra"
+                &byvar.="Periodo"
+                ratio_default_monto="Ratio"
+                lower_band="Limite Inferior"
+                upper_band="Limite Superior"
+                global_mean="Promedio TRAIN";
+            format ratio_default_monto lower_band upper_band global_mean percent10.4;
+        run;
     %end;
 
     ods excel close;
@@ -213,12 +203,8 @@ target_report.sas - Reporte combinado TRAIN y OOT para Target
     ods graphics / reset=all;
     ods graphics off;
 
-    proc datasets library=casuser nolist nowarn;
-        delete _tgt_:;
-    quit;
-
-    %put NOTE: [target_report] HTML=> &report_path./&file_prefix..html;
-    %put NOTE: [target_report] Excel=> &report_path./&file_prefix..xlsx;
-    %put NOTE: [target_report] Images=> &images_path./;
+    %put NOTE: [target_report] HTML => &report_path./&file_prefix..html;
+    %put NOTE: [target_report] Excel => &report_path./&file_prefix..xlsx;
+    %put NOTE: [target_report] Images => &images_path./;
 
 %mend _target_report;
