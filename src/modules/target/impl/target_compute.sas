@@ -90,14 +90,16 @@ target_compute.sas - Computo CAS-first para analisis del target
             %else %let _ncompare=1;
 
             proc sql noprint outobs=&_ncompare.;
-                select avg_target into :_tgt_first1- trimmed
+                select avg_target
+                    into :_tgt_first1 - :_tgt_first&_ncompare.
                 from casuser._tgt_describe
                 where Muestra="&_muestra."
                 order by &byvar.;
             quit;
 
             proc sql noprint outobs=&_ncompare.;
-                select avg_target into :_tgt_last1- trimmed
+                select avg_target
+                    into :_tgt_last1 - :_tgt_last&_ncompare.
                 from casuser._tgt_describe
                 where Muestra="&_muestra."
                 order by &byvar. desc;
