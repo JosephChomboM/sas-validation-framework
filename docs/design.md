@@ -495,3 +495,23 @@ Usado por: `psi` (cubo se acumula via INSERT INTO en work).
 - `PROC FREQTAB ...; by <time>; ... output out=<tabla> smdcr;` para versiones evolutivas por tiempo sobre datos ya disponibles en CAS/work segun el flujo del modulo.
 - `DATA work.x; SET casuser.y;` (CAS → work, unidireccional)
 - `DATA casuser.x; SET work.y;` (work → CAS, unidireccional)
+
+### 9.4 Convenciones adicionales para acciones CAS
+
+**Transpose en CAS**
+```sas
+proc cas;
+    session conn;
+    transpose.transpose /
+        table={name="tabla_input", caslib="casuser",
+            groupby={"Variable"}},
+        casout={name="tabla_output", caslib="casuser", replace=true},
+        transpose={"PSI"},
+        id={"CODMES"};
+quit;
+```
+
+Reglas:
+- En `transpose.transpose`, el `groupby` va dentro de `table={...}`.
+- No usar `groupby=` como parametro separado al nivel de `id=` o `transpose=`.
+- Cuando el pivot sea viable en CAS, preferir `transpose.transpose` sobre bajar la tabla a `work`.

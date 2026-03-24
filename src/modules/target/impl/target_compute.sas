@@ -1,601 +1,318 @@
 /* =========================================================================
-target_compute.sas - Computo de analisis del target (ratio de default)
-
-Contiene macros de computo que procesan las tablas y generan resultados
-intermedios en casuser (CAS). Estas macros son llamadas desde
-target_report.sas dentro del contexto ODS.
-
-Macros:
-%_target_describe       - Evolutivo RD + materialidad + diferencia relativa
-%_target_bandas         - Bandas +/-2s sobre RD (TRAIN -> OOT)
-%_target_ponderado_promedio - RD ponderado por monto (promedio)
-%_target_ponderado_suma     - RD ponderado por monto (suma) + ratio
-
-Las bandas se calculan desde TRAIN (is_train=1) y se aplican a OOT
-(is_train=0) usando las macro variables globales correspondientes.
-
-Tablas temporales se crean en casuser (CAS) via PROC FEDSQL.
-Formato de imagen: JPEG. def_cld filtra default cerrado.
+target_compute.sas - Computo CAS-first para analisis del target
 ========================================================================= */
 
-/* =====================================================================
-%_target_describe - Evolutivo de RD + materialidad + diferencia relativa
-Calcula mean(target) por periodo, con filtro opcional por def_cld.
-Genera grafico evolutivo + tabla de materialidad + diferencia relativa.
-===================================================================== */
-%macro _target_describe(data=, target=, byvar=, def_cld=0);
+%macro _target_partition(name=, orderby=, groupby=);
+    %local _group_clause;
+    %if %length(%superq(groupby)) > 0 %then
+        %let _group_clause=groupby={&groupby.};
+    %else %let _group_clause=groupby={};
 
-    %local num_months;
+    proc cas;
+        session conn;
+        table.partition /
+            table={caslib="casuser", name="&name.", orderby={&orderby.},
+                &_group_clause.},
+            casout={caslib="casuser", name="&name.", replace=true};
+    quit;
+%mend _target_partition;
 
-    title "Evolutivo &target. - &data.";
+%macro _target_prepare_base(train_data=, oot_data=, byvar=, def_cld=0);
+    proc fedsql sessref=conn;
+        create table casuser._tgt_train_filt {options replace=true} as
+        select 'TRAIN' as Muestra, *
+        from &train_data.
+        %if &def_cld. ne 0 %then %do;
+            where &byvar. <= &def_cld.
+        %end;
+        ;
 
-    /* Filtrar por default cerrado si se indico */
-    %if &def_cld. ne 0 %then %do;
-        %put NOTE: [target_describe] Default cerrado hasta &def_cld.;
+        create table casuser._tgt_oot_filt {options replace=true} as
+        select 'OOT' as Muestra, *
+        from &oot_data.
+        %if &def_cld. ne 0 %then %do;
+            where &byvar. <= &def_cld.
+        %end;
+        ;
 
-        proc fedsql sessref=conn noprint;
-            create table casuser._tgt_data_filt {options replace=true} as select
-                * from &data. where &byvar. <= &def_cld.;
-        quit;
-    %end;
-    %else %do;
-        proc fedsql sessref=conn noprint;
-            create table casuser._tgt_data_filt {options replace=true} as select
-                * from &data.;
-        quit;
-    %end;
-
-    /* Calcular mean(target) por periodo via FEDSQL */
-    proc fedsql sessref=conn noprint;
-        create table casuser._tgt_evolut_target {options replace=true} as select
-            &byvar., count(*) as N, avg(&target.) as Mean from
-            casuser._tgt_data_filt group by &byvar.;
+        create table casuser._tgt_base {options replace=true} as
+        select * from casuser._tgt_train_filt
+        union all
+        select * from casuser._tgt_oot_filt;
     quit;
 
-    /* Contar meses */
-    proc sql noprint;
-        select count(*) into :num_months trimmed from
-            casuser._tgt_evolut_target;
+    %_target_partition(name=_tgt_base,
+        orderby=%str("Muestra","&byvar."));
+%mend _target_prepare_base;
+
+%macro _target_build_describe(data=casuser._tgt_base, target=, byvar=);
+    proc fedsql sessref=conn;
+        create table casuser._tgt_describe {options replace=true} as
+        select Muestra,
+            &byvar.,
+            count(*) as N,
+            avg(cast(&target. as double)) as avg_target
+        from &data.
+        group by Muestra, &byvar.;
+
+        create table casuser._tgt_materialidad {options replace=true} as
+        select Muestra,
+            &byvar.,
+            cast(&target. as double) as Valor_Target,
+            count(*) as N
+        from &data.
+        group by Muestra, &byvar., &target.;
     quit;
 
-    /* Diferencia relativa: primeros vs ultimos meses */
-    %if &num_months. ne 1 %then %do;
+    %_target_partition(name=_tgt_describe,
+        orderby=%str("Muestra","&byvar."));
+    %_target_partition(name=_tgt_materialidad,
+        orderby=%str("Muestra","&byvar.","Valor_Target"));
 
-        %local first_mean last_mean relative_diff n_compare;
+    %local _muestra _nobs _ncompare _first_mean _last_mean _relative_diff;
+    data casuser._tgt_diff_rel;
+        length Muestra $5 Metric $40 Value 8;
+        stop;
+    run;
 
-        %if &num_months. >= 6 %then %let n_compare=3;
-        %else %let n_compare=1;
+    %do _j=1 %to 2;
+        %if &_j.=1 %then %let _muestra=TRAIN;
+        %else %let _muestra=OOT;
 
-        /* Obtener primeros y ultimos N promedios */
         proc sql noprint;
-            select Mean into :_tgt_means1 - :_tgt_means&num_months. from
-                casuser._tgt_evolut_target;
+            select count(*) into :_nobs trimmed
+            from casuser._tgt_describe
+            where Muestra="&_muestra.";
         quit;
 
-        /* Calcular promedios de primeros n_compare meses */
-        %let first_mean=0;
-        %do _i=1 %to &n_compare.;
-            %let first_mean=%sysevalf(&first_mean. + &&_tgt_means&_i.);
-        %end;
-        %let first_mean=%sysevalf(&first_mean. / &n_compare.);
+        %if %sysevalf(&_nobs. > 1) %then %do;
+            %if &_nobs. >= 6 %then %let _ncompare=3;
+            %else %let _ncompare=1;
 
-        /* Calcular promedios de ultimos n_compare meses */
-        %let last_mean=0;
-        %do _i=%eval(&num_months. - &n_compare. + 1) %to &num_months.;
-            %let last_mean=%sysevalf(&last_mean. + &&_tgt_means&_i.);
-        %end;
-        %let last_mean=%sysevalf(&last_mean. / &n_compare.);
+            proc sql noprint outobs=&_ncompare.;
+                select avg_target into :_tgt_first1- trimmed
+                from casuser._tgt_describe
+                where Muestra="&_muestra."
+                order by &byvar.;
+            quit;
 
-        /* Diferencia relativa */
-        %if &first_mean. ne 0 %then %let relative_diff=%sysevalf((&last_mean. -
-            &first_mean.) / &first_mean.);
-        %else %let relative_diff=0;
+            proc sql noprint outobs=&_ncompare.;
+                select avg_target into :_tgt_last1- trimmed
+                from casuser._tgt_describe
+                where Muestra="&_muestra."
+                order by &byvar. desc;
+            quit;
 
-        /* Tabla de resultados */
-        data casuser._tgt_results;
-            length Metric $ 40 Value 8.;
-            %if &n_compare. >= 3 %then %do;
-                Metric="Promedio de los primeros 3 meses";
+            %let _first_mean=0;
+            %let _last_mean=0;
+            %do _k=1 %to &_ncompare.;
+                %let _first_mean=%sysevalf(&_first_mean. + &&_tgt_first&_k.);
+                %let _last_mean=%sysevalf(&_last_mean. + &&_tgt_last&_k.);
             %end;
-            %else %do;
-                Metric="Primer mes";
-            %end;
-            Value=&first_mean.;
-            output;
+            %let _first_mean=%sysevalf(&_first_mean. / &_ncompare.);
+            %let _last_mean=%sysevalf(&_last_mean. / &_ncompare.);
 
-            %if &n_compare. >= 3 %then %do;
-                Metric="Promedio de los ultimos 3 meses";
-            %end;
-            %else %do;
-                Metric="Ultimo mes";
-            %end;
-            Value=&last_mean.;
-            output;
+            %if &_first_mean. ne 0 %then
+                %let _relative_diff=%sysevalf((&_last_mean. - &_first_mean.) / &_first_mean.);
+            %else %let _relative_diff=0;
 
-            Metric="Diferencia relativa";
-            Value=&relative_diff.;
-            output;
-        run;
+            data casuser._tgt_diff_tmp;
+                length Muestra $5 Metric $40 Value 8;
+                Muestra="&_muestra.";
+                %if &_ncompare. = 3 %then %do;
+                    Metric="Promedio primeros 3 meses";
+                %end;
+                %else %do;
+                    Metric="Primer mes";
+                %end;
+                Value=&_first_mean.; output;
+                %if &_ncompare. = 3 %then %do;
+                    Metric="Promedio ultimos 3 meses";
+                %end;
+                %else %do;
+                    Metric="Ultimo mes";
+                %end;
+                Value=&_last_mean.; output;
+                Metric="Diferencia relativa"; Value=&_relative_diff.; output;
+            run;
 
-        title "Resultados de la Diferencia Relativa";
-
-        proc print data=casuser._tgt_results noobs;
-            var Metric Value;
-        run;
-        title;
-
-        proc datasets library=casuser nolist nowarn;
-            delete _tgt_results;
-        quit;
-    %end;
-
-    /* Grafico evolutivo */
-    title "Evolutivo &target.";
-
-    proc sgplot data=casuser._tgt_evolut_target;
-        vline &byvar. / response=Mean markers markerattrs=(symbol=circlefilled
-            color=black) lineattrs=(color=crimson);
-        yaxis label="mean &target." min=0 max=1;
-    run;
-    title;
-
-    /* Materialidad */
-    title "Materialidad &data. Cerrado";
-
-    proc freq data=casuser._tgt_data_filt;
-        tables &byvar. * &target. / norow nopercent nocum nocol;
-    run;
-    title;
-
-    /* Cleanup */
-    proc datasets library=casuser nolist nowarn;
-        delete _tgt_evolut_target _tgt_data_filt;
-    quit;
-
-%mend _target_describe;
-
-/* =====================================================================
-%_target_bandas - Bandas +/-2s sobre RD
-Calcula mean/std desde TRAIN (is_train=1) y los guarda en macrovars
-globales. En OOT (is_train=0) los reutiliza y luego los resetea.
-===================================================================== */
-%macro _target_bandas(data=, data_type=, target=, byvar=, is_train=1);
-
-    %global _tgt_global_avg _tgt_std_monthly;
-    %local inf sup min_val max_val;
-
-    /* Calcular promedio mensual via FEDSQL */
-    proc fedsql sessref=conn noprint;
-        create table casuser._tgt_monthly {options replace=true} as select
-            &byvar., avg(&target.) as avg_target from &data. group by &byvar.;
-    quit;
-
-    /* Calcular estadisticas globales si es TRAIN o no existen */
-    %if (&is_train.=1) or (%length(&_tgt_global_avg.)=0) %then %do;
-        proc sql noprint;
-            select avg(&target.) into :_tgt_global_avg trimmed from &data.;
-        quit;
-
-        proc sql noprint;
-            select std(avg_target) into :_tgt_std_monthly trimmed from
-                casuser._tgt_monthly;
-        quit;
-    %end;
-    %else %do;
-        %put NOTE: [target_bandas] Usando estadisticas existentes
-            (global_avg=&_tgt_global_avg. std=&_tgt_std_monthly.);
-    %end;
-
-    /* Guard: si std es vacio o missing (1 solo periodo), usar 0 */
-    %if %length(&_tgt_std_monthly.)=0 or &_tgt_std_monthly.=. %then %let
-        _tgt_std_monthly=0;
-
-    /* Limites de bandas */
-    %let inf=%sysevalf(&_tgt_global_avg. - 2 * &_tgt_std_monthly.);
-    %let sup=%sysevalf(&_tgt_global_avg. + 2 * &_tgt_std_monthly.);
-    %let min_val=%sysevalf(&_tgt_global_avg. - 3 * &_tgt_std_monthly.);
-    %let max_val=%sysevalf(&_tgt_global_avg. + 3 * &_tgt_std_monthly.);
-
-    /* Tabla con bandas para print */
-    data casuser._tgt_monthly_bands;
-        set casuser._tgt_monthly;
-        lower_band=&inf.;
-        upper_band=&sup.;
-        global_avg=&_tgt_global_avg.;
-        format avg_target lower_band upper_band global_avg 8.4;
-    run;
-
-    title "Evolutivo del Target - &data_type.";
-
-    proc sgplot data=casuser._tgt_monthly subpixel noautolegend;
-        band x=&byvar. lower=&inf. upper=&sup. / fillattrs=(color=graydd)
-            legendlabel="+/- 2 Desv. Estandar" name="band1";
-        series x=&byvar. y=avg_target / markers lineattrs=(color=blue
-            thickness=2) legendlabel="RD" name="serie1";
-        refline &_tgt_global_avg. / lineattrs=(color=red pattern=Dash)
-            legendlabel="Overall Mean" name="line1";
-        yaxis min=&min_val. max=&max_val. label="Promedio de &target.";
-        xaxis label="&byvar." type=discrete;
-        keylegend "serie1" "band1" / location=inside position=bottomright;
-    run;
-    title;
-
-    proc print data=casuser._tgt_monthly_bands noobs;
-        var &byvar. avg_target lower_band upper_band global_avg;
-        label &byvar.="Periodo" avg_target="Promedio del Target"
-            lower_band="Limite Inferior (- 2 Desv.)"
-            upper_band="Limite Superior (+ 2 Desv.)"
-            global_avg="Promedio Global";
-    run;
-
-    /* Resetear globales despues de OOT */
-    %if &is_train.=0 %then %do;
-        %let _tgt_global_avg=;
-        %let _tgt_std_monthly=;
-    %end;
-
-    proc datasets library=casuser nolist nowarn;
-        delete _tgt_monthly _tgt_monthly_bands;
-    quit;
-
-%mend _target_bandas;
-
-/* =====================================================================
-%_target_ponderado_promedio - RD ponderado por monto (promedio)
-sum(target*monto)/sum(monto) por periodo, con bandas +/-2s.
-===================================================================== */
-%macro _target_ponderado_promedio(data=, data_type=, target=, monto=, byvar=,
-    is_train=1);
-
-    %global _tgt_global_avg_pond _tgt_std_monthly_pond;
-    %local inf sup min_val max_val _nobs_pond;
-
-    /* Promedio ponderado por mes */
-    proc fedsql sessref=conn noprint;
-        create table casuser._tgt_monthly_pond {options replace=true} as select
-            &byvar., sum(cast(&target. as double) * cast(&monto. as double)) /
-            sum(cast(&monto. as double)) as avg_target_pond from &data. where
-            &monto. > 0 group by &byvar.;
-    quit;
-
-    /* Guard: verificar que haya datos con monto > 0 */
-    proc sql noprint;
-        select count(*) into :_nobs_pond trimmed from casuser._tgt_monthly_pond;
-    quit;
-
-    %if &_nobs_pond.=0 %then %do;
-        %put WARNING: [target_pond_prom] &data_type.: Sin datos con monto > 0.
-            Se omite analisis ponderado promedio.;
-
-        proc datasets library=casuser nolist nowarn;
-            delete _tgt_monthly_pond;
-        quit;
-        /* Resetear globales si es OOT para no dejar basura */
-        %if &is_train.=0 %then %do;
-            %let _tgt_global_avg_pond=;
-            %let _tgt_std_monthly_pond=;
+            proc cas;
+                session conn;
+                table.append /
+                    source={caslib="casuser", name="_tgt_diff_tmp"},
+                    target={caslib="casuser", name="_tgt_diff_rel"};
+            quit;
         %end;
-        %return;
     %end;
 
-    /* Estadisticas globales si es TRAIN */
-    %if (&is_train.=1) or (%length(&_tgt_global_avg_pond.)=0) %then %do;
-        proc sql noprint;
-            select sum(&target. * &monto.) / sum(&monto.) into
-                :_tgt_global_avg_pond trimmed from &data. where &monto. > 0;
-        quit;
+    %_target_partition(name=_tgt_diff_rel,
+        orderby=%str("Muestra","Metric"));
+%mend _target_build_describe;
 
-        proc sql noprint;
-            select std(avg_target_pond) into :_tgt_std_monthly_pond trimmed from
-                casuser._tgt_monthly_pond;
-        quit;
-    %end;
-    %else %do;
-        %put NOTE: [target_pond_prom] Usando estadisticas existentes
-            (avg_pond=&_tgt_global_avg_pond. std=&_tgt_std_monthly_pond.);
-    %end;
+%macro _target_build_bandas(data=casuser._tgt_base, target=, byvar=);
+    proc fedsql sessref=conn;
+        create table casuser._tgt_bandas_stats {options replace=true} as
+        select a.global_avg,
+            coalesce(b.std_monthly, 0) as std_monthly,
+            a.global_avg - 2 * coalesce(b.std_monthly, 0) as lower_band,
+            a.global_avg + 2 * coalesce(b.std_monthly, 0) as upper_band
+        from (
+            select avg(cast(&target. as double)) as global_avg
+            from &data.
+            where Muestra='TRAIN'
+        ) a
+        cross join (
+            select std(avg_target) as std_monthly
+            from casuser._tgt_describe
+            where Muestra='TRAIN'
+        ) b;
 
-    /* Guard: si avg_pond quedo vacio (imposible tras nobs check, pero seguro) */
-    %if %length(&_tgt_global_avg_pond.)=0 or &_tgt_global_avg_pond.=. %then %do;
-        %put WARNING: [target_pond_prom] &data_type.: Promedio ponderado no
-            calculable. Se omite grafico.;
+        create table casuser._tgt_bandas {options replace=true} as
+        select d.Muestra,
+            d.&byvar.,
+            d.avg_target,
+            s.lower_band,
+            s.upper_band,
+            s.global_avg
+        from casuser._tgt_describe d
+        cross join casuser._tgt_bandas_stats s;
 
-        proc datasets library=casuser nolist nowarn;
-            delete _tgt_monthly_pond;
-        quit;
-        %if &is_train.=0 %then %do;
-            %let _tgt_global_avg_pond=;
-            %let _tgt_std_monthly_pond=;
-        %end;
-        %return;
-    %end;
-
-    /* Guard: si std es vacio o missing (1 solo periodo), usar 0 */
-    %if %length(&_tgt_std_monthly_pond.)=0 or &_tgt_std_monthly_pond.=. %then
-        %let _tgt_std_monthly_pond=0;
-
-    %let inf=%sysevalf(&_tgt_global_avg_pond. - 2 * &_tgt_std_monthly_pond.);
-    %let sup=%sysevalf(&_tgt_global_avg_pond. + 2 * &_tgt_std_monthly_pond.);
-    %let min_val=%sysevalf(&_tgt_global_avg_pond. - 5 *
-        &_tgt_std_monthly_pond.);
-    %let max_val=%sysevalf(&_tgt_global_avg_pond. + 5 *
-        &_tgt_std_monthly_pond.);
-
-    data casuser._tgt_monthly_pond_b;
-        set casuser._tgt_monthly_pond;
-        lower_band=&inf.;
-        upper_band=&sup.;
-        global_mean=&_tgt_global_avg_pond.;
-        format avg_target_pond lower_band upper_band global_mean 8.6;
-    run;
-
-    title "Target Ponderado por Monto - &data_type.";
-
-    proc sgplot data=casuser._tgt_monthly_pond subpixel noautolegend;
-        band x=&byvar. lower=&inf. upper=&sup. / fillattrs=(color=graydd)
-            legendlabel="+/- 2 Desv. Estandar" name="band1";
-        series x=&byvar. y=avg_target_pond / markers lineattrs=(color=darkblue
-            thickness=2) legendlabel="RD Pond. Promedio" name="serie1";
-        refline &_tgt_global_avg_pond. / lineattrs=(color=red pattern=Dash)
-            legendlabel="Media Ponderada Global" name="line1";
-        yaxis min=&min_val. max=&max_val. label="RD Pond. por Monto";
-        xaxis label="&byvar." type=discrete;
-        keylegend "serie1" "band1" "line1" / location=inside
-            position=bottomright;
-    run;
-    title;
-
-    proc print data=casuser._tgt_monthly_pond_b noobs;
-        var &byvar. avg_target_pond lower_band upper_band global_mean;
-        label &byvar.="Periodo" avg_target_pond="RD Ponderado por Monto"
-            lower_band="Limite Inferior (- 2 Desv.)"
-            upper_band="Limite Superior (+ 2 Desv.)"
-            global_mean="Media Ponderada Global";
-    run;
-
-    /* Resetear globales despues de OOT */
-    %if &is_train.=0 %then %do;
-        %let _tgt_global_avg_pond=;
-        %let _tgt_std_monthly_pond=;
-    %end;
-
-    proc datasets library=casuser nolist nowarn;
-        delete _tgt_monthly_pond _tgt_monthly_pond_b;
+        create table casuser._tgt_bandas_ref {options replace=true} as
+        select distinct d.&byvar.,
+            s.lower_band,
+            s.upper_band,
+            s.global_avg
+        from casuser._tgt_describe d
+        cross join casuser._tgt_bandas_stats s;
     quit;
 
-%mend _target_ponderado_promedio;
+    %_target_partition(name=_tgt_bandas,
+        orderby=%str("Muestra","&byvar."));
+    %_target_partition(name=_tgt_bandas_ref,
+        orderby=%str("&byvar."));
+%mend _target_build_bandas;
 
-/* =====================================================================
-%_target_ponderado_suma - RD ponderado por monto (suma) + ratio
-sum(target*monto) por periodo + ratio normalizado sobre monto total.
-===================================================================== */
-%macro _target_ponderado_suma(data=, data_type=, target=, monto=, byvar=,
-    is_train=1);
+%macro _target_build_ponderado_promedio(data=casuser._tgt_base, target=, monto=, byvar=);
+    %if %length(%superq(monto))=0 %then %return;
 
-    %global _tgt_global_sum_pond _tgt_std_sum_pond _tgt_global_ratio
-        _tgt_std_ratio;
-    %local inf sup inf_ratio sup_ratio min_ratio max_ratio _nobs_sum
-        _all_monto_zero;
+    proc fedsql sessref=conn;
+        create table casuser._tgt_pond_prom {options replace=true} as
+        select Muestra,
+            &byvar.,
+            sum(cast(&target. as double) * cast(&monto. as double)) /
+                sum(cast(&monto. as double)) as avg_target_pond
+        from &data.
+        where &monto. > 0
+        group by Muestra, &byvar.;
 
-    /* Suma ponderada por mes */
-    proc fedsql sessref=conn noprint;
-        create table casuser._tgt_sum_pond {options replace=true} as select
-            &byvar., sum(cast(&target. as double) * cast(&monto. as double)) as
-            sum_target_pond, sum(cast(&monto. as double)) as total_monto from
-            &data. group by &byvar.;
+        create table casuser._tgt_pond_prom_stats {options replace=true} as
+        select a.global_mean,
+            coalesce(b.std_monthly, 0) as std_monthly,
+            a.global_mean - 2 * coalesce(b.std_monthly, 0) as lower_band,
+            a.global_mean + 2 * coalesce(b.std_monthly, 0) as upper_band
+        from (
+            select sum(cast(&target. as double) * cast(&monto. as double)) /
+                sum(cast(&monto. as double)) as global_mean
+            from &data.
+            where Muestra='TRAIN' and &monto. > 0
+        ) a
+        cross join (
+            select std(avg_target_pond) as std_monthly
+            from casuser._tgt_pond_prom
+            where Muestra='TRAIN'
+        ) b;
+
+        create table casuser._tgt_pond_prom_bandas {options replace=true} as
+        select d.Muestra,
+            d.&byvar.,
+            d.avg_target_pond,
+            s.lower_band,
+            s.upper_band,
+            s.global_mean
+        from casuser._tgt_pond_prom d
+        cross join casuser._tgt_pond_prom_stats s;
     quit;
 
-    /* Guard: verificar que haya datos */
-    proc sql noprint;
-        select count(*) into :_nobs_sum trimmed from casuser._tgt_sum_pond;
+    %_target_partition(name=_tgt_pond_prom_bandas,
+        orderby=%str("Muestra","&byvar."));
+%mend _target_build_ponderado_promedio;
+
+%macro _target_build_ponderado_suma(data=casuser._tgt_base, target=, monto=, byvar=);
+    %if %length(%superq(monto))=0 %then %return;
+
+    proc fedsql sessref=conn;
+        create table casuser._tgt_sum_pond {options replace=true} as
+        select Muestra,
+            &byvar.,
+            sum(cast(&target. as double) * cast(&monto. as double)) as sum_target_pond,
+            sum(cast(&monto. as double)) as total_monto
+        from &data.
+        group by Muestra, &byvar.;
+
+        create table casuser._tgt_sum_pond_stats {options replace=true} as
+        select a.global_mean,
+            coalesce(b.std_monthly, 0) as std_monthly,
+            a.global_mean - 2 * coalesce(b.std_monthly, 0) as lower_band,
+            a.global_mean + 2 * coalesce(b.std_monthly, 0) as upper_band
+        from (
+            select avg(sum_target_pond) as global_mean
+            from casuser._tgt_sum_pond
+            where Muestra='TRAIN'
+        ) a
+        cross join (
+            select std(sum_target_pond) as std_monthly
+            from casuser._tgt_sum_pond
+            where Muestra='TRAIN'
+        ) b;
+
+        create table casuser._tgt_sum_pond_bandas {options replace=true} as
+        select d.Muestra,
+            d.&byvar.,
+            d.sum_target_pond,
+            d.total_monto,
+            s.lower_band,
+            s.upper_band,
+            s.global_mean
+        from casuser._tgt_sum_pond d
+        cross join casuser._tgt_sum_pond_stats s;
+
+        create table casuser._tgt_ratio {options replace=true} as
+        select Muestra,
+            &byvar.,
+            case when total_monto > 0 then sum_target_pond / total_monto else null
+            end as ratio_default_monto
+        from casuser._tgt_sum_pond;
+
+        create table casuser._tgt_ratio_stats {options replace=true} as
+        select a.global_mean,
+            coalesce(b.std_monthly, 0) as std_monthly,
+            a.global_mean - 2 * coalesce(b.std_monthly, 0) as lower_band,
+            a.global_mean + 2 * coalesce(b.std_monthly, 0) as upper_band
+        from (
+            select avg(ratio_default_monto) as global_mean
+            from casuser._tgt_ratio
+            where Muestra='TRAIN' and ratio_default_monto is not null
+        ) a
+        cross join (
+            select std(ratio_default_monto) as std_monthly
+            from casuser._tgt_ratio
+            where Muestra='TRAIN' and ratio_default_monto is not null
+        ) b;
+
+        create table casuser._tgt_ratio_bandas {options replace=true} as
+        select d.Muestra,
+            d.&byvar.,
+            d.ratio_default_monto,
+            s.lower_band,
+            s.upper_band,
+            s.global_mean
+        from casuser._tgt_ratio d
+        cross join casuser._tgt_ratio_stats s
+        where d.ratio_default_monto is not null;
     quit;
 
-    %if &_nobs_sum.=0 %then %do;
-        %put WARNING: [target_pond_sum] &data_type.: Tabla de sumas vacia. Se
-            omite analisis ponderado suma.;
-
-        proc datasets library=casuser nolist nowarn;
-            delete _tgt_sum_pond;
-        quit;
-        %if &is_train.=0 %then %do;
-            %let _tgt_global_sum_pond=;
-            %let _tgt_std_sum_pond=;
-            %let _tgt_global_ratio=;
-            %let _tgt_std_ratio=;
-        %end;
-        %return;
-    %end;
-
-    /* Estadisticas globales si es TRAIN */
-    %if (&is_train.=1) or (%length(&_tgt_global_sum_pond.)=0) %then %do;
-        proc sql noprint;
-            select mean(sum_target_pond) into :_tgt_global_sum_pond trimmed from
-                casuser._tgt_sum_pond;
-            select std(sum_target_pond) into :_tgt_std_sum_pond trimmed from
-                casuser._tgt_sum_pond;
-        quit;
-    %end;
-    %else %do;
-        %put NOTE: [target_pond_sum] Usando estadisticas existentes
-            (sum_pond=&_tgt_global_sum_pond. std=&_tgt_std_sum_pond.);
-    %end;
-
-    /* Guard: si global_sum_pond quedo vacio o missing */
-    %if %length(&_tgt_global_sum_pond.)=0 or &_tgt_global_sum_pond.=. %then %do;
-        %put WARNING: [target_pond_sum] &data_type.: Suma ponderada no
-            calculable. Se omite grafico de sumas.;
-
-        proc datasets library=casuser nolist nowarn;
-            delete _tgt_sum_pond;
-        quit;
-        %if &is_train.=0 %then %do;
-            %let _tgt_global_sum_pond=;
-            %let _tgt_std_sum_pond=;
-            %let _tgt_global_ratio=;
-            %let _tgt_std_ratio=;
-        %end;
-        %return;
-    %end;
-
-    /* Guard: si std es vacio o missing (1 solo periodo), usar 0 */
-    %if %length(&_tgt_std_sum_pond.)=0 or &_tgt_std_sum_pond.=. %then %let
-        _tgt_std_sum_pond=0;
-
-    %let inf=%sysevalf(&_tgt_global_sum_pond. - 2 * &_tgt_std_sum_pond.);
-    %let sup=%sysevalf(&_tgt_global_sum_pond. + 2 * &_tgt_std_sum_pond.);
-
-    data casuser._tgt_sum_pond_b;
-        set casuser._tgt_sum_pond;
-        lower_band=&inf.;
-        upper_band=&sup.;
-        global_mean=&_tgt_global_sum_pond.;
-        format sum_target_pond lower_band upper_band global_mean total_monto
-            comma18.2;
-    run;
-
-    title "Target Ponderado por Suma de Monto - &data_type.";
-
-    proc sgplot data=casuser._tgt_sum_pond subpixel noautolegend;
-        band x=&byvar. lower=&inf. upper=&sup. / fillattrs=(color=graydd)
-            legendlabel="+/- 2 Desv. Estandar" name="band1";
-        series x=&byvar. y=sum_target_pond / markers lineattrs=(color=darkgreen
-            thickness=2) legendlabel="RD Pond. por Suma" name="serie1";
-        refline &_tgt_global_sum_pond. / lineattrs=(color=red pattern=Dash)
-            legendlabel="Media de Sumas Global" name="line1";
-        yaxis label="RD Pond. por Suma de Monto";
-        xaxis label="&byvar." type=discrete;
-        keylegend "serie1" "band1" "line1" / location=inside
-            position=bottomright;
-    run;
-
-    proc print data=casuser._tgt_sum_pond_b noobs;
-        var &byvar. sum_target_pond total_monto lower_band upper_band
-            global_mean;
-        label &byvar.="Periodo" sum_target_pond="RD Ponderado por Suma"
-            total_monto="Monto Total" lower_band="Limite Inferior (- 2 Desv.)"
-            upper_band="Limite Superior (+ 2 Desv.)"
-            global_mean="Media de Sumas Global";
-    run;
-    title;
-
-    /* ---- Ratio normalizado: sum(target*monto)/sum(monto) por mes ------ */
-
-    /* Guard: verificar si todos los total_monto son 0 (division por cero) */
-    proc sql noprint;
-        select (min(total_monto)=0 and max(total_monto)=0) into :_all_monto_zero
-            trimmed from casuser._tgt_sum_pond;
-    quit;
-
-    %if &_all_monto_zero.=1 %then %do;
-        %put WARNING: [target_pond_sum] &data_type.: Monto total=0 en todos los
-            periodos. Se omite ratio RD/Monto.;
-        /* Cleanup suma (ratio se omite) */
-        %if &is_train.=0 %then %do;
-            %let _tgt_global_sum_pond=;
-            %let _tgt_std_sum_pond=;
-            %let _tgt_global_ratio=;
-            %let _tgt_std_ratio=;
-        %end;
-
-        proc datasets library=casuser nolist nowarn;
-            delete _tgt_sum_pond _tgt_sum_pond_b;
-        quit;
-        %return;
-    %end;
-
-    /* Calcular ratio solo donde total_monto > 0 para evitar division por 0 */
-    data casuser._tgt_ratio;
-        set casuser._tgt_sum_pond;
-        if total_monto > 0 then ratio_default_monto=sum_target_pond /
-            total_monto;
-        else ratio_default_monto=.;
-    run;
-
-    /* Estadisticas del ratio si es TRAIN */
-    %if (&is_train.=1) or (%length(&_tgt_global_ratio.)=0) %then %do;
-        proc sql noprint;
-            select mean(ratio_default_monto) into :_tgt_global_ratio trimmed
-                from casuser._tgt_ratio where ratio_default_monto is not
-                missing;
-            select std(ratio_default_monto) into :_tgt_std_ratio trimmed from
-                casuser._tgt_ratio where ratio_default_monto is not missing;
-        quit;
-    %end;
-    %else %do;
-        %put NOTE: [target_pond_sum] Usando estadisticas ratio existentes
-            (ratio=&_tgt_global_ratio. std=&_tgt_std_ratio.);
-    %end;
-
-    /* Guard: si ratio quedo vacio o missing */
-    %if %length(&_tgt_global_ratio.)=0 or &_tgt_global_ratio.=. %then %do;
-        %put WARNING: [target_pond_sum] &data_type.: Ratio no calculable. Se
-            omite grafico de ratio.;
-        %if &is_train.=0 %then %do;
-            %let _tgt_global_sum_pond=;
-            %let _tgt_std_sum_pond=;
-            %let _tgt_global_ratio=;
-            %let _tgt_std_ratio=;
-        %end;
-
-        proc datasets library=casuser nolist nowarn;
-            delete _tgt_sum_pond _tgt_sum_pond_b _tgt_ratio;
-        quit;
-        %return;
-    %end;
-
-    /* Guard: si std_ratio es vacio o missing, usar 0 */
-    %if %length(&_tgt_std_ratio.)=0 or &_tgt_std_ratio.=. %then %let
-        _tgt_std_ratio=0;
-
-    %let inf_ratio=%sysevalf(&_tgt_global_ratio. - 2 * &_tgt_std_ratio.);
-    %let sup_ratio=%sysevalf(&_tgt_global_ratio. + 2 * &_tgt_std_ratio.);
-    %let min_ratio=%sysevalf(&_tgt_global_ratio. - 5 * &_tgt_std_ratio.);
-    %let max_ratio=%sysevalf(&_tgt_global_ratio. + 5 * &_tgt_std_ratio.);
-
-    data casuser._tgt_ratio_b;
-        set casuser._tgt_ratio;
-        lower_band=&inf_ratio.;
-        upper_band=&sup_ratio.;
-        global_mean=&_tgt_global_ratio.;
-        format ratio_default_monto lower_band upper_band global_mean 8.6;
-    run;
-
-    title "Ratio RD Ponderado sobre Monto Total - &data_type.";
-
-    proc sgplot data=casuser._tgt_ratio subpixel noautolegend;
-        band x=&byvar. lower=&inf_ratio. upper=&sup_ratio. /
-            fillattrs=(color=graydd) legendlabel="+/- 2 Desv. Estandar"
-            name="band1";
-        series x=&byvar. y=ratio_default_monto / markers
-            lineattrs=(color=darkred thickness=2) legendlabel="Ratio RD/Monto"
-            name="serie1";
-        refline &_tgt_global_ratio. / lineattrs=(color=blue pattern=Dash)
-            legendlabel="Media del Ratio Global" name="line1";
-        yaxis min=&min_ratio. max=&max_ratio. label="Ratio RD/Monto Total";
-        xaxis label="&byvar." type=discrete;
-        keylegend "serie1" "band1" "line1" / location=inside
-            position=bottomright;
-    run;
-    title;
-
-    proc print data=casuser._tgt_ratio_b noobs;
-        var &byvar. ratio_default_monto lower_band upper_band global_mean;
-        label &byvar.="Periodo" ratio_default_monto="Ratio RD/Monto"
-            lower_band="Limite Inferior (- 2 Desv.)"
-            upper_band="Limite Superior (+ 2 Desv.)"
-            global_mean="Media del Ratio Global";
-    run;
-
-    /* Resetear globales despues de OOT */
-    %if &is_train.=0 %then %do;
-        %let _tgt_global_sum_pond=;
-        %let _tgt_std_sum_pond=;
-        %let _tgt_global_ratio=;
-        %let _tgt_std_ratio=;
-    %end;
-
-    proc datasets library=casuser nolist nowarn;
-        delete _tgt_sum_pond _tgt_sum_pond_b _tgt_ratio _tgt_ratio_b;
-    quit;
-
-%mend _target_ponderado_suma;
+    %_target_partition(name=_tgt_sum_pond_bandas,
+        orderby=%str("Muestra","&byvar."));
+    %_target_partition(name=_tgt_ratio_bandas,
+        orderby=%str("Muestra","&byvar."));
+%mend _target_build_ponderado_suma;

@@ -460,12 +460,12 @@ al terminar. work se limpia al final.
             proc cas;
                 session conn;
                 transpose.transpose /
-                    table={name="_psi_cubo_mensual", caslib="casuser"},
+                    table={name="_psi_cubo_mensual", caslib="casuser",
+                        groupby={"Variable"}},
                     casout={name="_psi_cubo_wide_base", caslib="casuser",
                         replace=true},
                     transpose={"PSI"},
-                    id={"&byvar."},
-                    groupby={"Variable"};
+                    id={"&byvar."};
             quit;
 
             proc fedsql sessref=conn;
