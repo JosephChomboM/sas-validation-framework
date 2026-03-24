@@ -71,7 +71,7 @@ Flujo:
 
     %if &_tgt_rc. ne 0 %then %do;
         %put ERROR: [target_run] Contract fallido. Se aborta target.;
-        %goto cleanup;
+        %return;
     %end;
 
     %_target_report(input_caslib=&input_caslib., train_table=&train_table.,
@@ -79,8 +79,6 @@ Flujo:
         monto_var=&_tgt_monto., def_cld=&_tgt_def_cld.,
         has_monto=&_tgt_has_monto., report_path=&_report_path.,
         images_path=&_images_path., file_prefix=&_file_prefix.);
-
-%cleanup:
     proc datasets library=casuser nolist nowarn;
         delete _tgt_:;
     quit;
