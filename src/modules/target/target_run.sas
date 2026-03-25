@@ -4,8 +4,9 @@ target_run.sas - Macro publica del modulo Target (Metodo 2.1)
 Flujo:
 1) Resolver byvar, target, monto y def_cld desde cfg_troncales
 2) Validar contexto y disponibilidad de datos
-3) Generar un reporte consolidado TRAIN + OOT usando solo tablas CAS
-4) Limpiar temporales de casuser
+3) Calcular metricas CAS-first y publicar temporales en casuser
+4) Generar un reporte consolidado TRAIN + OOT
+5) Limpiar temporales de casuser
 ========================================================================= */
 
 %include "&fw_root./src/modules/target/target_contract.sas";
@@ -73,6 +74,11 @@ Flujo:
         %put ERROR: [target_run] Contract fallido. Se aborta target.;
         %return;
     %end;
+
+    %_target_compute(input_caslib=&input_caslib., train_table=&train_table.,
+        oot_table=&oot_table., byvar=&_tgt_byvar., target=&_tgt_target.,
+        monto_var=&_tgt_monto., def_cld=&_tgt_def_cld.,
+        has_monto=&_tgt_has_monto.);
 
     %_target_report(input_caslib=&input_caslib., train_table=&train_table.,
         oot_table=&oot_table., byvar=&_tgt_byvar., target=&_tgt_target.,

@@ -1,202 +1,395 @@
 /* =========================================================================
-target_report.sas - Reporte consolidado TRAIN + OOT para Target
-
-Genera un unico HTML y un unico Excel para cada contexto, con metricas y
-graficos consolidados entre TRAIN y OOT.
+target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
 ========================================================================= */
 
+%macro _target_rows(data=, where=, outvar=_tgt_rows);
+    %local _where_clause;
+    %let _where_clause=1=1;
+    %if %length(%superq(where)) > 0 %then %let _where_clause=&where.;
+
+    proc sql noprint;
+        select count(*) into :&outvar trimmed
+        from &data.
+        where &_where_clause.;
+    quit;
+
+    %if %sysevalf(%superq(&outvar)=, boolean) %then %let &outvar=0;
+%mend _target_rows;
+
+%macro _target_note(text=);
+    ods text="^S={fontweight=bold color=gray} &text.";
+%mend _target_note;
+
+%macro _target_report_rel_diff(split=);
+    %local _rows;
+    %_target_rows(data=casuser._tgt_rel_diff, where=Split="&split.",
+        outvar=_rows);
+    %if &_rows.=0 %then %do;
+        %_target_note(text=No hay datos de diferencia relativa para &split..);
+        %return;
+    %end;
+
+    title "Diferencia Relativa - &split.";
+    proc report data=casuser._tgt_rel_diff(where=(Split="&split.")) nowd
+        missing;
+        columns Split N_Months Window_Type Start_Label Start_Value End_Label
+            End_Value Relative_Diff Note;
+        define Split / display "Dataset";
+        define N_Months / display "N Periodos";
+        define Window_Type / display "Ventana";
+        define Start_Label / display "Referencia Inicial" flow width=22;
+        define Start_Value / display "Valor Inicial" format=percent8.4;
+        define End_Label / display "Referencia Final" flow width=22;
+        define End_Value / display "Valor Final" format=percent8.4;
+        define Relative_Diff / display "Diferencia Relativa" format=percent8.2;
+        define Note / display "Nota" flow width=42;
+    run;
+    title;
+%mend _target_report_rel_diff;
+
+%macro _target_plot_rd(data=casuser._tgt_rd_monthly, split=, file_prefix=);
+    %local _rows _img;
+    %_target_rows(data=&data., where=Split="&split.", outvar=_rows);
+    %if &_rows.=0 %then %return;
+
+    %let _img=&file_prefix._rd_%lowcase(&split.);
+
+    ods graphics / imagename="&_img." imagefmt=jpeg;
+    title "Evolutivo del Target - &split.";
+    proc sgplot data=&data.(where=(Split="&split."));
+        vline Periodo / response=RD markers
+            markerattrs=(symbol=circlefilled color=black)
+            lineattrs=(color=crimson);
+        yaxis label="RD" min=0 max=1;
+        xaxis label="Periodo" type=discrete;
+    run;
+    title;
+    ods graphics / reset=all;
+%mend _target_plot_rd;
+
+%macro _target_report_rd(split=, file_prefix=);
+    %local _rows;
+    %_target_rows(data=casuser._tgt_rd_monthly, where=Split="&split.",
+        outvar=_rows);
+    %if &_rows.=0 %then %do;
+        %_target_note(text=No hay RD mensual para &split..);
+        %return;
+    %end;
+
+    %_target_report_rel_diff(split=&split.);
+
+    title "RD Mensual - &split.";
+    proc report data=casuser._tgt_rd_monthly(where=(Split="&split.")) nowd
+        missing;
+        columns Split Periodo N_Total N_Valid N_Default RD;
+        define Split / display "Dataset";
+        define Periodo / display "Periodo" format=6.;
+        define N_Total / display "N Total";
+        define N_Valid / display "N Target Valido";
+        define N_Default / display "N Default";
+        define RD / display "RD" format=percent8.4;
+    run;
+    title;
+
+    %_target_plot_rd(data=casuser._tgt_rd_monthly, split=&split.,
+        file_prefix=&file_prefix.);
+%mend _target_report_rd;
+
+%macro _target_report_materiality(split=);
+    %local _rows;
+    %_target_rows(data=casuser._tgt_materiality, where=Split="&split.",
+        outvar=_rows);
+    %if &_rows.=0 %then %do;
+        %_target_note(text=No hay materialidad para &split..);
+        %return;
+    %end;
+
+    title "Materialidad por Periodo y Target - &split.";
+    proc report data=casuser._tgt_materiality(where=(Split="&split.")) nowd
+        missing;
+        columns Split Periodo Target_Value N_Cuentas;
+        define Split / display "Dataset";
+        define Periodo / display "Periodo" format=6.;
+        define Target_Value / display "Target";
+        define N_Cuentas / display "N Cuentas";
+    run;
+    title;
+%mend _target_report_materiality;
+
+%macro _target_plot_bands(data=casuser._tgt_bands, split=, yvar=RD,
+    refvar=Global_Avg, lower=Lower_Band, upper=Upper_Band, axismin=Axis_Min,
+    axismax=Axis_Max, ylabel=RD, line_color=blue, ref_color=red,
+    file_suffix=band, title_txt=Evolutivo del Target, file_prefix=);
+
+    %local _rows _axis_min _axis_max _ref_value _img;
+    %let _axis_min=;
+    %let _axis_max=;
+    %let _ref_value=;
+
+    %_target_rows(data=&data., where=Split="&split.", outvar=_rows);
+    %if &_rows.=0 %then %return;
+
+    %if %length(%superq(axismin)) > 0 and %length(%superq(axismax)) > 0 %then
+        %do;
+        proc sql noprint;
+            select min(&axismin.), max(&axismax.)
+            into :_axis_min trimmed, :_axis_max trimmed
+            from &data.
+            where Split="&split.";
+        quit;
+    %end;
+
+    %if %length(%superq(refvar)) > 0 %then %do;
+        proc sql noprint;
+            select min(&refvar.) into :_ref_value trimmed
+            from &data.
+            where Split="&split.";
+        quit;
+    %end;
+
+    %let _img=&file_prefix._&file_suffix._%lowcase(&split.);
+
+    ods graphics / imagename="&_img." imagefmt=jpeg;
+    title "&title_txt. - &split.";
+    proc sgplot data=&data.(where=(Split="&split.")) subpixel noautolegend;
+        band x=Periodo lower=&lower. upper=&upper. /
+            fillattrs=(color=graydd) legendlabel="+/- 2 Desv. Estandar"
+            name="band1";
+        series x=Periodo y=&yvar. / markers
+            lineattrs=(color=&line_color. thickness=2)
+            legendlabel="RD" name="serie1";
+        %if %length(%superq(_ref_value)) > 0 %then %do;
+            refline &_ref_value. / lineattrs=(color=&ref_color. pattern=dash)
+                legendlabel="Media TRAIN" name="line1";
+        %end;
+        %if %length(%superq(_axis_min)) > 0 and
+            %length(%superq(_axis_max)) > 0 %then %do;
+            yaxis min=&_axis_min. max=&_axis_max. label="&ylabel.";
+        %end;
+        %else %do;
+            yaxis label="&ylabel.";
+        %end;
+        xaxis label="Periodo" type=discrete;
+        %if %length(%superq(_ref_value)) > 0 %then %do;
+            keylegend "serie1" "band1" "line1" /
+                location=inside position=bottomright;
+        %end;
+        %else %do;
+            keylegend "serie1" "band1" /
+                location=inside position=bottomright;
+        %end;
+    run;
+    title;
+    ods graphics / reset=all;
+%mend _target_plot_bands;
+
+%macro _target_report_bands(split=, target_label=Target, file_prefix=);
+    %local _rows;
+    %_target_rows(data=casuser._tgt_bands, where=Split="&split.",
+        outvar=_rows);
+    %if &_rows.=0 %then %do;
+        %_target_note(text=No hay bandas de target para &split..);
+        %return;
+    %end;
+
+    title "Bandas del Target - &split.";
+    proc report data=casuser._tgt_bands(where=(Split="&split.")) nowd missing;
+        columns Split Periodo N_Total N_Valid N_Default RD Lower_Band
+            Upper_Band Global_Avg;
+        define Split / display "Dataset";
+        define Periodo / display "Periodo" format=6.;
+        define N_Total / display "N Total";
+        define N_Valid / display "N Target Valido";
+        define N_Default / display "N Default";
+        define RD / display "Promedio del Target" format=percent8.4;
+        define Lower_Band / display "Limite Inferior (- 2 Desv.)"
+            format=percent8.4;
+        define Upper_Band / display "Limite Superior (+ 2 Desv.)"
+            format=percent8.4;
+        define Global_Avg / display "Promedio Global TRAIN" format=percent8.4;
+    run;
+    title;
+
+    %_target_plot_bands(data=casuser._tgt_bands, split=&split., yvar=RD,
+        refvar=Global_Avg, lower=Lower_Band, upper=Upper_Band,
+        axismin=Axis_Min, axismax=Axis_Max,
+        ylabel=Promedio de &target_label., line_color=blue, ref_color=red,
+        file_suffix=band, title_txt=Evolutivo del Target,
+        file_prefix=&file_prefix.);
+%mend _target_report_bands;
+
+%macro _target_report_weight_avg(split=, file_prefix=);
+    %local _rows;
+    %if not %sysfunc(exist(casuser._tgt_weight_avg)) %then %return;
+    %_target_rows(data=casuser._tgt_weight_avg, where=Split="&split.",
+        outvar=_rows);
+    %if &_rows.=0 %then %do;
+        %_target_note(text=No hay target ponderado promedio para &split..);
+        %return;
+    %end;
+
+    title "Target Ponderado por Monto - Promedio - &split.";
+    proc report data=casuser._tgt_weight_avg(where=(Split="&split.")) nowd
+        missing;
+        columns Split Periodo N_Cuentas Total_Monto RD_Pond_Prom Lower_Band
+            Upper_Band Global_Avg;
+        define Split / display "Dataset";
+        define Periodo / display "Periodo" format=6.;
+        define N_Cuentas / display "N Cuentas";
+        define Total_Monto / display "Monto Total" format=comma18.2;
+        define RD_Pond_Prom / display "RD Ponderado Promedio"
+            format=percent8.6;
+        define Lower_Band / display "Limite Inferior (- 2 Desv.)"
+            format=percent8.6;
+        define Upper_Band / display "Limite Superior (+ 2 Desv.)"
+            format=percent8.6;
+        define Global_Avg / display "Media Ponderada Global TRAIN"
+            format=percent8.6;
+    run;
+    title;
+
+    %_target_plot_bands(data=casuser._tgt_weight_avg, split=&split.,
+        yvar=RD_Pond_Prom, refvar=Global_Avg, lower=Lower_Band,
+        upper=Upper_Band, axismin=Axis_Min, axismax=Axis_Max,
+        ylabel=RD Pond. por Monto, line_color=darkblue, ref_color=red,
+        file_suffix=wavg, title_txt=Target Ponderado por Monto,
+        file_prefix=&file_prefix.);
+%mend _target_report_weight_avg;
+
+%macro _target_report_weight_sum(split=, file_prefix=);
+    %local _rows;
+    %if not %sysfunc(exist(casuser._tgt_weight_sum)) %then %return;
+    %_target_rows(data=casuser._tgt_weight_sum, where=Split="&split.",
+        outvar=_rows);
+    %if &_rows.=0 %then %do;
+        %_target_note(text=No hay target ponderado por suma para &split..);
+        %return;
+    %end;
+
+    title "Target Ponderado por Suma de Monto - &split.";
+    proc report data=casuser._tgt_weight_sum(where=(Split="&split.")) nowd
+        missing;
+        columns Split Periodo N_Cuentas Sum_Target_Pond Total_Monto Lower_Band
+            Upper_Band Global_Sum;
+        define Split / display "Dataset";
+        define Periodo / display "Periodo" format=6.;
+        define N_Cuentas / display "N Cuentas";
+        define Sum_Target_Pond / display "RD Ponderado por Suma"
+            format=comma18.2;
+        define Total_Monto / display "Monto Total" format=comma18.2;
+        define Lower_Band / display "Limite Inferior (- 2 Desv.)"
+            format=comma18.2;
+        define Upper_Band / display "Limite Superior (+ 2 Desv.)"
+            format=comma18.2;
+        define Global_Sum / display "Media de Sumas Global TRAIN"
+            format=comma18.2;
+    run;
+    title;
+
+    %_target_plot_bands(data=casuser._tgt_weight_sum, split=&split.,
+        yvar=Sum_Target_Pond, refvar=Global_Sum, lower=Lower_Band,
+        upper=Upper_Band, axismin=, axismax=,
+        ylabel=RD Pond. por Suma de Monto, line_color=darkgreen,
+        ref_color=red, file_suffix=wsum,
+        title_txt=Target Ponderado por Suma de Monto,
+        file_prefix=&file_prefix.);
+%mend _target_report_weight_sum;
+
+%macro _target_report_weight_ratio(split=, file_prefix=);
+    %local _rows;
+    %if not %sysfunc(exist(casuser._tgt_weight_ratio)) %then %return;
+    %_target_rows(data=casuser._tgt_weight_ratio, where=Split="&split.",
+        outvar=_rows);
+    %if &_rows.=0 %then %do;
+        %_target_note(text=No hay ratio RD/monto para &split..);
+        %return;
+    %end;
+
+    title "Ratio RD Ponderado sobre Monto Total - &split.";
+    proc report data=casuser._tgt_weight_ratio(where=(Split="&split.")) nowd
+        missing;
+        columns Split Periodo N_Cuentas Sum_Target_Pond Total_Monto
+            Ratio_RD_Monto Lower_Band Upper_Band Global_Ratio;
+        define Split / display "Dataset";
+        define Periodo / display "Periodo" format=6.;
+        define N_Cuentas / display "N Cuentas";
+        define Sum_Target_Pond / display "RD Pond. Suma" format=comma18.2;
+        define Total_Monto / display "Monto Total" format=comma18.2;
+        define Ratio_RD_Monto / display "Ratio RD/Monto" format=percent8.6;
+        define Lower_Band / display "Limite Inferior (- 2 Desv.)"
+            format=percent8.6;
+        define Upper_Band / display "Limite Superior (+ 2 Desv.)"
+            format=percent8.6;
+        define Global_Ratio / display "Media del Ratio Global TRAIN"
+            format=percent8.6;
+    run;
+    title;
+
+    %_target_plot_bands(data=casuser._tgt_weight_ratio, split=&split.,
+        yvar=Ratio_RD_Monto, refvar=Global_Ratio, lower=Lower_Band,
+        upper=Upper_Band, axismin=Axis_Min, axismax=Axis_Max,
+        ylabel=Ratio RD/Monto Total, line_color=darkred, ref_color=blue,
+        file_suffix=ratio, title_txt=Ratio RD Ponderado sobre Monto Total,
+        file_prefix=&file_prefix.);
+%mend _target_report_weight_ratio;
+
 %macro _target_report(input_caslib=, train_table=, oot_table=, byvar=, target=,
-    monto_var=, def_cld=0, has_monto=0, report_path=, images_path=,
+    monto_var=, def_cld=, has_monto=0, report_path=, images_path=,
     file_prefix=);
-
-
-    %put NOTE: [target_report] Generando reporte consolidado TRAIN + OOT.;
-    %put NOTE: [target_report] byvar=&byvar. target=&target. def_cld=&def_cld.;
-    %put NOTE: [target_report] has_monto=&has_monto.;
-
-    %_target_compute(input_caslib=&input_caslib., train_table=&train_table.,
-        oot_table=&oot_table., byvar=&byvar., target=&target.,
-        monto_var=&monto_var., def_cld=&def_cld., has_monto=&has_monto.);
-
 
     ods graphics on;
     ods listing gpath="&images_path.";
-
-    ods excel file="&report_path./&file_prefix..xlsx"
-        options(sheet_name="RD" sheet_interval="none" embedded_titles="yes");
     ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
+    ods excel file="&report_path./&file_prefix..xlsx"
+        options(sheet_name="DESCRIBE" sheet_interval="none"
+        embedded_titles="yes" frozen_headers="yes" autofilter="all");
 
-    ods graphics / imagename="&file_prefix._rd" imagefmt=jpeg;
-    title "Evolutivo del target consolidado";
-    proc sgplot data=casuser._tgt_describe;
-        series x=&byvar. y=avg_target / group=Muestra markers
-            lineattrs=(thickness=2);
-        xaxis type=discrete label="Periodo";
-        yaxis label="RD";
-        keylegend / title="Muestra";
+    title "METOD2.1 - Target Consolidado TRAIN + OOT";
+    proc report data=casuser._tgt_rd_monthly nowd missing;
+        columns Split N_Total N_Valid N_Default;
+        define Split / group "Dataset";
+        define N_Total / analysis sum "N Total";
+        define N_Valid / analysis sum "N Target Valido";
+        define N_Default / analysis sum "N Default";
     run;
     title;
 
-    title "Resumen mensual del target";
-    proc print data=casuser._tgt_describe noobs label;
-        var Muestra &byvar. N avg_target;
-        label Muestra="Muestra"
-            &byvar.="Periodo"
-            N="N Target"
-            avg_target="RD";
-        format avg_target percent10.4;
-    run;
-    title;
+    %_target_report_rd(split=TRAIN, file_prefix=&file_prefix.);
+    %_target_report_rd(split=OOT, file_prefix=&file_prefix.);
 
-    ods excel options(sheet_name="Materialidad" sheet_interval="now"
-        embedded_titles="yes");
-    title "Materialidad del target por muestra";
-    proc freqtab data=casuser._tgt_base;
-        tables Muestra * &byvar. * &target. / norow nocol nopercent nocum;
-    run;
-    title;
+    ods excel options(sheet_name="MATERIALIDAD" sheet_interval="now"
+        embedded_titles="yes" frozen_headers="yes");
+    %_target_report_materiality(split=TRAIN);
+    %_target_report_materiality(split=OOT);
 
-    ods excel options(sheet_name="DiferenciaRel" sheet_interval="now"
-        embedded_titles="yes");
-    title "Diferencia relativa";
-    proc print data=casuser._tgt_diff_rel noobs label;
-        var Muestra Metric Value;
-        label Muestra="Muestra"
-            Metric="Metrica"
-            Value="Valor";
-        format Value percent10.4;
-    run;
-    title;
-
-    ods excel options(sheet_name="Bandas_RD" sheet_interval="now"
-        embedded_titles="yes");
-    ods graphics / imagename="&file_prefix._bandas_rd" imagefmt=jpeg;
-    title "RD con bandas TRAIN";
-    proc sgplot data=casuser._tgt_bandas;
-        band x=&byvar. lower=lower_band upper=upper_band /
-            transparency=0.45 fillattrs=(color=cxD9D9D9)
-            legendlabel="Bandas TRAIN +/- 2 desv";
-        series x=&byvar. y=avg_target / group=Muestra markers
-            lineattrs=(thickness=2);
-        refline &_tgt_global_avg. /
-            lineattrs=(color=red pattern=shortdash thickness=2);
-        xaxis type=discrete label="Periodo";
-        yaxis &_tgt_rd_axis_opts.;
-        keylegend / title="Serie";
-    run;
-    title;
-
-    title "Tabla de bandas RD";
-    proc print data=casuser._tgt_bandas noobs label;
-        var Muestra &byvar. avg_target lower_band upper_band global_avg;
-        label Muestra="Muestra"
-            &byvar.="Periodo"
-            avg_target="RD"
-            lower_band="Limite Inferior"
-            upper_band="Limite Superior"
-            global_avg="Promedio TRAIN";
-        format avg_target lower_band upper_band global_avg percent10.4;
-    run;
-    title;
+    ods excel options(sheet_name="BANDAS" sheet_interval="now"
+        embedded_titles="yes" frozen_headers="yes");
+    %_target_report_bands(split=TRAIN, target_label=&target.,
+        file_prefix=&file_prefix.);
+    %_target_report_bands(split=OOT, target_label=&target.,
+        file_prefix=&file_prefix.);
 
     %if &has_monto.=1 %then %do;
-        ods excel options(sheet_name="PondProm" sheet_interval="now"
-            embedded_titles="yes");
-        ods graphics / imagename="&file_prefix._pond_prom" imagefmt=jpeg;
-        title "RD ponderado por monto";
-        proc sgplot data=casuser._tgt_pond_prom_bandas;
-            band x=&byvar. lower=lower_band upper=upper_band /
-                transparency=0.45 fillattrs=(color=cxD9D9D9)
-                legendlabel="Bandas TRAIN +/- 2 desv";
-            series x=&byvar. y=avg_target_pond / group=Muestra markers
-                lineattrs=(thickness=2);
-            refline &_tgt_global_pond_mean. /
-                lineattrs=(color=red pattern=shortdash thickness=2);
-            xaxis type=discrete label="Periodo";
-            yaxis label="RD ponderado";
-            keylegend / title="Serie";
-        run;
-        title;
+        ods excel options(sheet_name="WGT_PROM" sheet_interval="now"
+            embedded_titles="yes" frozen_headers="yes");
+        %_target_report_weight_avg(split=TRAIN, file_prefix=&file_prefix.);
+        %_target_report_weight_avg(split=OOT, file_prefix=&file_prefix.);
 
-        proc print data=casuser._tgt_pond_prom_bandas noobs label;
-            var Muestra &byvar. avg_target_pond lower_band upper_band global_mean;
-            label Muestra="Muestra"
-                &byvar.="Periodo"
-                avg_target_pond="RD Ponderado"
-                lower_band="Limite Inferior"
-                upper_band="Limite Superior"
-                global_mean="Promedio TRAIN";
-            format avg_target_pond lower_band upper_band global_mean percent10.4;
-        run;
+        ods excel options(sheet_name="WGT_SUMA" sheet_interval="now"
+            embedded_titles="yes" frozen_headers="yes");
+        %_target_report_weight_sum(split=TRAIN, file_prefix=&file_prefix.);
+        %_target_report_weight_sum(split=OOT, file_prefix=&file_prefix.);
 
-        ods excel options(sheet_name="PondSuma" sheet_interval="now"
-            embedded_titles="yes");
-        ods graphics / imagename="&file_prefix._pond_suma" imagefmt=jpeg;
-        title "Suma ponderada por monto";
-        proc sgplot data=casuser._tgt_sum_pond_bandas;
-            band x=&byvar. lower=lower_band upper=upper_band /
-                transparency=0.45 fillattrs=(color=cxD9D9D9)
-                legendlabel="Bandas TRAIN +/- 2 desv";
-            series x=&byvar. y=sum_target_pond / group=Muestra markers
-                lineattrs=(thickness=2);
-            refline &_tgt_global_sum_mean. /
-                lineattrs=(color=red pattern=shortdash thickness=2);
-            xaxis type=discrete label="Periodo";
-            yaxis label="Suma ponderada";
-            keylegend / title="Serie";
-        run;
-        title;
-
-        proc print data=casuser._tgt_sum_pond_bandas noobs label;
-            var Muestra &byvar. sum_target_pond total_monto lower_band upper_band global_mean;
-            label Muestra="Muestra"
-                &byvar.="Periodo"
-                sum_target_pond="Suma Target*Monto"
-                total_monto="Monto Total"
-                lower_band="Limite Inferior"
-                upper_band="Limite Superior"
-                global_mean="Promedio TRAIN";
-            format sum_target_pond total_monto lower_band upper_band global_mean comma18.2;
-        run;
-
-        ods excel options(sheet_name="RatioMonto" sheet_interval="now"
-            embedded_titles="yes");
-        ods graphics / imagename="&file_prefix._ratio" imagefmt=jpeg;
-        title "Ratio target sobre monto";
-        proc sgplot data=casuser._tgt_ratio_bandas;
-            band x=&byvar. lower=lower_band upper=upper_band /
-                transparency=0.45 fillattrs=(color=cxD9D9D9)
-                legendlabel="Bandas TRAIN +/- 2 desv";
-            series x=&byvar. y=ratio_default_monto / group=Muestra markers
-                lineattrs=(thickness=2);
-            refline &_tgt_global_ratio_mean. /
-                lineattrs=(color=red pattern=shortdash thickness=2);
-            xaxis type=discrete label="Periodo";
-            yaxis label="Ratio";
-            keylegend / title="Serie";
-        run;
-        title;
-
-        proc print data=casuser._tgt_ratio_bandas noobs label;
-            var Muestra &byvar. ratio_default_monto lower_band upper_band global_mean;
-            label Muestra="Muestra"
-                &byvar.="Periodo"
-                ratio_default_monto="Ratio"
-                lower_band="Limite Inferior"
-                upper_band="Limite Superior"
-                global_mean="Promedio TRAIN";
-            format ratio_default_monto lower_band upper_band global_mean percent10.4;
-        run;
+        ods excel options(sheet_name="WGT_RATIO" sheet_interval="now"
+            embedded_titles="yes" frozen_headers="yes");
+        %_target_report_weight_ratio(split=TRAIN, file_prefix=&file_prefix.);
+        %_target_report_weight_ratio(split=OOT, file_prefix=&file_prefix.);
     %end;
 
     ods excel close;
     ods html5 close;
     ods graphics / reset=all;
     ods graphics off;
-
-    %put NOTE: [target_report] HTML => &report_path./&file_prefix..html;
-    %put NOTE: [target_report] Excel => &report_path./&file_prefix..xlsx;
-    %put NOTE: [target_report] Images => &images_path./;
 
 %mend _target_report;
