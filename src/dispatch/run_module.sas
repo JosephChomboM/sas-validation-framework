@@ -4,15 +4,17 @@ run_module.sas - Dispatch: ejecuta un modulo en un contexto dado
 Dos modos de operacion:
 
 A) Single-input (dual_input=0, default):
-Ciclo: resolver path -> promote _active_input -> ejecutar -> drop.
+Ciclo: resolver path persistente -> promote base completa -> derivar split
+(_active_input) -> ejecutar -> drop.
 Para modulos que operan sobre un solo dataset (correlacion, gini, etc.).
 El modulo recibe: input_table=_active_input, split=<train|oot>.
 
 B) Dual-input (dual_input=1):
-Ciclo: resolver paths train+oot -> promote ambas -> ejecutar -> drop.
+Ciclo: resolver path persistente -> promote base completa -> derivar
+_train_input + _oot_input -> ejecutar -> drop.
 Para modulos que comparan TRAIN vs OOT simultaneamente (PSI, etc.).
 El modulo recibe: train_table=_train_input, oot_table=_oot_input.
-El parametro split= se ignora (siempre promueve ambos).
+El parametro split= se ignora (siempre deriva ambos).
 
 Parametros:
 module     = nombre del modulo (correlacion, psi, gini, etc.)
@@ -23,7 +25,10 @@ run_id     = identificador del run actual
 dual_input = 0 (default) | 1
 
 CASLIB policy:
-- Input se lee desde CASLIB PROC (PATH -> data/processed/, subdirs=1).
+- Input persistente se lee desde CASLIB PROC (PATH -> data/processed/,
+  subdirs=1).
+- Los splits TRAIN/OOT se derivan en ejecución usando
+  casuser.cfg_troncales.
 - Output se escribe en CASLIB OUT o en un CASLIB scoped del
 modulo (ej. MOD_GINI_<run_id>), siguiendo caslib_lifecycle.md.
 - casuser NO se usa para datos operativos.
@@ -34,7 +39,7 @@ Convencion: el modulo debe exponer %<module>_run(...).
 %macro run_module(module=, troncal_id=, split=, seg_id=, run_id=, dual_input=0);
 
 	/* ---- Locals (no incluir paths: son %global via fw_path_processed) --- */
-	%local _scope _out_caslib _promote_ok;
+	%local _scope _out_caslib _promote_ok _input_path;
 
 	/* Construir scope label para naming de outputs */
 	%if %superq(seg_id)=%then %let _scope=base;
@@ -52,14 +57,17 @@ Convencion: el modulo debe exponer %<module>_run(...).
 			split=&split. seg_id=&seg_id.;
 		%put NOTE: -----------------------------------------------------;
 
-		/* 1) Resolver input path (relativo al CASLIB PROC) */
+		/* 1) Resolver input persistente (relativo al CASLIB PROC) */
 		%fw_path_processed(outvar=_input_path, troncal_id=&troncal_id.,
-			split=&split., seg_id=&seg_id.);
+			seg_id=&seg_id.);
 
-		/* 2) Promote: cargar .sashdat desde PROC y promover como _active_input */
-		%_promote_castable( m_cas_sess_name=conn, m_input_caslib=PROC,
-			m_subdir_data=&_input_path., m_output_caslib=PROC, m_output_data=
-			_active_input );
+		/* 2) Promote: cargar base completa y derivar split en memoria */
+        %_fw_load_scope_input(troncal_id=&troncal_id., seg_id=&seg_id.,
+            input_caslib=PROC, output_caslib=PROC, output_table=_scope_input,
+            sess=conn);
+        %_fw_build_split_table(troncal_id=&troncal_id., split=&split.,
+            source_caslib=PROC, source_table=_scope_input,
+            target_caslib=PROC, target_table=_active_input, sess=conn);
 
 		/* Validar promote (fail-fast) */
 		%let _promote_ok=0;
@@ -77,7 +85,8 @@ Convencion: el modulo debe exponer %<module>_run(...).
 			%put ERROR: [run_module] troncal=&troncal_id.;
 			%put ERROR: [run_module] split=&split.;
 			%put ERROR: [run_module] seg_id=&seg_id.;
-			%put ERROR: [run_module] archivo=&_input_path.;
+			%put ERROR: [run_module] source=&_input_path.;
+            %put ERROR: [run_module] split=&split. derivado dinamicamente desde cfg_troncales.;
 			%put ERROR: [run_module] Verifique que el .sashdat existe en
 				data/processed/.;
 			%put ERROR:=====================================================;
@@ -93,9 +102,10 @@ Convencion: el modulo debe exponer %<module>_run(...).
 		%put NOTE: [run_module] &module. completado para
 			troncal_&troncal_id./&split./&_scope.;
 
-		/* 4) Drop tabla promovida */
+		/* 4) Drop tablas temporales */
 		proc cas;
 			session conn;
+            table.dropTable / caslib="PROC" name="_scope_input" quiet=true;
 			table.dropTable / caslib="PROC" name="_active_input" quiet=true;
 		quit;
 
@@ -111,19 +121,20 @@ Convencion: el modulo debe exponer %<module>_run(...).
 			seg_id=&seg_id. (dual_input);
 		%put NOTE: -----------------------------------------------------;
 
-		/* 1) Resolver rutas train y oot */
-		%fw_path_processed(outvar=_train_path, troncal_id=&troncal_id.,
-			split=train, seg_id=&seg_id.);
-		%fw_path_processed(outvar=_oot_path, troncal_id=&troncal_id., split=oot,
+		/* 1) Resolver input persistente único */
+		%fw_path_processed(outvar=_input_path, troncal_id=&troncal_id.,
 			seg_id=&seg_id.);
 
-		/* 2) Promote ambas tablas */
-		%_promote_castable( m_cas_sess_name=conn, m_input_caslib=PROC,
-			m_subdir_data=&_train_path., m_output_caslib=PROC, m_output_data=
-			_train_input );
-		%_promote_castable( m_cas_sess_name=conn, m_input_caslib=PROC,
-			m_subdir_data=&_oot_path., m_output_caslib=PROC, m_output_data=
-			_oot_input );
+		/* 2) Promote base completa y derivar TRAIN + OOT */
+        %_fw_load_scope_input(troncal_id=&troncal_id., seg_id=&seg_id.,
+            input_caslib=PROC, output_caslib=PROC, output_table=_scope_input,
+            sess=conn);
+        %_fw_build_split_table(troncal_id=&troncal_id., split=TRAIN,
+            source_caslib=PROC, source_table=_scope_input,
+            target_caslib=PROC, target_table=_train_input, sess=conn);
+        %_fw_build_split_table(troncal_id=&troncal_id., split=OOT,
+            source_caslib=PROC, source_table=_scope_input,
+            target_caslib=PROC, target_table=_oot_input, sess=conn);
 
 		/* Validar promote de ambas tablas */
 		%let _promote_ok=0;
@@ -141,9 +152,9 @@ Convencion: el modulo debe exponer %<module>_run(...).
 			%put ERROR: [run_module] module=&module.;
 			%put ERROR: [run_module] troncal=&troncal_id.;
 			%put ERROR: [run_module] seg_id=&seg_id.;
-			%put ERROR: [run_module] train=&_train_path.;
-			%put ERROR: [run_module] oot=&_oot_path.;
-			%put ERROR: [run_module] Verifique que los .sashdat existen en
+			%put ERROR: [run_module] source=&_input_path.;
+            %put ERROR: [run_module] TRAIN/OOT se derivan dinamicamente desde cfg_troncales.;
+			%put ERROR: [run_module] Verifique que el .sashdat existe en
 				data/processed/.;
 			%put ERROR:=====================================================;
 			%return;
@@ -158,9 +169,10 @@ Convencion: el modulo debe exponer %<module>_run(...).
 		%put NOTE: [run_module] &module. completado para
 			troncal_&troncal_id./&_scope. (dual-input).;
 
-		/* 4) Drop ambas tablas promovidas */
+		/* 4) Drop tablas temporales */
 		proc cas;
 			session conn;
+            table.dropTable / caslib="PROC" name="_scope_input" quiet=true;
 			table.dropTable / caslib="PROC" name="_train_input" quiet=true;
 			table.dropTable / caslib="PROC" name="_oot_input" quiet=true;
 		quit;

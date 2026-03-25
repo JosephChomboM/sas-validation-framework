@@ -5,7 +5,7 @@
    Crea:
      - data/raw/
      - data/processed/
-     - data/processed/troncal_X/train/  y  troncal_X/oot/  por cada troncal
+     - data/processed/troncal_X/ por cada troncal
 
    Las carpetas de output del run (outputs/runs/<run_id>/...) se crean
    en Step 02 (siempre, cada corrida).
@@ -28,12 +28,11 @@ libname _mkdir02 clear;
 libname _mkdir03 "&fw_root./data/processed";
 libname _mkdir03 clear;
 
-/* ---- Crear estructura troncal_X/train/ y troncal_X/oot/ bajo data/processed/ ----
+/* ---- Crear estructura troncal_X/ bajo data/processed/ -------------------
    Lee casuser.cfg_troncales (disponible tras step 02) para obtener los IDs.
    Sigue la estructura del repositorio:
-     data/processed/troncal_1/train/
-     data/processed/troncal_1/oot/
-     data/processed/troncal_2/train/
+     data/processed/troncal_1/
+     data/processed/troncal_2/
      ...
    ---- */
 %macro _create_troncal_dirs;
@@ -51,12 +50,8 @@ libname _mkdir03 clear;
 
       libname _mktr1 "&fw_root./data/processed/troncal_&_tid.";
       libname _mktr1 clear;
-      libname _mktr2 "&fw_root./data/processed/troncal_&_tid./train";
-      libname _mktr2 clear;
-      libname _mktr3 "&fw_root./data/processed/troncal_&_tid./oot";
-      libname _mktr3 clear;
 
-      %put NOTE: [step-03]   troncal_&_tid. => train/ oot/ creados.;
+      %put NOTE: [step-03]   troncal_&_tid. => carpeta creada/verificada.;
    %end;
 %mend _create_troncal_dirs;
 %_create_troncal_dirs;

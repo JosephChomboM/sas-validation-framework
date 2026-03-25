@@ -2,63 +2,34 @@
 
 ## 1) Alcance
 
-Este documento describe:
-- Componentes del framework y responsabilidades.
-- Steps como frontend de configuración del usuario.
-- Ejecución orientada por contexto: primero seleccionar data (troncal/scope/split), luego módulos.
-- Contratos de rutas y naming.
-- Contrato de configuración vía `config.sas` (tablas CAS) y `steps/*.sas` (parámetros).
-- Orden de ejecución con contexto unificado: un solo step de contexto + módulos.
+El framework existe para:
+- preparar data `train` / `oot`
+- materializar inputs persistentes en `data/processed`
+- ejecutar modulos de validacion y challenge sobre SAS Viya / CAS
+- generar reportes, tablas, logs y modelos por `run_id`
+
+No usar este documento para:
+- detalle de outputs por modulo
+- snippets de `PROC CAS`
+- narrativa de negocio
 
 ---
 
-## 2) Arquitectura lógica
+## 2) Arquitectura logica
 
-### 2.1 Capas
+| Capa | Responsabilidad | Ubicacion |
+| --- | --- | --- |
+| Steps | frontend editable por usuario | `steps/` |
+| Common | paths, logging, CAS utils, data prep | `src/common/` |
+| Dispatch | promover inputs y ejecutar modulo en contexto | `src/dispatch/run_module.sas` |
+| Modules | contrato y logica de cada control | `src/modules/<modulo>/` |
+| Runner | orquestacion del pipeline | `runner/main.sas` |
 
-1) **Steps (Frontend)**
-- Archivos `steps/*.sas` que actúan como formularios de configuración.
-- El usuario edita estos archivos para definir parámetros del run.
-- Flujo de steps:
-  - `01_setup_project.sas` ? rutas del proyecto
-  - `02_load_config.sas` ? carga/validación de `config.sas`, promote tablas config
-  - `03_create_folders.sas` ? creación de estructura de carpetas (incluye `troncal_X/train/oot/` por cada troncal en config)
-  - `04_import_raw_data.sas` ? importación ADLS (una vez por proyecto)
-  - `05_partition_data.sas` ? materialización processed (universo + segmentos)
-  - **Contexto + módulos (unificado):**
-    - `context_and_modules.sas` ? seleccionar scope (UNIVERSO|SEGMENTO), troncal, split, segmento, y módulos a ejecutar
-    - `methods/metod_N/step_<modulo>.sas` ? ejecución (lee `ctx_scope` para iterar base o segmentos)
-
-1) **Configuración**
-- Fuente: `config.sas` (generado desde HTML).
-- Contiene DATA steps que crean `casuser.cfg_troncales` y `casuser.cfg_segmentos`.
-- `casuser.cfg_troncales.flag_tcl` es opcional por troncal: vacío => sin filtro adicional; poblado => la partición usa `flag_tcl = 1`.
-- Los parámetros de usuario (rutas, ADLS, métodos) viven en `steps/*.sas`, no en config.
-
-1) **Common**
-- Utilidades reutilizables:
-  - paths
-  - logging
-  - validaciones genéricas
-  - utilidades CAS (existence, nobs, load/save)
-  - preparación de data raw ? processed
-
-1) **Dispatch**
-- Orquestación de ejecución:
-  - `run_module.sas`: ejecuta un módulo en un contexto dado (troncal/split/segmento). Resuelve path, promueve input, llama al módulo, limpia.
-
-1) **Modules**
-- Implementación por control:
-  - API pública (`*_run.sas`)
-  - Validaciones (`*_contract.sas`)
-  - Implementación interna (`impl/`)
-- Módulos implementados: `correlacion` (referencia), `psi`, `universe`, `target`, `gini`.
-- `run_module.sas` incluye dinámicamente `<modulo>_run.sas` y ejecuta `%<modulo>_run(...)`.
-
-1) **Runner**
-- Ejecuta:
-  - **Frontend**: incluye steps de setup, data prep, promoción de contexto y configuración de métodos.
-  - **Backend**: CAS init ? prepare/promote por contexto ? ejecutar subflow de módulos ? cleanup.
+Reglas:
+- los steps son autonomos
+- cada step carga sus dependencias
+- los modulos exponen una macro publica `%<modulo>_run(...)`
+- el dispatch resuelve el input segun contexto y limpia al final
 
 ---
 
@@ -68,42 +39,25 @@ Este documento describe:
 - `data/raw/mydataset.sashdat` (dataset maestro)
 
 ### 3.2 Processed (inputs de controles)
-Cada troncal se materializa por split:
+Cada troncal se materializa una sola vez:
 
 - Universo:
-  - `data/processed/troncal_X/train/base.sashdat`
-  - `data/processed/troncal_X/oot/base.sashdat`
+  - `data/processed/troncal_X/base.sashdat`
 
 - Segmentos (numéricos):
-  - `data/processed/troncal_X/train/segNNN.sashdat`
-  - `data/processed/troncal_X/oot/segNNN.sashdat`
+  - `data/processed/troncal_X/segNNN.sashdat`
 
 Reglas:
 - `base.sashdat` es siempre el universo.
 - `segNNN.sashdat` usa padding de 3 dígitos (001..999).
+- TRAIN/OOT no se persisten físicamente; se derivan en ejecución desde `cfg_troncales`.
 - No se incluyen “train/oot” ni “troncal” en el nombre del archivo (ya están en la ruta).
 
 ### 3.3 Outputs por run
 - `outputs/runs/<run_id>/reports`
-- `outputs/runs/<run_id>/reports/METOD1.1` - universe
-- `outputs/runs/<run_id>/reports/METOD2.1` - target
-- `outputs/runs/<run_id>/reports/METOD3` - segmentación
-- `outputs/runs/<run_id>/reports/METOD4.2` - PSI
-- `outputs/runs/<run_id>/reports/METOD4.3` - correlación, bootstrap
 - `outputs/runs/<run_id>/images`
-- `outputs/runs/<run_id>/images/METOD1.1` - universe charts
-- `outputs/runs/<run_id>/images/METOD2.1` - target charts
-- `outputs/runs/<run_id>/images/METOD3` - segmentación charts
-- `outputs/runs/<run_id>/images/METOD4.2` - PSI charts
-- `outputs/runs/<run_id>/images/METOD4.3` - correlacion, bootstrap charts
-- `outputs/runs/<run_id>/images/METOD9` - challenge charts
 - `outputs/runs/<run_id>/tables`
-- `outputs/runs/<run_id>/tables/METOD3` - segmentación tables
-- `outputs/runs/<run_id>/tables/METOD4.2` - PSI tables
-- `outputs/runs/<run_id>/tables/METOD4.3` - correlacion, bootstrap tables
-- `outputs/runs/<run_id>/tables/METOD9` - challenge tables
 - `outputs/runs/<run_id>/models`
-- `outputs/runs/<run_id>/models/METOD9` - ASTOREs campeones por run
 - `outputs/runs/<run_id>/experiments` - outputs de análisis exploratorio (modo CUSTOM de módulos)
 
 ---
@@ -174,22 +128,10 @@ En SAS Viya Studio, un `.step` ofrece un formulario gráfico. Como no se utiliza
 | 02   | `steps/02_load_config.sas`                   | Cargar/validar `config.sas` + promote config + crear dirs de output del run | `cfg_troncales`, `cfg_segmentos`, `&run_id`                                                                                                                                                                           |
 | 03   | `steps/03_create_folders.sas`                | Carpetas de data + troncal dirs (solo data prep)                            | (N/A)                                                                                                                                                                                                                 |
 | 04   | `steps/04_import_raw_data.sas`               | Importación ADLS                                                            | `&adls_import_enabled`, `&adls_*`, `&raw_table`                                                                                                                                                                       |
-| 05   | `steps/05_partition_data.sas`                | Particiones universo/segmento                                               | (N/A)                                                                                                                                                                                                                 |
+| 05   | `steps/05_partition_data.sas`                | Materializar processed base/segmento                                        | (N/A)                                                                                                                                                                                                                 |
 | -    | `steps/context_and_modules.sas`              | Contexto (scope + troncal + split + seg) + módulos habilitados              | `&ctx_scope`, `&ctx_troncal_id`, `&ctx_split`, `&ctx_seg_id`, `&ctx_n_segments`, `&run_universe`, `&run_segmentacion`, `&run_estabilidad`, `&run_fillrate`, `&run_missings`, `&run_psi`, `&run_similitud`, `&run_bivariado`, `&run_correlacion`, `&run_gini`, `&run_bootstrap` |
-| -    | `steps/methods/metod_1/step_universe.sas`    | Config + ejecución universe (1.1)                                           | (dual_input)                                                                                                                                                                                                          |
-| -    | `steps/methods/metod_2/step_target.sas`      | Config + ejecución target (2.1)                                             | (dual_input)                                                                                                                                                                                                          |
-| -    | `steps/methods/metod_3/step_segmentacion.sas`| Config + ejecución segmentación (3)                                         | `&seg_mode`, `&seg_min_obs`, `&seg_min_target`, `&seg_plot_sep`                                                                                                                                                       |
-| -    | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación                                              | `&corr_mode`, `&corr_custom_vars`                                                                                                                                                                                     |
-| -    | `steps/methods/metod_4/step_psi.sas`         | Config + ejecución PSI                                                      | `&psi_mode`, `&psi_n_buckets`, `&psi_mensual`                                                                                                                                                                         |
-| -    | `steps/methods/metod_4/step_similitud.sas`   | Config + ejecución similitud                                                | `&simil_mode`, `&simil_n_groups`                                                                                                                                                                                       |
-| -    | `steps/methods/metod_4/step_bootstrap.sas`   | Config + ejecución bootstrap                                               | `&boot_mode`, `&boot_nrounds`, `&boot_seed`, `&boot_samprate`, `&boot_ponderada`                                                                                                                                      |
-| -    | `steps/methods/metod_4/step_gini.sas`        | Config + ejecución gini                                                     | `&gini_mode`, `&gini_score_source`, `&gini_with_missing`                                                                                                                                                              |
-| -    | `steps/methods/metod_9/step_gradient_boosting.sas` | Config + ejecución challenge Gradient Boosting                          | `&gb_mode`, `&gb_score_source`, `&gb_top_k`, `&gb_top_models`, `&gb_penalty_lambda`                                                                                                                               |
-| -    | `steps/methods/metod_9/step_decision_tree.sas`     | Config + ejecución challenge Decision Tree                              | `&dt_mode`, `&dt_score_source`, `&dt_top_k`, `&dt_top_models`, `&dt_penalty_lambda`                                                                                                                               |
-| -    | `steps/methods/metod_9/step_random_forest.sas`     | Config + ejecución challenge Random Forest                              | `&rf_mode`, `&rf_score_source`, `&rf_top_k`, `&rf_top_models`, `&rf_penalty_lambda`                                                                                                                               |
-| -    | `steps/methods/metod_9/step_svm.sas`               | Slot reservado futuro para Support Vector Machine                       | (placeholder)                                                                                                                                                                                                     |
-| -    | `steps/methods/metod_9/step_neural_network.sas`    | Slot reservado futuro para Neural Network                               | (placeholder)                                                                                                                                                                                                     |
-| -    | `steps/methods/metod_9/step_challenge.sas`         | Consolidación de registries + champion final multi-algoritmo           | `&challenge_mode`                                                                                                                                                                                                  |
+| -    | `steps/methods/metod_x/step_xxxx.sas`    | Config + ejecución                                           |
+
 
 **Step 02** genera `run_id`, carga `config.sas`, promueve `cfg_troncales` y `cfg_segmentos` (necesario para background submit), y crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments|models`). Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`) dentro de `reports/`, `images/`, `tables/` y `models/` se crean dinámicamente por cada módulo cuando genera archivos.
 
@@ -199,7 +141,7 @@ Al cerrar cada step, `log_utils.sas` también registra una fila de auditoría en
 `auditoria_ejecuciones_v3` bajo `/bcp/bcp-exploratorio-adr-vime/transform_vi_monitoring/monitoring_workflow_scoring_vi`.
 La fila incluye fecha/hora, duración, usuario, `run_id`, `step_name`, `metod_name`, contexto (`scope/split/troncal/segmento`) y estado (`OK`, `SKIP`, `ERROR`).
 
-**Step 03** crea las carpetas de data (`data/raw`, `data/processed`) y las subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal en `casuser.cfg_troncales`. Solo se ejecuta durante data prep (`data_prep_enabled=1`).
+**Step 03** crea las carpetas de data (`data/raw`, `data/processed`) y la subcarpeta `troncal_X/` por cada troncal en `casuser.cfg_troncales`. Solo se ejecuta durante data prep (`data_prep_enabled=1`).
 
 **`context_and_modules.sas`** unifica la selección de contexto (scope, troncal, split, segmento) y la habilitación de módulos en un solo step. Los steps de módulos (en `steps/methods/`) leen `&ctx_scope` y los flags `&run_<modulo>` para decidir qué ejecutar.
 
@@ -218,23 +160,6 @@ Ejemplos:
 - **config.sas**: configuración compleja (DATA steps que generan tablas CAS por troncal/segmento). Generado desde HTML o editado manualmente.
 - Ambos se cargan; la ejecución de módulos depende del contexto promovido por los steps de contexto.
 
-### 5.5 Contrato de Métodos (agrupación lógica)
-- Cada Método (`Metodo 1..4`) es una agrupación lógica de módulos.
-- Los módulos de cada método van en `steps/methods/metod_N/`.
-- En el `.flw`, cada módulo es un **nodo independiente** que puede ejecutarse via background submit.
-- Cada step de módulo es auto-contenido: tiene su config, crea CASLIBs, itera seg+unv, limpia.
-
-| Método   | Sub-método | Carpeta                  | Módulos                                  |
-| -------- | ---------- | ------------------------ | ---------------------------------------- |
-| Metodo 1 | 1.1        | `steps/methods/metod_1/` | **universe**                             |
-| Metodo 2 | 2.1        | `steps/methods/metod_2/` | **target**                               |
-| Metodo 3 | -          | `steps/methods/metod_3/` | **segmentacion**                         |
-| Metodo 4 | 4.2        | `steps/methods/metod_4/` | estabilidad, fillrate, missings, **psi**, **similitud** |
-| Metodo 4 | 4.3        | `steps/methods/metod_4/` | bivariado, **correlacion**, gini, **bootstrap**         |
-| Metodo 9 | 9.0        | `steps/methods/metod_9/` | **gradient_boosting**, **decision_tree**, **random_forest**, **challenge** |
-
-Los sub-métodos definen la agrupación lógica para la selección en el UI y la organización de carpetas de output (`reports/METOD1.1/`, `reports/METOD4.2/`, `reports/METOD4.3/`). Los step files viven en la carpeta de su método correspondiente.
-
 ---
 
 ## 6) Orden de ejecución
@@ -248,7 +173,7 @@ El pipeline se divide en dos fases con diferente frecuencia de ejecución:
 2. Carga de `config.sas` + creación de dirs del run (Step 02).
 3. Creación de carpetas de data + troncal dirs (Step 03).
 4. Importación ADLS (Step 04, opcional).
-5. Partición y persistencia processed (Step 05).
+5. Materialización de processed persistente (Step 05).
 
 **Fase B - Ejecución (cada corrida, siempre)**
 1. Setup de rutas (Step 01).
@@ -265,8 +190,9 @@ El pipeline se divide en dos fases con diferente frecuencia de ejecución:
    - Crea CASLIBs PROC/OUT, ejecuta, y limpia.
 
 El flag `data_prep_enabled` (en `runner/main.sas`) controla si se ejecutan los Steps 03–05.
-- Primera corrida: `data_prep_enabled=1` (crear carpetas de data, importar, particionar).
+- Primera corrida: `data_prep_enabled=1` (crear carpetas de data, importar y materializar processed).
 - Corridas posteriores: `data_prep_enabled=0` (los datos ya existen en disco; Steps 01–02 siempre corren para generar el `run_id` y crear dirs de output del run).
+- Si solo cambian las ventanas de `train/oot`, no se requiere Step 05: los splits se derivan dinámicamente en ejecución.
 
 **Nota SAS:** `%if`/`%do` no se permiten en open code. **Todo** archivo `.sas` que necesite lógica condicional debe encapsularla dentro de un `%macro ... %mend;`. Esto aplica tanto a `runner/main.sas` (`%macro _main_pipeline`) como a cualquier step que use `%if` (ej. `_step02_load`, `_step04_import`, `_step05_partition`, `_ctx_seg_validate`, `_ctx_unv_validate`).
 
@@ -291,12 +217,12 @@ Aplicación por fase:
 | Fase                              | CASLIBs        | Crea                      | Dropea                             |
 | --------------------------------- | -------------- | ------------------------- | ---------------------------------- |
 | Data Prep - ADLS import (Step 04) | LAKEHOUSE, RAW | `fw_import_adls_to_cas`   | `fw_import_adls_to_cas` (al final) |
-| Data Prep - Partición (Step 05)   | RAW, PROC      | `fw_prepare_processed`    | `fw_prepare_processed` (al final)  |
+| Data Prep - Materialización (Step 05) | RAW, PROC  | `fw_prepare_processed`    | `fw_prepare_processed` (al final)  |
 | Ejecución - módulo (step_*.sas)   | PROC, OUT      | inicio del step de módulo | final del step de módulo           |
 
 **Regla de promote en ejecucion:** `run_module.sas` soporta dos modos:
-- `dual_input=0` (default): promueve un solo input como `_active_input`. El modulo recibe `input_table=_active_input` + `split=<train|oot>`. Para correlacion y modulos single-input equivalentes.
-- `dual_input=1`: promueve train + oot como `_train_input` y `_oot_input`. El modulo recibe `train_table=_train_input` + `oot_table=_oot_input`. Para PSI, Gini y modulos que comparan ambos splits. El parametro `split=` se ignora.
+- `dual_input=0` (default): promueve la base persistente y deriva un solo split como `_active_input`. El modulo recibe `input_table=_active_input` + `split=<train|oot>`. Para correlacion y modulos single-input equivalentes.
+- `dual_input=1`: promueve la base persistente y deriva train + oot como `_train_input` y `_oot_input`. El modulo recibe `train_table=_train_input` + `oot_table=_oot_input`. Para PSI, Gini y modulos que comparan ambos splits. El parametro `split=` se ignora.
 
 En ambos modos, `run_module` dropea las tablas promovidas al finalizar.
 
@@ -317,8 +243,8 @@ En ambos modos, `run_module` dropea las tablas promovidas al finalizar.
 ### 7.1 Resolver único de paths
 Implementar `src/common/fw_paths.sas` con una macro pública que construya rutas de processed, evitando hardcode:
 - `%fw_path_processed(outvar=, troncal_id=, split=, seg_id=)`
-  - si `seg_id` vacío: devuelve `troncal_X/<split>/base`
-  - si `seg_id` presente: devuelve `troncal_X/<split>/segNNN`
+  - si `seg_id` vacío: devuelve `troncal_X/base`
+  - si `seg_id` presente: devuelve `troncal_X/segNNN`
 - Las rutas **NO incluyen extensión** (`.sashdat` lo agrega el consumidor, ej. `_promote_castable`).
 - Estas rutas son **relativas al CASLIB `PROC`** (con subdirs habilitado), no a `casuser`.
 
@@ -343,7 +269,7 @@ Estas macros se incluyen vía `src/common/common_public.sas`.
 ### 7.4 Preparación idempotente
 `fw_prepare_processed` debe:
 - Crear CASLIB `RAW` (PATH?`data/raw/`) y CASLIB `PROC` (PATH?`data/processed/`, subdirs=1)
-- Leer raw desde CASLIB `RAW`, filtrar por ventanas mes, guardar como `.sashdat` en CASLIB `PROC`
+- Leer raw desde CASLIB `RAW`, materializar la base persistente por troncal/segmento y guardar como `.sashdat` en CASLIB `PROC`
 - Sobrescribir outputs processed de manera controlada
 - Limpiar tablas temporales CAS
 - Loggear conteos (nobs) para auditoría mínima

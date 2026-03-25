@@ -1,7 +1,7 @@
 ﻿/* =========================================================================
 fw_prepare_processed.sas - Preparación idempotente de data processed
-Lee dataset maestro (raw), particiona train/oot por ventana de meses,
-genera base.sashdat y segNNN.sashdat por troncal/split.
+Lee dataset maestro (raw) y materializa la base persistente completa
+por troncal/segmento. TRAIN y OOT se derivan dinámicamente en ejecución.
 
 Usa casuser.cfg_troncales y casuser.cfg_segmentos como fuente de config
 (casuser es EXCLUSIVO para config).
@@ -112,6 +112,8 @@ design.md §7.3 - Preparación idempotente:
 
 		%put NOTE: -----------------------------------------------------;
 		%put NOTE: [fw_prepare_processed] Troncal &_tid. (byvar=&_byvar.);
+		%put NOTE: [fw_prepare_processed] Ventanas configuradas:
+            TRAIN=&_tmin.-&_tmax. OOT=&_omin.-&_omax..;
 		%put NOTE: -----------------------------------------------------;
 
         %if %superq(_flag_tcl) ne %then %do;
@@ -130,94 +132,74 @@ design.md §7.3 - Preparación idempotente:
             %put NOTE: [fw_prepare_processed] Troncal &_tid. filtrada por &_flag_tcl.=1.;
         %end;
         %else %do;
-            %put NOTE: [fw_prepare_processed] Troncal &_tid. sin flag_tcl. Se usa solo filtro por ventana temporal.;
+            %put NOTE: [fw_prepare_processed] Troncal &_tid. sin flag_tcl. Se materializa la base completa.;
         %end;
 
-		/* ---- 2a) Crear base train y oot -------------------------------- */
-		%do _s=1 %to 2;
-			%if &_s.=1 %then %do;
-				%let _split=train;
-				%let _mmin=&_tmin.;
-				%let _mmax=&_tmax.;
-			%end;
-			%else %do;
-				%let _split=oot;
-				%let _mmin=&_omin.;
-				%let _mmax=&_omax.;
-			%end;
+		/* ---- 2a) Crear base persistente completa ----------------------- */
+        %fw_path_processed(outvar=_path_base, troncal_id=&_tid.);
 
-			/* Resolver subruta relativa al CASLIB PROC */
-			%fw_path_processed(outvar=_path_base, troncal_id=&_tid.,
-				split=&_split.);
-
-			/* Crear tabla CAS filtrada (temporal en CASLIB RAW) */
+        %if %superq(_flag_tcl) ne %then %do;
 			data RAW._tmp_base;
-				set RAW.&raw_table.
-                    (
-                        where=(
-                            &_byvar. >= &_mmin.
-                            and &_byvar. <= &_mmax.
-                            %if %superq(_flag_tcl) ne %then %do;
-                                and &_flag_tcl. = 1
-                            %end;
-                        )
-                    );
+				set RAW.&raw_table.(where=(&_flag_tcl. = 1));
 			run;
+        %end;
+        %else %do;
+			data RAW._tmp_base;
+				set RAW.&raw_table.;
+			run;
+        %end;
 
-			/* Contar obs para log */
-			proc sql noprint;
-				select count(*) into :_nobs_base trimmed from RAW._tmp_base;
-			quit;
-			%put NOTE: [fw_prepare_processed] &_path_base.=> &_nobs_base. obs;
+		/* Contar obs para log */
+		proc sql noprint;
+			select count(*) into :_nobs_base trimmed from RAW._tmp_base;
+		quit;
+		%put NOTE: [fw_prepare_processed] &_path_base.=> &_nobs_base. obs
+            (base completa).;
 
-			%if &_nobs_base.=0 %then %do;
-				%put WARNING: [fw_prepare_processed] &_path_base. tiene 0 obs.
-					Se crea vacío.;
-			%end;
+		%if &_nobs_base.=0 %then %do;
+			%put WARNING: [fw_prepare_processed] &_path_base. tiene 0 obs.
+				Se crea vacío.;
+		%end;
 
-			/* Guardar como .sashdat en CASLIB PROC (subruta con subdirs) */
-			%_save_into_caslib( m_cas_sess_name=conn, m_input_caslib=RAW,
-				m_input_data=_tmp_base, m_output_caslib=PROC, m_subdir_data=
-				%sysfunc(tranwrd(&_path_base., .sashdat, )) );
+		/* Guardar como .sashdat en CASLIB PROC */
+		%_save_into_caslib( m_cas_sess_name=conn, m_input_caslib=RAW,
+			m_input_data=_tmp_base, m_output_caslib=PROC, m_subdir_data=
+			%sysfunc(tranwrd(&_path_base., .sashdat, )) );
 
-			/* ---- 2b) Segmentos (si aplica) ------------------------------- */
-			%if %superq(_vseg) ne and &_nseg. > 0 %then %do;
-				%do _sg=1 %to &_nseg.;
+		/* ---- 2b) Segmentos (si aplica) --------------------------------- */
+		%if %superq(_vseg) ne and &_nseg. > 0 %then %do;
+			%do _sg=1 %to &_nseg.;
 
-					%fw_path_processed(outvar=_path_seg, troncal_id=&_tid.,
-						split=&_split., seg_id=&_sg.);
+				%fw_path_processed(outvar=_path_seg, troncal_id=&_tid.,
+					seg_id=&_sg.);
 
-					data RAW._tmp_seg;
-						set RAW._tmp_base(where=(&_vseg.=&_sg.));
-					run;
+				data RAW._tmp_seg;
+					set RAW._tmp_base(where=(&_vseg.=&_sg.));
+				run;
 
-					proc sql noprint;
-						select count(*) into :_nobs_seg trimmed from
-							RAW._tmp_seg;
-					quit;
-					%put NOTE: [fw_prepare_processed] &_path_seg.=> &_nobs_seg.
-						obs;
+				proc sql noprint;
+					select count(*) into :_nobs_seg trimmed from RAW._tmp_seg;
+				quit;
+				%put NOTE: [fw_prepare_processed] &_path_seg.=> &_nobs_seg.
+					obs (segmento completo).;
 
-					%_save_into_caslib( m_cas_sess_name=conn,
-						m_input_caslib=RAW, m_input_data=_tmp_seg,
-						m_output_caslib=PROC, m_subdir_data=
-						%sysfunc(tranwrd(&_path_seg., .sashdat, )) );
+				%_save_into_caslib( m_cas_sess_name=conn, m_input_caslib=RAW,
+					m_input_data=_tmp_seg, m_output_caslib=PROC, m_subdir_data=
+					%sysfunc(tranwrd(&_path_seg., .sashdat, )) );
 
-					/* Limpiar temporal */
-					proc cas;
-						table.dropTable / caslib="RAW" name="_tmp_seg"
-							quiet=true;
-					quit;
+				/* Limpiar temporal */
+				proc cas;
+					table.dropTable / caslib="RAW" name="_tmp_seg"
+						quiet=true;
+				quit;
 
-				%end; /* segmentos */
-			%end;
+			%end; /* segmentos */
+		%end;
 
-			/* Limpiar base temporal */
-			proc cas;
-				table.dropTable / caslib="RAW" name="_tmp_base" quiet=true;
-			quit;
-
-		%end; /* splits */
+		/* Limpiar base temporal */
+		proc cas;
+			table.dropTable / caslib="RAW" name="_tmp_base" quiet=true;
+		quit;
 	%end; /* troncales */
 	/* -----------------------------------------------------------------
 	3) Cleanup: tablas temporales en CAS + CASLIBs + macrovariables.
