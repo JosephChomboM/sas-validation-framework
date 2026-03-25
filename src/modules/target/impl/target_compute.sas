@@ -26,15 +26,6 @@ Se prioriza minimizar pasos CAS. El ordenamiento se difiere al reporte.
             avg(cast(&target. as double)) as avg_target
         from &data.
         group by Muestra, &byvar.;
-
-        create table casuser._tgt_materialidad {options replace=true} as
-        select Muestra,
-            &byvar.,
-            cast(&target. as double) as Valor_Target,
-            count(*) as N
-        from &data.
-        where cast(&target. as double) is not null
-        group by Muestra, &byvar., cast(&target. as double);
     quit;
 
 %mend _target_build_describe;
@@ -132,11 +123,14 @@ Se prioriza minimizar pasos CAS. El ordenamiento se difiere al reporte.
 %mend _target_build_diff_relative;
 
 %macro _target_build_rd_bands(data=casuser._tgt_base, target=, byvar=);
-    %global _tgt_global_avg _tgt_rd_lower _tgt_rd_upper;
+    %global _tgt_global_avg _tgt_rd_lower _tgt_rd_upper _tgt_min_val
+        _tgt_max_val;
     %local _tgt_std_monthly;
     %let _tgt_global_avg=.;
     %let _tgt_rd_lower=.;
     %let _tgt_rd_upper=.;
+    %let _tgt_min_val=.;
+    %let _tgt_max_val=.;
     %let _tgt_std_monthly=.;
 
     proc sql noprint;
@@ -154,6 +148,8 @@ Se prioriza minimizar pasos CAS. El ordenamiento se difiere al reporte.
 
     %let _tgt_rd_lower=%sysevalf(&_tgt_global_avg. - 2 * &_tgt_std_monthly.);
     %let _tgt_rd_upper=%sysevalf(&_tgt_global_avg. + 2 * &_tgt_std_monthly.);
+    %let _tgt_min_val =%sysevalf(&_tgt_global_avg. - 3 * &_tgt_std_monthly.);
+    %let _tgt_max_val =%sysevalf(&_tgt_global_avg. + 3 * &_tgt_std_monthly.);
 
     proc fedsql sessref=conn;
         create table casuser._tgt_bandas {options replace=true} as
@@ -305,11 +301,13 @@ Se prioriza minimizar pasos CAS. El ordenamiento se difiere al reporte.
     target=, monto_var=, def_cld=0, has_monto=0);
 
     %global _tgt_global_avg _tgt_global_pond_mean _tgt_global_sum_mean
-        _tgt_global_ratio_mean;
+        _tgt_global_ratio_mean _tgt_min_val _tgt_max_val;
     %let _tgt_global_avg=.;
     %let _tgt_global_pond_mean=.;
     %let _tgt_global_sum_mean=.;
     %let _tgt_global_ratio_mean=.;
+    %let _tgt_min_val=.;
+    %let _tgt_max_val=.;
 
     %_target_build_base(train_data=&input_caslib..&train_table.,
         oot_data=&input_caslib..&oot_table., byvar=&byvar., def_cld=&def_cld.);

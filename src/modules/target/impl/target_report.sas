@@ -9,6 +9,8 @@ graficos consolidados entre TRAIN y OOT.
     monto_var=, def_cld=0, has_monto=0, report_path=, images_path=,
     file_prefix=);
 
+    %global _tgt_global_avg _tgt_min_val _tgt_max_val;
+
     %put NOTE: [target_report] Generando reporte consolidado TRAIN + OOT.;
     %put NOTE: [target_report] byvar=&byvar. target=&target. def_cld=&def_cld.;
     %put NOTE: [target_report] has_monto=&has_monto.;
@@ -55,16 +57,6 @@ graficos consolidados entre TRAIN y OOT.
     run;
     title;
 
-    title "Materialidad resumida";
-    proc print data=casuser._tgt_materialidad noobs label;
-        var Muestra &byvar. Valor_Target N;
-        label Muestra="Muestra"
-            &byvar.="Periodo"
-            Valor_Target="Valor Target"
-            N="Frecuencia";
-    run;
-    title;
-
     ods excel options(sheet_name="DiferenciaRel" sheet_interval="now"
         embedded_titles="yes");
     title "Diferencia relativa";
@@ -90,7 +82,7 @@ graficos consolidados entre TRAIN y OOT.
         refline &_tgt_global_avg. /
             lineattrs=(color=red pattern=shortdash thickness=2);
         xaxis type=discrete label="Periodo";
-        yaxis label="RD";
+        yaxis min=&_tgt_min_val. max=&_tgt_max_val. label="RD";
         keylegend / title="Serie";
     run;
     title;
