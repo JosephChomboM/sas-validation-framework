@@ -9,7 +9,6 @@ graficos consolidados entre TRAIN y OOT.
     monto_var=, def_cld=0, has_monto=0, report_path=, images_path=,
     file_prefix=);
 
-    %global _tgt_global_avg _tgt_min_val _tgt_max_val;
 
     %put NOTE: [target_report] Generando reporte consolidado TRAIN + OOT.;
     %put NOTE: [target_report] byvar=&byvar. target=&target. def_cld=&def_cld.;
@@ -18,6 +17,7 @@ graficos consolidados entre TRAIN y OOT.
     %_target_compute(input_caslib=&input_caslib., train_table=&train_table.,
         oot_table=&oot_table., byvar=&byvar., target=&target.,
         monto_var=&monto_var., def_cld=&def_cld., has_monto=&has_monto.);
+
 
     ods graphics on;
     ods listing gpath="&images_path.";
@@ -82,7 +82,7 @@ graficos consolidados entre TRAIN y OOT.
         refline &_tgt_global_avg. /
             lineattrs=(color=red pattern=shortdash thickness=2);
         xaxis type=discrete label="Periodo";
-        yaxis min=&_tgt_min_val. max=&_tgt_max_val. label="RD";
+        yaxis &_tgt_rd_axis_opts.;
         keylegend / title="Serie";
     run;
     title;
