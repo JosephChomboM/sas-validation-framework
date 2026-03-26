@@ -57,6 +57,16 @@ Principios:
 
     %local rnd;
     %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
+    %global _biv_case_sql;
+
+    %let _biv_case_sql=case
+        when a.&var. is null
+          or a.&var. in (1111111111,-1111111111,2222222222,-2222222222,
+              3333333333,-3333333333,4444444444,5555555555,6666666666,
+              7777777777,-999999999)
+        then '00. Missing'
+        else '99. Sin Asignar'
+    end;
 
     data work._biv_cut_&rnd._0;
         set &train_data.(keep=&var.);
@@ -139,7 +149,7 @@ Principios:
 
         if EOF then do;
             _case_sql = catx(' ', _case_sql, " else '99. Sin Asignar' end");
-            call symputx('_biv_case_sql', _case_sql, 'L');
+            call symputx('_biv_case_sql', _case_sql, 'G');
         end;
     run;
 
