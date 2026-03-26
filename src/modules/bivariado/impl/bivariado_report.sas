@@ -1,12 +1,10 @@
 /* =========================================================================
-bivariado_report.sas - Generacion de reportes HTML + Excel + JPEG
-para Bivariado (flujo unificado)
+bivariado_report.sas - Reportes HTML + Excel + JPEG para Bivariado
 
 Genera:
 - un unico HTML por scope
 - un unico Excel por scope
 - un grafico temporal consolidado por variable
-- sin secciones TRAIN/OOT separadas
 ========================================================================= */
 
 %macro _biv_report_section(detail_table=, byvar=, oot_min_mes=,
@@ -39,9 +37,10 @@ Genera:
         ods graphics / imagename="&image_prefix._&_idx." imagefmt=jpeg;
         title "Tendencia temporal consolidada - &_var.";
         title2 "La linea roja marca el inicio de OOT en la serie continua.";
-        proc sgplot data=&detail_table.(where=(Variable="&_var.")) noautolegend;
-            vbar Periodo / response=Pct_Cuentas group=Valor groupdisplay=cluster
-                nooutline transparency=0.15;
+        proc sgplot data=&detail_table.(where=(Variable="&_var."))
+            noautolegend;
+            vbar Periodo / response=Pct_Cuentas group=Valor
+                groupdisplay=cluster nooutline transparency=0.15;
             vline Periodo / response=RD group=Valor y2axis markers;
             refline &oot_min_mes. / axis=x
                 lineattrs=(color=red pattern=shortdash thickness=2)

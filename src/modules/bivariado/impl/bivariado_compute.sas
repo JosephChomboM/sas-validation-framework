@@ -1,18 +1,18 @@
 /* =========================================================================
-bivariado_compute.sas - Computo de analisis bivariado (flujo unificado)
+bivariado_compute.sas - Computo de analisis bivariado en flujo consolidado
 
 Principios:
 - _scope_input se filtra una sola vez a una tabla canonica CAS
 - TRAIN/OOT se derivan como columna conceptual (_biv_period)
-- cortes numericos se calculan solo con TRAIN, pero se aplican a toda la
-  linea temporal consolidada
-- CAS se usa para stage, agregacion, append y orden
-- work se usa solo para PROC RANK y la construccion de cortes
+- cortes numericos se calculan solo con TRAIN
+- cortes TRAIN se aplican a toda la serie consolidada
+- CAS se usa para stage y agregaciones
+- work se usa para PROC RANK y tablas auxiliares
 ========================================================================= */
 
 %macro _biv_sort_cas(table_name=, orderby=, groupby={});
 
-    %if %length(%superq(table_name)) = 0 or %length(%superq(orderby)) = 0 %then
+    %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
         %return;
 
     proc cas;
@@ -95,11 +95,11 @@ Principios:
         length ETIQUETA $200;
         if RANGO=0 then ETIQUETA='00. Missing';
         else if FLAG_INI=1 then ETIQUETA=cat(put(RANGO, z2.), '. <-Inf; ',
-            strip(put(MAXVAL, F12.4)), ']');
+            strip(put(MAXVAL, f12.4)), ']');
         else if FLAG_FIN=1 then ETIQUETA=cat(put(RANGO, z2.), '. <',
-            strip(put(LAGMAXVAL, F12.4)), '; +Inf>');
-        else ETIQUETA=cat(put(RANGO, z2.), '. <', strip(put(LAGMAXVAL, F12.4)),
-            '; ', strip(put(MAXVAL, F12.4)), ']');
+            strip(put(LAGMAXVAL, f12.4)), '; +Inf>');
+        else ETIQUETA=cat(put(RANGO, z2.), '. <', strip(put(LAGMAXVAL, f12.4)),
+            '; ', strip(put(MAXVAL, f12.4)), ']');
     run;
 
     proc sql noprint;
@@ -114,8 +114,10 @@ Principios:
         call symputx(cats('_biv_cut_label', _idx), ETIQUETA, 'G');
         call symputx(cats('_biv_cut_flag_ini', _idx), FLAG_INI, 'G');
         call symputx(cats('_biv_cut_flag_fin', _idx), FLAG_FIN, 'G');
-        call symputx(cats('_biv_cut_max', _idx), strip(put(MAXVAL, best32.-L)), 'G');
-        call symputx(cats('_biv_cut_lag', _idx), strip(put(LAGMAXVAL, best32.-L)), 'G');
+        call symputx(cats('_biv_cut_max', _idx),
+            strip(put(MAXVAL, best32.-L)), 'G');
+        call symputx(cats('_biv_cut_lag', _idx),
+            strip(put(LAGMAXVAL, best32.-L)), 'G');
     run;
 
     proc datasets library=work nolist nowarn;
@@ -147,14 +149,17 @@ Principios:
         %if &_biv_cut_n. > 0 %then %do;
             %do _i=1 %to &_biv_cut_n.;
                 %if &&_biv_cut_flag_ini&_i. = 1 %then %do;
-                    else if &var. <= &&_biv_cut_max&_i. then Valor="&&_biv_cut_label&_i.";
+                    else if &var. <= &&_biv_cut_max&_i. then
+                        Valor="&&_biv_cut_label&_i.";
                 %end;
                 %else %if &&_biv_cut_flag_fin&_i. = 1 %then %do;
-                    else if &var. > &&_biv_cut_lag&_i. then Valor="&&_biv_cut_label&_i.";
+                    else if &var. > &&_biv_cut_lag&_i. then
+                        Valor="&&_biv_cut_label&_i.";
                 %end;
                 %else %do;
                     else if &var. > &&_biv_cut_lag&_i. and
-                        &var. <= &&_biv_cut_max&_i. then Valor="&&_biv_cut_label&_i.";
+                        &var. <= &&_biv_cut_max&_i. then
+                        Valor="&&_biv_cut_label&_i.";
                 %end;
             %end;
             else Valor='99. Sin Asignar';
@@ -175,7 +180,10 @@ Principios:
                a.Ventana,
                a.Periodo,
                count(*) as N,
-               case when b.Total_Obs > 0 then count(*) / b.Total_Obs else 0 end as Pct_Cuentas,
+               case
+                   when b.Total_Obs > 0 then count(*) / b.Total_Obs
+                   else 0
+               end as Pct_Cuentas,
                sum(a.Target) as Defaults,
                avg(a.Target) as RD
         from work._biv_stage_num a
@@ -222,7 +230,10 @@ Principios:
                a.Ventana,
                a.Periodo,
                count(*) as N,
-               case when b.Total_Obs > 0 then count(*) / b.Total_Obs else 0 end as Pct_Cuentas,
+               case
+                   when b.Total_Obs > 0 then count(*) / b.Total_Obs
+                   else 0
+               end as Pct_Cuentas,
                sum(a.Target) as Defaults,
                avg(a.Target) as RD
         from casuser._biv_stage a

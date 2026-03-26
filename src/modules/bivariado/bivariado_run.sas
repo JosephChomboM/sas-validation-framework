@@ -1,22 +1,13 @@
 /* =========================================================================
 bivariado_run.sas - Macro publica del modulo Bivariado (Metodo 4.3)
 
-API publica compatible:
-%bivariado_run(
-    input_caslib  = PROC,
-    input_table   = _scope_input,
-    train_table   = _train_input,
-    oot_table     = _oot_input,
-    output_caslib = OUT,
-    troncal_id    = <id>,
-    scope         = base | segNNN,
-    run_id        = <run_id>
-)
-
-Compatibilidad:
-- Si input_table existe, usa flujo unificado scope-input.
-- Si input_table no existe pero train_table/oot_table si existen,
-  arma una tabla unificada legacy y continua.
+Flujo CAS-first:
+1) Recibe un unico input consolidado desde run_module
+2) Resuelve variables y ventanas desde cfg_troncales/cfg_segmentos
+3) Valida el input scope-unificado
+4) Construye una sola tabla canonica con _biv_period=TRAIN/OOT
+5) Calcula detalles bivariados usando cortes numericos de TRAIN
+6) Genera un unico HTML + Excel + JPEG por scope
 ========================================================================= */
 %include "&fw_root./src/modules/bivariado/bivariado_contract.sas";
 %include "&fw_root./src/modules/bivariado/impl/bivariado_compute.sas";
@@ -26,16 +17,16 @@ Compatibilidad:
 
     %local _current_list _current_list_pad _word_pad;
 
-    %if %length(%superq(word)) = 0 %then %return;
-    %if %length(%superq(listvar)) = 0 %then %return;
+    %if %length(%superq(word))=0 %then %return;
+    %if %length(%superq(listvar))=0 %then %return;
 
     %let _current_list=&&&listvar.;
 
-    %if %length(%superq(_current_list)) = 0 %then %let &listvar.=%superq(word);
+    %if %length(%superq(_current_list))=0 %then %let &listvar.=%superq(word);
     %else %do;
         %let _current_list_pad=%str( )%upcase(%superq(_current_list))%str( );
         %let _word_pad=%str( )%upcase(%superq(word))%str( );
-        %if %index(%superq(_current_list_pad), %superq(_word_pad)) = 0 %then
+        %if %index(%superq(_current_list_pad), %superq(_word_pad))=0 %then
             %let &listvar.=&_current_list. %superq(word);
     %end;
 
@@ -77,7 +68,7 @@ Compatibilidad:
 
     %do %while(%length(%superq(_var)) > 0);
         %let _current_select=&&&outvar.;
-        %if %length(%superq(_current_select)) = 0 %then
+        %if %length(%superq(_current_select))=0 %then
             %let &outvar.=a.&_var. as &_var.;
         %else %let &outvar.=&_current_select., a.&_var. as &_var.;
         %let _idx=%eval(&_idx. + 1);
@@ -87,8 +78,7 @@ Compatibilidad:
 %mend _biv_build_select_sql;
 
 %macro bivariado_run(input_caslib=PROC, input_table=_scope_input,
-    train_table=_train_input, oot_table=_oot_input, output_caslib=OUT,
-    troncal_id=, scope=, run_id=);
+    output_caslib=OUT, troncal_id=, scope=, run_id=);
 
     %global _biv_rc;
     %let _biv_rc=0;
@@ -96,14 +86,13 @@ Compatibilidad:
     %local _biv_vars_num _biv_vars_cat _biv_target _biv_dri_num _biv_dri_cat
         _biv_byvar _biv_def_cld _biv_train_min _biv_train_max _biv_oot_min
         _biv_oot_max _report_path _images_path _file_prefix _scope_abbr
-        _biv_is_custom _seg_num _input_exists _legacy_train_exists
-        _legacy_oot_exists _use_legacy _source_table _source_caslib
-        _filter_table _all_vars _select_sql _idx _var;
+        _biv_is_custom _seg_num _all_vars _select_sql _idx _var;
 
     %put NOTE:======================================================;
     %put NOTE: [bivariado_run] INICIO;
     %put NOTE: troncal=&troncal_id. scope=&scope.;
-    %put NOTE: input=&input_caslib..&input_table. train=&train_table. oot=&oot_table.;
+    %put NOTE: input=&input_caslib..&input_table. output=&output_caslib.;
+    %put NOTE: mode=&biv_mode.;
     %put NOTE:======================================================;
 
     %let _biv_vars_num=;
@@ -118,7 +107,6 @@ Compatibilidad:
     %let _biv_oot_min=;
     %let _biv_oot_max=;
     %let _biv_is_custom=0;
-    %let _use_legacy=0;
 
     proc sql noprint;
         select strip(target),
@@ -156,93 +144,60 @@ Compatibilidad:
         %if %substr(&scope., 1, 3)=seg %then %do;
             %let _seg_num=%sysfunc(inputn(%substr(&scope., 4), best.));
             proc sql noprint;
-                select strip(num_list), strip(cat_list), strip(dri_num_list),
+                select strip(num_list),
+                       strip(cat_list),
+                       strip(dri_num_list),
                        strip(dri_cat_list)
                   into :_biv_vars_num trimmed,
                        :_biv_vars_cat trimmed,
                        :_biv_dri_num trimmed,
                        :_biv_dri_cat trimmed
                 from casuser.cfg_segmentos
-                where troncal_id=&troncal_id. and seg_id=&_seg_num.;
+                where troncal_id=&troncal_id.
+                  and seg_id=&_seg_num.;
             quit;
         %end;
 
         %if %length(%superq(_biv_vars_num))=0 %then %do;
             proc sql noprint;
                 select strip(num_unv) into :_biv_vars_num trimmed
-                from casuser.cfg_troncales where troncal_id=&troncal_id.;
+                from casuser.cfg_troncales
+                where troncal_id=&troncal_id.;
             quit;
         %end;
 
         %if %length(%superq(_biv_vars_cat))=0 %then %do;
             proc sql noprint;
                 select strip(cat_unv) into :_biv_vars_cat trimmed
-                from casuser.cfg_troncales where troncal_id=&troncal_id.;
+                from casuser.cfg_troncales
+                where troncal_id=&troncal_id.;
             quit;
         %end;
 
         %if %length(%superq(_biv_dri_num))=0 %then %do;
             proc sql noprint;
                 select strip(dri_num_unv) into :_biv_dri_num trimmed
-                from casuser.cfg_troncales where troncal_id=&troncal_id.;
+                from casuser.cfg_troncales
+                where troncal_id=&troncal_id.;
             quit;
         %end;
 
         %if %length(%superq(_biv_dri_cat))=0 %then %do;
             proc sql noprint;
                 select strip(dri_cat_unv) into :_biv_dri_cat trimmed
-                from casuser.cfg_troncales where troncal_id=&troncal_id.;
+                from casuser.cfg_troncales
+                where troncal_id=&troncal_id.;
             quit;
         %end;
     %end;
 
-    %let _input_exists=0;
-    %let _legacy_train_exists=0;
-    %let _legacy_oot_exists=0;
-
-    proc sql noprint;
-        select count(*) into :_input_exists trimmed
-        from dictionary.tables
-        where upcase(libname)=upcase("&input_caslib.")
-          and upcase(memname)=upcase("&input_table.");
-
-        select count(*) into :_legacy_train_exists trimmed
-        from dictionary.tables
-        where upcase(libname)=upcase("&input_caslib.")
-          and upcase(memname)=upcase("&train_table.");
-
-        select count(*) into :_legacy_oot_exists trimmed
-        from dictionary.tables
-        where upcase(libname)=upcase("&input_caslib.")
-          and upcase(memname)=upcase("&oot_table.");
-    quit;
-
-    %if &_input_exists. > 0 %then %do;
-        %let _source_caslib=&input_caslib.;
-        %let _source_table=&input_table.;
-        %let _filter_table=&input_table.;
-        %put NOTE: [bivariado_run] Usando flujo unificado sobre &input_caslib..&input_table.;
-    %end;
-    %else %if &_legacy_train_exists. > 0 and &_legacy_oot_exists. > 0 %then %do;
-        %let _use_legacy=1;
-        %let _source_caslib=casuser;
-        %let _source_table=_biv_scope_legacy;
-        %let _filter_table=&train_table.;
-        %put NOTE: [bivariado_run] input_table no disponible. Se activa compatibilidad legacy train/oot.;
-    %end;
-    %else %do;
-        %put ERROR: [bivariado_run] No se encontro input_table=&input_table. ni par legacy train/oot valido.;
-        %let _biv_rc=1;
-        %return;
-    %end;
-
-    %_biv_filter_existing(input_caslib=&input_caslib., input_table=&_filter_table.,
+    %_biv_filter_existing(input_caslib=&input_caslib., input_table=&input_table.,
         raw_list=&_biv_vars_num., outvar=_biv_vars_num, label=vars_num);
-    %_biv_filter_existing(input_caslib=&input_caslib., input_table=&_filter_table.,
+    %_biv_filter_existing(input_caslib=&input_caslib., input_table=&input_table.,
         raw_list=&_biv_vars_cat., outvar=_biv_vars_cat, label=vars_cat);
-    %_biv_filter_existing(input_caslib=&input_caslib., input_table=&_filter_table.,
+    %_biv_filter_existing(input_caslib=&input_caslib., input_table=&input_table.,
         raw_list=&_biv_dri_num., outvar=_biv_dri_num, label=dri_num);
-    %_biv_filter_existing(input_caslib=&input_caslib., input_table=&_filter_table.,
+    %_biv_filter_existing(input_caslib=&input_caslib., input_table=&input_table.,
         raw_list=&_biv_dri_cat., outvar=_biv_dri_cat, label=dri_cat);
 
     %put NOTE: [bivariado_run] target=&_biv_target. byvar=&_biv_byvar. def_cld=&_biv_def_cld.;
@@ -251,9 +206,15 @@ Compatibilidad:
     %put NOTE: [bivariado_run] dri_num=&_biv_dri_num.;
     %put NOTE: [bivariado_run] dri_cat=&_biv_dri_cat.;
 
-    %if %length(%superq(_biv_vars_num))=0 and %length(%superq(_biv_vars_cat))=0 %then %do;
-        %put ERROR: [bivariado_run] No quedaron variables principales validas despues del filtrado contra el input.;
-        %let _biv_rc=1;
+    %bivariado_contract(input_caslib=&input_caslib., input_table=&input_table.,
+        vars_num=&_biv_vars_num., vars_cat=&_biv_vars_cat.,
+        target=&_biv_target., byvar=&_biv_byvar.,
+        train_min_mes=&_biv_train_min., train_max_mes=&_biv_train_max.,
+        oot_min_mes=&_biv_oot_min., oot_max_mes=&_biv_oot_max.,
+        def_cld=&_biv_def_cld.);
+
+    %if &_biv_rc. ne 0 %then %do;
+        %put ERROR: [bivariado_run] Contract fallido - modulo abortado.;
         %return;
     %end;
 
@@ -273,54 +234,18 @@ Compatibilidad:
         %put NOTE: [bivariado_run] Output -> reports/METOD4.3/ + images/METOD4.3/;
     %end;
 
-    %if &_use_legacy.=1 %then %do;
-        %bivariado_contract(input_caslib=&input_caslib., train_table=&train_table.,
-            oot_table=&oot_table., vars_num=&_biv_vars_num.,
-            vars_cat=&_biv_vars_cat., target=&_biv_target.,
-            byvar=&_biv_byvar., train_min_mes=&_biv_train_min.,
-            train_max_mes=&_biv_train_max., oot_min_mes=&_biv_oot_min.,
-            oot_max_mes=&_biv_oot_max., def_cld=&_biv_def_cld.);
-    %end;
-    %else %do;
-        %bivariado_contract(input_caslib=&input_caslib., input_table=&input_table.,
-            vars_num=&_biv_vars_num., vars_cat=&_biv_vars_cat.,
-            target=&_biv_target., byvar=&_biv_byvar.,
-            train_min_mes=&_biv_train_min., train_max_mes=&_biv_train_max.,
-            oot_min_mes=&_biv_oot_min., oot_max_mes=&_biv_oot_max.,
-            def_cld=&_biv_def_cld.);
-    %end;
-
-    %if &_biv_rc. ne 0 %then %do;
-        %put ERROR: [bivariado_run] Contract fallido - modulo abortado.;
-        %return;
-    %end;
-
-    %if &_use_legacy.=1 %then %do;
-        proc cas;
-            session conn;
-            table.dropTable / caslib='casuser' name='_biv_scope_legacy' quiet=true;
-        quit;
-
-        proc fedsql sessref=conn;
-            create table casuser._biv_scope_legacy {options replace=true} as
-            select 'TRAIN' as _legacy_period, a.*
-            from &input_caslib..&train_table. a
-            union all
-            select 'OOT' as _legacy_period, a.*
-            from &input_caslib..&oot_table. a;
-        quit;
-    %end;
-
     %let _all_vars=;
     %_biv_append_unique(word=&_biv_target., listvar=_all_vars);
     %_biv_append_unique(word=&_biv_byvar., listvar=_all_vars);
 
     %let _idx=1;
-    %let _var=%scan(&_biv_vars_num. &_biv_vars_cat. &_biv_dri_num. &_biv_dri_cat., &_idx., %str( ));
+    %let _var=%scan(&_biv_vars_num. &_biv_vars_cat. &_biv_dri_num. &_biv_dri_cat.,
+        &_idx., %str( ));
     %do %while(%length(%superq(_var)) > 0);
         %_biv_append_unique(word=&_var., listvar=_all_vars);
         %let _idx=%eval(&_idx. + 1);
-        %let _var=%scan(&_biv_vars_num. &_biv_vars_cat. &_biv_dri_num. &_biv_dri_cat., &_idx., %str( ));
+        %let _var=%scan(&_biv_vars_num. &_biv_vars_cat. &_biv_dri_num. &_biv_dri_cat.,
+            &_idx., %str( ));
     %end;
 
     %_biv_build_select_sql(var_list=&_all_vars., outvar=_select_sql);
@@ -340,13 +265,15 @@ Compatibilidad:
                    else 'OOT'
                end as _biv_period,
                &_select_sql.
-        from &_source_caslib..&_source_table. a
+        from &input_caslib..&input_table. a
         where a.&_biv_byvar. <= &_biv_def_cld.
           and a.&_biv_target. is not null
           and (
-                (a.&_biv_byvar. >= &_biv_train_min. and a.&_biv_byvar. <= &_biv_train_max.)
+                (a.&_biv_byvar. >= &_biv_train_min.
+                 and a.&_biv_byvar. <= &_biv_train_max.)
                 or
-                (a.&_biv_byvar. >= &_biv_oot_min. and a.&_biv_byvar. <= &_biv_oot_max.)
+                (a.&_biv_byvar. >= &_biv_oot_min.
+                 and a.&_biv_byvar. <= &_biv_oot_max.)
               );
     quit;
 
@@ -354,7 +281,7 @@ Compatibilidad:
         create table casuser._biv_train {options replace=true} as
         select *
         from casuser._biv_input
-        where _biv_period = 'TRAIN';
+        where _biv_period='TRAIN';
     quit;
 
     %_bivariado_compute(source_data=casuser._biv_input,
