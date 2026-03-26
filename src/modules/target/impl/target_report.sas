@@ -69,7 +69,7 @@ target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
     title "RD Mensual";
     proc report data=casuser._tgt_rd_monthly nowd missing;
         columns Periodo Split N_Total N_Valid N_Default RD;
-        define Periodo / order ascending "Periodo" format=6.;
+        define Periodo / order "Periodo" format=6.;
         define Split / order "Dataset";
         define N_Total / display "N Total";
         define N_Valid / display "N Target Valido";
@@ -106,7 +106,7 @@ target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
     title "Materialidad por Periodo y Target";
     proc report data=casuser._tgt_mat_report nowd missing;
         columns Periodo Split Target_Value N_Cuentas;
-        define Periodo / order ascending "Periodo" format=6.;
+        define Periodo / order "Periodo" format=6.;
         define Split / order "Dataset";
         define Target_Value / order "Target";
         define N_Cuentas / display "N Cuentas";
@@ -189,7 +189,7 @@ target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
     proc report data=casuser._tgt_bands nowd missing;
         columns Periodo Split N_Total N_Valid N_Default RD Lower_Band
             Upper_Band Global_Avg;
-        define Periodo / order ascending "Periodo" format=6.;
+        define Periodo / order "Periodo" format=6.;
         define Split / order "Dataset";
         define N_Total / display "N Total";
         define N_Valid / display "N Target Valido";
@@ -221,7 +221,7 @@ target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
     proc report data=casuser._tgt_weight_avg nowd missing;
         columns Periodo Split N_Cuentas Total_Monto RD_Pond_Prom Lower_Band
             Upper_Band Global_Avg;
-        define Periodo / order ascending "Periodo" format=6.;
+        define Periodo / order "Periodo" format=6.;
         define Split / order "Dataset";
         define N_Cuentas / display "N Cuentas";
         define Total_Monto / display "Monto Total" format=comma18.2;
@@ -254,7 +254,7 @@ target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
     proc report data=casuser._tgt_weight_sum nowd missing;
         columns Periodo Split N_Cuentas Sum_Target_Pond Total_Monto Lower_Band
             Upper_Band Global_Sum;
-        define Periodo / order ascending "Periodo" format=6.;
+        define Periodo / order "Periodo" format=6.;
         define Split / order "Dataset";
         define N_Cuentas / display "N Cuentas";
         define Sum_Target_Pond / display "RD Ponderado por Suma"
@@ -287,7 +287,7 @@ target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
     proc report data=casuser._tgt_weight_ratio nowd missing;
         columns Periodo Split N_Cuentas Sum_Target_Pond Total_Monto
             Ratio_RD_Monto Lower_Band Upper_Band Global_Ratio;
-        define Periodo / order ascending "Periodo" format=6.;
+        define Periodo / order "Periodo" format=6.;
         define Split / order "Dataset";
         define N_Cuentas / display "N Cuentas";
         define Sum_Target_Pond / display "RD Pond. Suma" format=comma18.2;
