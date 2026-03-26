@@ -1,38 +1,44 @@
 /* =========================================================================
 universe_compute.sas - CAS-first descriptive computations for Universe
 
-The module computes summaries in CAS and only moves final report tables to
-WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
+Where the legacy module used PROC FREQ, this module uses PROC FREQTAB
+directly on CAS. Final aggregated tables stay in CAS and are only ordered
+right before they are printed or plotted.
 ======================================================================== */
+
+%macro _univ_sort_cas(table_name=, orderby=, groupby={});
+
+    %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
+        %return;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={
+                caslib="casuser",
+                name="&table_name.",
+                orderby=&orderby.,
+                groupby=&groupby.
+            },
+            casout={
+                caslib="casuser",
+                name="&table_name.",
+                replace=true
+            };
+    quit;
+
+%mend _univ_sort_cas;
 
 %macro _univ_describe_id(data=, split_var=_univ_split, byvar=, id_var=);
 
     title "Evolutivo Cuentas - &data.";
 
-    proc fedsql sessref=conn;
-        create table casuser._univ_evolut_cuenta {options replace=true} as
-        select &split_var., &byvar., count(*) as Count
-        from &data.
-        group by &split_var., &byvar.;
-    quit;
-
-    data work._univ_evolut_cuenta;
-        set casuser._univ_evolut_cuenta;
+    proc freqtab data=&data.;
+        tables &split_var. * &byvar.;
     run;
 
-    proc sort data=work._univ_evolut_cuenta;
-        by &split_var. &byvar.;
-    run;
-
-    proc report data=work._univ_evolut_cuenta nowd;
-        columns &split_var. &byvar. Count;
-        define &split_var. / order order=internal;
-        define &byvar. / order order=internal;
-        define Count / display;
-    run;
-
-    proc sgplot data=work._univ_evolut_cuenta;
-        vbarparm category=&byvar. response=Count /
+    proc sgplot data=&data.;
+        vbar &byvar. /
             group=&split_var.
             groupdisplay=cluster
             nooutline;
@@ -48,30 +54,17 @@ WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
         having count(*) > 1;
     quit;
 
-    data work._univ_dup;
-        set casuser._univ_dup;
-    run;
-
-    proc sort data=work._univ_dup;
-        by &split_var. &byvar. &id_var.;
-    run;
+    %_univ_sort_cas(table_name=_univ_dup,
+        orderby=%str({"&split_var.", "&byvar.", "&id_var."}));
 
     title "Duplicados - &data.";
-    proc report data=work._univ_dup nowd;
-        columns &split_var. &byvar. &id_var. N;
-        define &split_var. / order order=internal;
-        define &byvar. / order order=internal;
-        define &id_var. / order order=internal;
-        define N / display;
+    proc print data=casuser._univ_dup noobs;
     run;
 
     title;
 
     proc datasets library=casuser nolist nowarn;
-        delete _univ_evolut_cuenta _univ_dup;
-    quit;
-    proc datasets library=work nolist nowarn;
-        delete _univ_evolut_cuenta _univ_dup;
+        delete _univ_dup;
     quit;
 
 %mend _univ_describe_id;
@@ -86,6 +79,11 @@ WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
         select distinct &split_var., &byvar., &id_var.
         from &data.;
     quit;
+
+    title "Evolutivo Cuentas - &data.";
+    proc freqtab data=casuser._univ_sindup;
+        tables &split_var. * &byvar.;
+    run;
 
     proc fedsql sessref=conn;
         create table casuser._univ_freq_cuentas {options replace=true} as
@@ -127,31 +125,10 @@ WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
         from casuser._univ_freq_cuentas;
     quit;
 
-    data work._univ_freq_cuentas;
-        set casuser._univ_freq_cuentas;
-    run;
+    %_univ_sort_cas(table_name=_univ_freq_cuentas_plot,
+        orderby=%str({"&split_var.", "&byvar."}));
 
-    data work._univ_freq_cuentas_plot;
-        set casuser._univ_freq_cuentas_plot;
-    run;
-
-    proc sort data=work._univ_freq_cuentas;
-        by &split_var. &byvar.;
-    run;
-
-    proc sort data=work._univ_freq_cuentas_plot;
-        by &split_var. &byvar.;
-    run;
-
-    title "Evolutivo Cuentas - &data.";
-    proc report data=work._univ_freq_cuentas nowd;
-        columns &split_var. &byvar. Count;
-        define &split_var.;
-        define &byvar.;
-        define Count / display;
-    run;
-
-    proc sgplot data=work._univ_freq_cuentas_plot subpixel;
+    proc sgplot data=casuser._univ_freq_cuentas_plot subpixel;
         band x=&byvar. lower=LowerBand upper=UpperBand /
             fillattrs=(color=graydd)
             transparency=0.5
@@ -177,9 +154,6 @@ WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
     proc datasets library=casuser nolist nowarn;
         delete _univ_sindup _univ_freq_cuentas _univ_freq_cuentas_plot;
     quit;
-    proc datasets library=work nolist nowarn;
-        delete _univ_freq_cuentas _univ_freq_cuentas_plot;
-    quit;
 
 %mend _univ_bandas_cuentas;
 
@@ -193,24 +167,14 @@ WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
         group by &split_var., &byvar.;
     quit;
 
-    data work._univ_sum_monto;
-        set casuser._univ_sum_monto;
-    run;
-
-    proc sort data=work._univ_sum_monto;
-        by &split_var. &byvar.;
-    run;
+    %_univ_sort_cas(table_name=_univ_sum_monto,
+        orderby=%str({"&split_var.", "&byvar."}));
 
     title "Suma &monto_var. por &byvar.";
-
-    proc report data=work._univ_sum_monto nowd;
-        columns &split_var. &byvar. Sum_Monto;
-        define &split_var.;
-        define &byvar.;
-        define Sum_Monto / display;
+    proc print data=casuser._univ_sum_monto noobs;
     run;
 
-    proc sgplot data=work._univ_sum_monto;
+    proc sgplot data=casuser._univ_sum_monto;
         vbarparm category=&byvar. response=Sum_Monto /
             group=&split_var.
             groupdisplay=cluster;
@@ -221,9 +185,6 @@ WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
     title;
 
     proc datasets library=casuser nolist nowarn;
-        delete _univ_sum_monto;
-    quit;
-    proc datasets library=work nolist nowarn;
         delete _univ_sum_monto;
     quit;
 
@@ -242,26 +203,15 @@ WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
         group by &split_var., &byvar.;
     quit;
 
-    data work._univ_evolut_monto;
-        set casuser._univ_evolut_monto;
-    run;
-
-    proc sort data=work._univ_evolut_monto;
-        by &split_var. &byvar.;
-    run;
+    %_univ_sort_cas(table_name=_univ_evolut_monto,
+        orderby=%str({"&split_var.", "&byvar."}));
 
     title "Evolutivo Monto - &monto_var.";
-
-    proc report data=work._univ_evolut_monto nowd;
-        columns &split_var. &byvar. N Mean;
-        define &split_var.;
-        define &byvar.;
-        define N / display;
-        define Mean / display;
+    proc print data=casuser._univ_evolut_monto noobs;
     run;
 
     title "Evolutivo &monto_var..";
-    proc sgplot data=work._univ_evolut_monto;
+    proc sgplot data=casuser._univ_evolut_monto;
         series x=&byvar. y=Mean /
             group=&split_var.
             markers
@@ -273,9 +223,6 @@ WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
     title;
 
     proc datasets library=casuser nolist nowarn;
-        delete _univ_evolut_monto;
-    quit;
-    proc datasets library=work nolist nowarn;
         delete _univ_evolut_monto;
     quit;
 
