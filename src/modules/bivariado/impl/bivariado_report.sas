@@ -1,80 +1,97 @@
 /* =========================================================================
-bivariado_report.sas - Reportes HTML + Excel + JPEG para Bivariado
-
-Genera:
-- un unico HTML por scope
-- un unico Excel por scope
-- un grafico temporal consolidado por variable
+bivariado_report.sas - Report-only layer for bivariado.
+Consumes precomputed tables from compute:
+- work._biv_main_report
+- work._biv_driver_report
 ========================================================================= */
 
-%macro _biv_collect_vars(catalog_table=, tipo_variable=, outvar=);
+%macro _biv_render_run(detail_table=, run_order=, image_prefix=,
+    section_title=);
+
+    %local _var _tipo _x_label;
 
     proc sql noprint;
-        select Variable into :&outvar. separated by '|'
-        from &catalog_table.
-        where upcase(Tipo_Variable)=upcase("&tipo_variable.")
-        group by Variable, Tipo_Orden
-        order by Tipo_Orden, Variable;
+        select max(Variable),
+               max(Tipo_Variable)
+          into :_var trimmed,
+               :_tipo trimmed
+        from &detail_table.
+        where Run_Order=&run_order.;
     quit;
 
-%mend _biv_collect_vars;
+    %if %length(%superq(_var))=0 %then %return;
 
-%macro _biv_report_section(detail_table=, var_list=, tipo_variable=,
-    image_prefix=, section_title=);
+    %if %upcase(%superq(_tipo))=NUMERICA %then %let _x_label=Buckets variable;
+    %else %let _x_label=Categorias;
 
-    %local _nvars _idx _var _var_list _tipo_var _valor_label _xaxis_label;
-    %let _var_list=&var_list.;
-    %let _tipo_var=%upcase(&tipo_variable.);
-    %let _nvars=%sysfunc(countw(%superq(_var_list), |));
-    %if %sysevalf(%superq(_nvars)=, boolean) %then %let _nvars=0;
+    proc sort data=&detail_table.(where=(Run_Order=&run_order.))
+        out=work._biv_run_view;
+        by Ventana_Orden Valor_X;
+    run;
 
-    %do _idx=1 %to &_nvars.;
-        %let _var=%scan(%superq(_var_list), &_idx., |);
-        %let _valor_label=&_var.;
-        %let _xaxis_label=Categorias;
+    proc sort data=&detail_table.(where=(Run_Order=&run_order.))
+        out=work._biv_run_graph;
+        by Valor_X Ventana_Orden;
+    run;
 
-        %if %upcase(%superq(_tipo_var))=NUMERICA %then
-            %let _xaxis_label=Buckets variable;
+    title "&section_title. - &_var.";
+    proc print data=work._biv_run_view noobs label;
+        var Variable Ventana Valor_X N Pct_Cuentas Defaults RD;
+        format Pct_Cuentas percent8.2 RD percent8.2;
+        label Valor_X="&_var."
+              Ventana="Ventana";
+    run;
+    title;
 
-        title "&section_title. - &_var.";
-        proc print data=&detail_table.(where=(
-            Variable="&_var."
-            and upcase(Tipo_Variable)="&_tipo_var."
-        )) noobs label;
-            var Variable Valor Ventana N Pct_Cuentas Defaults RD;
-            format Pct_Cuentas percent8.2 RD percent8.2;
-            label Variable="Variable"
-                  Valor="&_valor_label."
-                  Ventana="Ventana";
-        run;
-        title;
+    ods graphics / imagename="&image_prefix._&run_order." imagefmt=jpeg;
 
-        ods graphics / imagename="&image_prefix._&_idx." imagefmt=jpeg;
-        %if %upcase(%superq(_tipo_var))=NUMERICA %then %do;
-            title "Bivariado por bucket - &_var.";
-            title2 "Buckets definidos en TRAIN y aplicados a OOT.";
-        %end;
-        %else %do;
-            title "Bivariado por categoria - &_var.";
-            title2 "Comparacion TRAIN vs OOT sobre categorias observadas.";
-        %end;
-        proc sgplot data=&detail_table.(where=(
-            Variable="&_var."
-            and upcase(Tipo_Variable)="&_tipo_var."
-        ));
-            vbar Valor / response=Pct_Cuentas group=Ventana
-                groupdisplay=cluster nooutline transparency=0.15
-                name="bars";
-            vline Valor / response=RD group=Ventana y2axis markers
-                markerattrs=(symbol=circlefilled)
-                name="lines";
-            keylegend "bars" / title="Ventana";
-            xaxis type=discrete discreteorder=data label="&_xaxis_label.";
-            yaxis label="% Cuentas";
-            y2axis min=0 label="RD" valuesformat=percent8.2;
-        run;
-        title;
-        title2;
+    %if %upcase(%superq(_tipo))=NUMERICA %then %do;
+        title "Bivariado por bucket - &_var.";
+        title2 "Buckets definidos en TRAIN y reutilizados en OOT.";
+    %end;
+    %else %do;
+        title "Bivariado por categoria - &_var.";
+        title2 "Categorias originales de la variable (sin buckets).";
+    %end;
+
+    proc sgplot data=work._biv_run_graph;
+        vbar Valor_X / response=Pct_Cuentas group=Ventana
+            groupdisplay=cluster nooutline transparency=0.15
+            name="bars";
+        vline Valor_X / response=RD group=Ventana y2axis markers
+            markerattrs=(symbol=circlefilled)
+            name="lines";
+        keylegend "bars" / title="Ventana";
+        xaxis type=discrete discreteorder=data label="&_x_label.";
+        yaxis label="% Cuentas";
+        y2axis min=0 label="RD" valuesformat=percent8.2;
+    run;
+    title;
+    title2;
+
+    proc datasets library=work nolist nowarn;
+        delete _biv_run_view _biv_run_graph;
+    quit;
+
+%mend _biv_render_run;
+
+%macro _biv_report_section(detail_table=, image_prefix=, section_title=);
+
+    %local _runs _n_runs _i _run;
+
+    proc sql noprint;
+        select distinct Run_Order
+          into :_runs separated by ' '
+        from &detail_table.
+        order by Run_Order;
+    quit;
+
+    %let _n_runs=%sysfunc(countw(%superq(_runs), %str( )));
+
+    %do _i=1 %to &_n_runs.;
+        %let _run=%scan(%superq(_runs), &_i., %str( ));
+        %_biv_render_run(detail_table=&detail_table., run_order=&_run.,
+            image_prefix=&image_prefix., section_title=&section_title.);
     %end;
 
 %mend _biv_report_section;
@@ -82,10 +99,9 @@ Genera:
 %macro _bivariado_report(byvar=, oot_min_mes=, report_path=, images_path=,
     file_prefix=);
 
-    %local _dir_rc _has_drivers _main_num_vars _main_cat_vars _drv_num_vars
-        _drv_cat_vars;
+    %local _dir_rc _has_drivers;
 
-    %put NOTE: [bivariado_report] Generando reporte unificado...;
+    %put NOTE: [bivariado_report] Generando reporte...;
     %put NOTE: [bivariado_report] report_path=&report_path.;
     %put NOTE: [bivariado_report] images_path=&images_path.;
     %put NOTE: [bivariado_report] file_prefix=&file_prefix.;
@@ -110,39 +126,17 @@ Genera:
         options(sheet_name="VARIABLES" sheet_interval="none"
         embedded_titles="yes");
 
-    %_biv_collect_vars(catalog_table=work._biv_main_catalog,
-        tipo_variable=NUMERICA, outvar=_main_num_vars);
-    %_biv_collect_vars(catalog_table=work._biv_main_catalog,
-        tipo_variable=CATEGORICA, outvar=_main_cat_vars);
-
     %_biv_report_section(detail_table=work._biv_main_report,
-        var_list=&_main_num_vars., tipo_variable=NUMERICA,
-        image_prefix=&file_prefix._main_num,
-        section_title=Variables Principales Numericas);
-
-    %_biv_report_section(detail_table=work._biv_main_report,
-        var_list=&_main_cat_vars., tipo_variable=CATEGORICA,
-        image_prefix=&file_prefix._main_cat,
-        section_title=Variables Principales Categoricas);
+        image_prefix=&file_prefix._main,
+        section_title=Variables_Principales);
 
     %if &_has_drivers. > 0 %then %do;
         ods excel options(sheet_name="DRIVERS" sheet_interval="now"
             embedded_titles="yes");
 
-        %_biv_collect_vars(catalog_table=work._biv_driver_catalog,
-            tipo_variable=NUMERICA, outvar=_drv_num_vars);
-        %_biv_collect_vars(catalog_table=work._biv_driver_catalog,
-            tipo_variable=CATEGORICA, outvar=_drv_cat_vars);
-
         %_biv_report_section(detail_table=work._biv_driver_report,
-            var_list=&_drv_num_vars., tipo_variable=NUMERICA,
-            image_prefix=&file_prefix._drv_num,
-            section_title=Drivers Numericos);
-
-        %_biv_report_section(detail_table=work._biv_driver_report,
-            var_list=&_drv_cat_vars., tipo_variable=CATEGORICA,
-            image_prefix=&file_prefix._drv_cat,
-            section_title=Drivers Categoricos);
+            image_prefix=&file_prefix._drv,
+            section_title=Drivers);
     %end;
 
     ods excel close;

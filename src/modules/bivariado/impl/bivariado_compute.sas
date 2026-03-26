@@ -1,461 +1,339 @@
 /* =========================================================================
-bivariado_compute.sas - Computo de analisis bivariado en flujo consolidado
+bivariado_compute.sas - Legacy-style compute for bivariado over consolidated
+input.
 
-Principios:
-- _scope_input se filtra una sola vez a una tabla canonica CAS
-- TRAIN/OOT se derivan como columna conceptual (_biv_period)
-- cortes numericos se calculan solo con TRAIN
-- cortes TRAIN se aplican a toda la serie consolidada
-- CAS se usa para stage y agregaciones
-- work se usa para PROC RANK y tablas auxiliares
+Behavior preserved from bivariado_legacy.sas:
+- numeric vars: TRAIN computes cuts, OOT reuses TRAIN cuts
+- categorical vars: raw categories (no cuts)
+- same variable can run twice if present in both numeric and categorical lists
+- execution order: numeric list first, then categorical list
+
+Outputs in work:
+- _biv_main_report
+- _biv_driver_report
+
+Common columns:
+Seccion, Run_Order, Tipo_Variable, Variable, Ventana, Ventana_Orden,
+Valor_X, N, Pct_Cuentas, Defaults, RD
 ========================================================================= */
 
-%macro _biv_sort_cas(table_name=, orderby=, groupby={});
-
-    %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
-        %return;
-
-    proc cas;
-        session conn;
-        table.partition /
-            table={
-                caslib="casuser",
-                name="&table_name.",
-                orderby=&orderby.,
-                groupby=&groupby.
-            },
-            casout={
-                caslib="casuser",
-                name="&table_name.",
-                replace=true
-            };
-    quit;
-
-%mend _biv_sort_cas;
-
-%macro _biv_init_detail_table(table_name=);
+%macro _biv_init_result_table(table_name=);
 
     data work.&table_name.;
-        length Seccion $12 Tipo_Variable $12 Variable $64 Valor $200
-            Ventana $10 Periodo 8 N 8 Pct_Cuentas 8 Defaults 8 RD 8;
+        length Seccion $12 Run_Order 8 Tipo_Variable $12 Variable $64
+            Ventana $10 Ventana_Orden 8 Valor_X $200 N 8 Pct_Cuentas 8
+            Defaults 8 RD 8;
         stop;
     run;
 
-%mend _biv_init_detail_table;
+%mend _biv_init_result_table;
 
-%macro _biv_prepare_report_table(detail_table=, out_table=);
+%macro _biv_calcular_cortes(tablain=, var=, groups=5, out_cuts=work.cortes);
 
-    proc sql;
-        create table work.&out_table. as
-        select a.Variable,
-               a.Tipo_Variable,
-               case
-                   when upcase(a.Tipo_Variable)='NUMERICA' then 1
-                   else 2
-               end as Tipo_Orden,
-               a.Valor,
-               a.Ventana,
-               sum(a.N) as N,
-               sum(a.Defaults) as Defaults,
-               case
-                   when b.Total_N > 0 then calculated N / b.Total_N
-                   else 0
-               end as Pct_Cuentas format=percent8.2,
-               case
-                   when calculated N > 0 then calculated Defaults / calculated N
-                   else 0
-               end as RD format=percent8.2
-        from &detail_table. a
-        left join (
-            select Variable,
-                   Tipo_Variable,
-                   Ventana,
-                   sum(N) as Total_N
-            from &detail_table.
-            group by Variable, Tipo_Variable, Ventana
-        ) b
-            on a.Variable = b.Variable
-           and a.Tipo_Variable = b.Tipo_Variable
-           and a.Ventana = b.Ventana
-        group by a.Variable, a.Tipo_Variable, a.Valor, a.Ventana, b.Total_N
-        order by calculated Tipo_Orden, a.Variable, a.Ventana, a.Valor;
-    quit;
+    %local _rnd;
+    %let _rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
 
-%mend _biv_prepare_report_table;
-
-%macro _biv_build_var_catalog(vars_num=, vars_cat=, section=, out_table=);
-
-    data work.&out_table.;
-        length Seccion $12 Tipo_Variable $12 Variable $64 Tipo_Orden 8;
-        stop;
+    data work._biv_cut_&_rnd._src;
+        set &tablain.(keep=&var. where=(not missing(&var.)));
+        &var.=round(&var., 0.0001);
     run;
 
-    %local _idx _var;
-
-    %if %length(%superq(vars_num)) > 0 %then %do;
-        %let _idx=1;
-        %let _var=%scan(%superq(vars_num), &_idx., %str( ));
-        %do %while(%length(%superq(_var)) > 0);
-            data work._biv_var_cat_row;
-                length Seccion $12 Tipo_Variable $12 Variable $64 Tipo_Orden 8;
-                Seccion="&section.";
-                Tipo_Variable="NUMERICA";
-                Variable="&_var.";
-                Tipo_Orden=1;
-            run;
-
-            proc append base=work.&out_table. data=work._biv_var_cat_row force;
-            quit;
-
-            %let _idx=%eval(&_idx. + 1);
-            %let _var=%scan(%superq(vars_num), &_idx., %str( ));
-        %end;
-    %end;
-
-    %if %length(%superq(vars_cat)) > 0 %then %do;
-        %let _idx=1;
-        %let _var=%scan(%superq(vars_cat), &_idx., %str( ));
-        %do %while(%length(%superq(_var)) > 0);
-            data work._biv_var_cat_row;
-                length Seccion $12 Tipo_Variable $12 Variable $64 Tipo_Orden 8;
-                Seccion="&section.";
-                Tipo_Variable="CATEGORICA";
-                Variable="&_var.";
-                Tipo_Orden=2;
-            run;
-
-            proc append base=work.&out_table. data=work._biv_var_cat_row force;
-            quit;
-
-            %let _idx=%eval(&_idx. + 1);
-            %let _var=%scan(%superq(vars_cat), &_idx., %str( ));
-        %end;
-    %end;
-
-    proc datasets library=work nolist nowarn;
-        delete _biv_var_cat_row;
-    quit;
-
-%mend _biv_build_var_catalog;
-
-%macro _biv_calcular_cortes(train_data=, var=, groups=);
-
-    %local rnd;
-    %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
-    %global _biv_cut_n;
-    %let _biv_cut_n=0;
-
-    data work._biv_cut_&rnd._0;
-        set &train_data.(keep=&var.);
-        if &var. in (., 1111111111, -1111111111, 2222222222, -2222222222,
-            3333333333, -3333333333, 4444444444, 5555555555, 6666666666,
-            7777777777, -999999999) then &var.=.;
-        if not missing(&var.) then &var.=round(&var., 0.0001);
-    run;
-
-    proc rank data=work._biv_cut_&rnd._0 out=work._biv_cut_&rnd._1
+    proc rank data=work._biv_cut_&_rnd._src out=work._biv_cut_&_rnd._rk
         groups=&groups.;
-        ranks RANGO;
+        ranks rango_ini;
         var &var.;
     run;
 
-    proc sql noprint;
-        create table work._biv_cut_&rnd._2 as
-        select RANGO,
-               min(&var.) as MINVAL,
-               max(&var.) as MAXVAL
-        from work._biv_cut_&rnd._1
-        group by RANGO;
+    proc sql;
+        create table work._biv_cut_&_rnd._bins as
+        select rango_ini,
+               min(&var.) as minval,
+               max(&var.) as maxval
+        from work._biv_cut_&_rnd._rk
+        group by rango_ini
+        order by rango_ini;
     quit;
 
-    proc sort data=work._biv_cut_&rnd._2;
-        by RANGO;
-    run;
-
-    data work._biv_cortes;
-        set work._biv_cut_&rnd._2(rename=(RANGO=RANGO_INI)) end=EOF;
-        retain MARCA 0;
-        FLAG_INI=0;
-        FLAG_FIN=0;
-        LAGMAXVAL=lag(MAXVAL);
-        RANGO=RANGO_INI + 1;
-        if RANGO_INI=. then RANGO=0;
-        if RANGO_INI >= 0 then MARCA=MARCA + 1;
-        if MARCA=1 then FLAG_INI=1;
-        if EOF then FLAG_FIN=1;
-    run;
-
-    data work._biv_cortes;
-        set work._biv_cortes;
+    data work._biv_cut_&_rnd._num;
+        set work._biv_cut_&_rnd._bins end=eof;
         length ETIQUETA $200;
-        if RANGO=0 then ETIQUETA='00. Missing';
-        else if FLAG_INI=1 then ETIQUETA=cat(put(RANGO, z2.), '. <-Inf; ',
-            strip(put(MAXVAL, f12.4)), ']');
-        else if FLAG_FIN=1 then ETIQUETA=cat(put(RANGO, z2.), '. <',
-            strip(put(LAGMAXVAL, f12.4)), '; +Inf>');
-        else ETIQUETA=cat(put(RANGO, z2.), '. <', strip(put(LAGMAXVAL, f12.4)),
-            '; ', strip(put(MAXVAL, f12.4)), ']');
+        retain prev_fin .;
+
+        rango = rango_ini + 1;
+        inicio = prev_fin;
+        fin = maxval;
+        flag_ini = (_n_ = 1);
+        flag_fin = eof;
+
+        if flag_ini then inicio = .;
+
+        if flag_ini then
+            ETIQUETA = cats(put(rango, z2.), '. <-Inf; ', strip(put(fin, f12.4)), ']');
+        else if flag_fin then
+            ETIQUETA = cats(put(rango, z2.), '. <', strip(put(inicio, f12.4)), '; +Inf>');
+        else
+            ETIQUETA = cats(put(rango, z2.), '. <', strip(put(inicio, f12.4)),
+                            '; ', strip(put(fin, f12.4)), ']');
+
+        prev_fin = fin;
+        keep rango inicio fin flag_ini flag_fin ETIQUETA;
     run;
 
-    proc sql noprint;
-        select count(*) into :_biv_cut_n trimmed
-        from work._biv_cortes
-        where RANGO > 0;
-    quit;
+    data work._biv_cut_&_rnd._miss;
+        length ETIQUETA $200;
+        rango=0;
+        inicio=.;
+        fin=.;
+        flag_ini=0;
+        flag_fin=0;
+        ETIQUETA='00. Missing';
+    run;
 
-    data _null_;
-        set work._biv_cortes(where=(RANGO > 0));
-        _idx + 1;
-        call symputx(cats('_biv_cut_label', _idx), ETIQUETA, 'G');
-        call symputx(cats('_biv_cut_flag_ini', _idx), FLAG_INI, 'G');
-        call symputx(cats('_biv_cut_flag_fin', _idx), FLAG_FIN, 'G');
-        call symputx(cats('_biv_cut_max', _idx),
-            strip(put(MAXVAL, best32.-L)), 'G');
-        call symputx(cats('_biv_cut_lag', _idx),
-            strip(put(LAGMAXVAL, best32.-L)), 'G');
+    data &out_cuts.;
+        set work._biv_cut_&_rnd._miss
+            work._biv_cut_&_rnd._num;
+    run;
+
+    proc sort data=&out_cuts.;
+        by rango;
     run;
 
     proc datasets library=work nolist nowarn;
-        delete _biv_cut_&rnd.:;
+        delete _biv_cut_&_rnd.:;
     quit;
 
 %mend _biv_calcular_cortes;
 
-%macro _biv_append_numeric(source_data=, train_data=, target=, byvar=, var=,
-    groups=5, section=, out_table=);
-
-    %local _i;
-    %_biv_calcular_cortes(train_data=&train_data., var=&var., groups=&groups.);
-
-    data work._biv_stage_num;
-        length Seccion $12 Tipo_Variable $12 Variable $64 Valor $200
-            Ventana $10 Periodo 8 Target 8;
-        set &source_data.(keep=_biv_period &byvar. &target. &var.);
-        Seccion="&section.";
-        Tipo_Variable='NUMERICA';
-        Variable="&var.";
-        Ventana=_biv_period;
-        Periodo=&byvar.;
-        Target=&target.;
-
-        if missing(&var.) or &var. in (1111111111, -1111111111, 2222222222,
-            -2222222222, 3333333333, -3333333333, 4444444444, 5555555555,
-            6666666666, 7777777777, -999999999) then Valor='00. Missing';
-        %if &_biv_cut_n. > 0 %then %do;
-            %do _i=1 %to &_biv_cut_n.;
-                %if &&_biv_cut_flag_ini&_i. = 1 %then %do;
-                    else if &var. <= &&_biv_cut_max&_i. then
-                        Valor="&&_biv_cut_label&_i.";
-                %end;
-                %else %if &&_biv_cut_flag_fin&_i. = 1 %then %do;
-                    else if &var. > &&_biv_cut_lag&_i. then
-                        Valor="&&_biv_cut_label&_i.";
-                %end;
-                %else %do;
-                    else if &var. > &&_biv_cut_lag&_i. and
-                        &var. <= &&_biv_cut_max&_i. then
-                        Valor="&&_biv_cut_label&_i.";
-                %end;
-            %end;
-            else Valor='99. Sin Asignar';
-        %end;
-        %else %do;
-            else Valor='01. Sin Corte';
-        %end;
-
-        keep Seccion Tipo_Variable Variable Valor Ventana Periodo Target;
-    run;
-
-    proc sql;
-        create table work._biv_append_num as
-        select a.Seccion,
-               a.Tipo_Variable,
-               a.Variable,
-               a.Valor,
-               a.Ventana,
-               a.Periodo,
-               count(*) as N,
-               case
-                   when b.Total_Obs > 0 then count(*) / b.Total_Obs
-                   else 0
-               end as Pct_Cuentas,
-               sum(a.Target) as Defaults,
-               avg(a.Target) as RD
-        from work._biv_stage_num a
-        inner join work._biv_period_totals b
-            on a.Periodo = b.Periodo
-        group by a.Seccion, a.Tipo_Variable, a.Variable, a.Valor,
-                 a.Ventana, a.Periodo, b.Total_Obs;
-    quit;
-
-    proc append base=work.&out_table. data=work._biv_append_num force;
-    quit;
-
-    proc datasets library=work nolist nowarn;
-        delete _biv_cortes _biv_stage_num _biv_append_num;
-    quit;
-
-%mend _biv_append_numeric;
-
-%macro _biv_append_categorical(source_data=, target=, byvar=, var=, section=,
+%macro _biv_tendencia(tablain=, var=, target=, groups=5, flg_continue=1,
+    reuse_cuts=0, m_data_type=, tipo_variable=, run_order=, section=,
     out_table=);
 
-    proc fedsql sessref=conn;
-        create table casuser._biv_stage {options replace=true} as
-        select cast('&section.' as varchar(12)) as Seccion,
-               cast('CATEGORICA' as varchar(12)) as Tipo_Variable,
-               cast('&var.' as varchar(64)) as Variable,
-               case
-                   when trim(cast(a.&var. as varchar(200))) = '' then '00. Missing'
-                   when cast(a.&var. as varchar(200)) is null then '00. Missing'
-                   else cast(a.&var. as varchar(200))
-               end as Valor,
-               cast(a._biv_period as varchar(10)) as Ventana,
-               a.&byvar. as Periodo,
-               a.&target. as Target
-        from &source_data. a;
-    quit;
+    %local _rnd _total _has_cuts;
+    %let _rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
 
-    proc fedsql sessref=conn;
-        create table casuser._biv_append {options replace=true} as
-        select a.Seccion,
-               a.Tipo_Variable,
-               a.Variable,
-               a.Valor,
-               a.Ventana,
-               a.Periodo,
-               count(*) as N,
-               case
-                   when b.Total_Obs > 0 then count(*) / b.Total_Obs
-                   else 0
-               end as Pct_Cuentas,
-               sum(a.Target) as Defaults,
-               avg(a.Target) as RD
-        from casuser._biv_stage a
-        inner join casuser._biv_period_totals b
-            on a.Periodo = b.Periodo
-        group by a.Seccion, a.Tipo_Variable, a.Variable, a.Valor,
-                 a.Ventana, a.Periodo, b.Total_Obs;
-    quit;
+    data work._biv_t_&_rnd._src;
+        set &tablain.(keep=&var. &target.);
 
-    data work._biv_append_cat;
-        length Seccion $12 Tipo_Variable $12 Variable $64 Valor $200
-            Ventana $10 Periodo 8 N 8 Pct_Cuentas 8 Defaults 8 RD 8;
-        set casuser._biv_append(rename=(
-            Seccion=_Seccion
-            Tipo_Variable=_Tipo_Variable
-            Variable=_Variable
-            Valor=_Valor
-            Ventana=_Ventana
-        ));
-        Seccion=strip(_Seccion);
-        Tipo_Variable=strip(_Tipo_Variable);
-        Variable=strip(_Variable);
-        Valor=strip(_Valor);
-        Ventana=strip(_Ventana);
-        drop _Seccion _Tipo_Variable _Variable _Valor _Ventana;
+        %if &flg_continue.=1 %then %do;
+            if &var. in (., 1111111111, -1111111111, 2222222222, -2222222222,
+                3333333333, -3333333333, 4444444444, 5555555555, 6666666666,
+                7777777777, -999999999) then &var.=.;
+        %end;
     run;
 
-    proc append base=work.&out_table. data=work._biv_append_cat force;
+    %let _total=0;
+    proc sql noprint;
+        select count(*) into :_total trimmed
+        from work._biv_t_&_rnd._src;
     quit;
 
-    proc cas;
-        session conn;
-        table.dropTable / caslib='casuser' name='_biv_stage' quiet=true;
-        table.dropTable / caslib='casuser' name='_biv_append' quiet=true;
+    %if %sysevalf(%superq(_total)=, boolean) %then %let _total=0;
+    %if &_total.=0 %then %return;
+
+    %if &flg_continue.=1 %then %do;
+
+        %let _has_cuts=0;
+        proc sql noprint;
+            select count(*) into :_has_cuts trimmed
+            from dictionary.tables
+            where upcase(libname)='WORK'
+              and upcase(memname)='CORTES';
+        quit;
+
+        %if &reuse_cuts.=0 or &_has_cuts.=0 %then %do;
+            %_biv_calcular_cortes(tablain=work._biv_t_&_rnd._src,
+                var=&var., groups=&groups., out_cuts=work.cortes);
+        %end;
+
+        proc sql;
+            create table work._biv_t_&_rnd._tagged as
+            select a.&target. as _target,
+                   coalesce(b.ETIQUETA, '00. Missing') as Valor_X length=200
+            from work._biv_t_&_rnd._src a
+            left join work.cortes b
+              on (missing(a.&var.) and b.rango=0)
+              or (
+                   not missing(a.&var.) and (
+                        (b.flag_ini=1 and a.&var. <= b.fin)
+                     or (b.flag_fin=1 and a.&var. > b.inicio)
+                     or (b.flag_ini=0 and b.flag_fin=0
+                         and a.&var. > b.inicio
+                         and a.&var. <= b.fin)
+                   )
+                 );
+        quit;
+
+    %end;
+    %else %do;
+
+        data work._biv_t_&_rnd._tagged;
+            set work._biv_t_&_rnd._src;
+            length Valor_X $200;
+            _target=&target.;
+
+            if strip(cats(&var.))='' then Valor_X='00. Missing';
+            else Valor_X=strip(cats(&var.));
+
+            keep _target Valor_X;
+        run;
+
+    %end;
+
+    proc sql;
+        create table work._biv_t_&_rnd._agg as
+        select Valor_X,
+               count(*) as N,
+               count(*) / &_total. as Pct_Cuentas format=percent8.2,
+               sum(_target) as Defaults,
+               mean(_target) as RD format=percent8.2
+        from work._biv_t_&_rnd._tagged
+        group by Valor_X
+        order by Valor_X;
+    quit;
+
+    data work._biv_t_&_rnd._out;
+        length Seccion $12 Tipo_Variable $12 Variable $64 Ventana $10;
+        set work._biv_t_&_rnd._agg;
+
+        Seccion="&section.";
+        Tipo_Variable="&tipo_variable.";
+        Variable="&var.";
+        Ventana="&m_data_type.";
+        Run_Order=&run_order.;
+
+        if upcase(Ventana)='TRAIN' then Ventana_Orden=1;
+        else if upcase(Ventana)='OOT' then Ventana_Orden=2;
+        else Ventana_Orden=9;
+
+        keep Seccion Run_Order Tipo_Variable Variable Ventana Ventana_Orden
+            Valor_X N Pct_Cuentas Defaults RD;
+    run;
+
+    proc append base=work.&out_table. data=work._biv_t_&_rnd._out force;
     quit;
 
     proc datasets library=work nolist nowarn;
-        delete _biv_append_cat;
+        delete _biv_t_&_rnd._src _biv_t_&_rnd._tagged _biv_t_&_rnd._agg
+               _biv_t_&_rnd._out;
     quit;
 
-%mend _biv_append_categorical;
+%mend _biv_tendencia;
 
-%macro _biv_build_detail(source_data=, train_data=, target=, byvar=,
-    vars_num=, vars_cat=, groups=5, section=, out_table=);
+%macro _biv_trend_variables(train_data=, oot_data=, target=, vars_num=,
+    vars_cat=, groups=5, section=, out_table=);
 
-    %local _idx _var;
+    %local _list _c _v _z _v_cat _v_aux _run_order;
 
-    %if %length(%superq(vars_num)) > 0 %then %do;
-        %let _idx=1;
-        %let _var=%scan(&vars_num., &_idx., %str( ));
-        %do %while(%length(%superq(_var)) > 0);
-            %put NOTE: [bivariado_compute] Variable numerica=&_var. section=&section.;
-            %_biv_append_numeric(source_data=&source_data., train_data=&train_data.,
-                target=&target., byvar=&byvar., var=&_var., groups=&groups.,
-                section=&section., out_table=&out_table.);
-            %let _idx=%eval(&_idx. + 1);
-            %let _var=%scan(&vars_num., &_idx., %str( ));
-        %end;
+    %let _list=%superq(vars_num);
+
+    %let _z=1;
+    %let _v_cat=%scan(%superq(vars_cat), &_z., %str( ));
+    %do %while(%length(%superq(_v_cat)) > 0);
+        %let _list=&_list. &_v_cat.#;
+        %let _z=%eval(&_z. + 1);
+        %let _v_cat=%scan(%superq(vars_cat), &_z., %str( ));
     %end;
 
-    %if %length(%superq(vars_cat)) > 0 %then %do;
-        %let _idx=1;
-        %let _var=%scan(&vars_cat., &_idx., %str( ));
-        %do %while(%length(%superq(_var)) > 0);
-            %put NOTE: [bivariado_compute] Variable categorica=&_var. section=&section.;
-            %_biv_append_categorical(source_data=&source_data., target=&target.,
-                byvar=&byvar., var=&_var., section=&section.,
-                out_table=&out_table.);
-            %let _idx=%eval(&_idx. + 1);
-            %let _var=%scan(&vars_cat., &_idx., %str( ));
+    %let _run_order=0;
+    %let _c=1;
+    %let _v=%scan(%superq(_list), &_c., %str( ));
+
+    %do %while(%length(%superq(_v)) > 0);
+
+        %if %substr(%superq(_v), 1, 1) ne %str(.) %then %do;
+
+            %if %substr(%superq(_v), %length(%superq(_v)), 1)=# %then %do;
+                %let _v_aux=%substr(%superq(_v), 1,
+                    %eval(%length(%superq(_v)) - 1));
+
+                %let _run_order=%eval(&_run_order. + 1);
+
+                %_biv_tendencia(tablain=&train_data., var=&_v_aux.,
+                    target=&target., groups=&groups., flg_continue=0,
+                    reuse_cuts=0, m_data_type=TRAIN,
+                    tipo_variable=CATEGORICA, run_order=&_run_order.,
+                    section=&section., out_table=&out_table.);
+
+                %if %sysfunc(exist(&oot_data.)) %then %do;
+                    %_biv_tendencia(tablain=&oot_data., var=&_v_aux.,
+                        target=&target., groups=&groups., flg_continue=0,
+                        reuse_cuts=0, m_data_type=OOT,
+                        tipo_variable=CATEGORICA, run_order=&_run_order.,
+                        section=&section., out_table=&out_table.);
+                %end;
+            %end;
+            %else %do;
+                %let _run_order=%eval(&_run_order. + 1);
+
+                %_biv_tendencia(tablain=&train_data., var=&_v.,
+                    target=&target., groups=&groups., flg_continue=1,
+                    reuse_cuts=0, m_data_type=TRAIN,
+                    tipo_variable=NUMERICA, run_order=&_run_order.,
+                    section=&section., out_table=&out_table.);
+
+                %if %sysfunc(exist(&oot_data.)) %then %do;
+                    %_biv_tendencia(tablain=&oot_data., var=&_v.,
+                        target=&target., groups=&groups., flg_continue=1,
+                        reuse_cuts=1, m_data_type=OOT,
+                        tipo_variable=NUMERICA, run_order=&_run_order.,
+                        section=&section., out_table=&out_table.);
+
+                    proc datasets library=work nolist nowarn;
+                        delete cortes;
+                    quit;
+                %end;
+            %end;
+
         %end;
+
+        %let _c=%eval(&_c. + 1);
+        %let _v=%scan(%superq(_list), &_c., %str( ));
     %end;
 
-%mend _biv_build_detail;
+%mend _biv_trend_variables;
 
 %macro _bivariado_compute(source_data=casuser._biv_input,
     train_data=casuser._biv_train, target=, byvar=, vars_num=, vars_cat=,
     dri_num=, dri_cat=, groups=5);
 
-    proc fedsql sessref=conn;
-        create table casuser._biv_period_totals {options replace=true} as
-        select &byvar. as Periodo,
-               count(*) as Total_Obs
-        from &source_data.
-        group by &byvar.;
-    quit;
-
-    %_biv_sort_cas(table_name=_biv_period_totals,
-        orderby=%str({"Periodo"}));
-
-    data work._biv_period_totals;
-        set casuser._biv_period_totals;
+    data work._biv_source;
+        set &source_data.;
     run;
 
-    %_biv_init_detail_table(table_name=_biv_main_detail);
-    %_biv_init_detail_table(table_name=_biv_driver_detail);
+    data work._biv_train;
+        set &train_data.;
+    run;
 
-    %_biv_build_var_catalog(vars_num=&vars_num., vars_cat=&vars_cat.,
-        section=PRINCIPAL, out_table=_biv_main_catalog);
+    data work._biv_oot;
+        set work._biv_source;
+        where upcase(_biv_period)='OOT';
+    run;
 
-    %_biv_build_var_catalog(vars_num=&dri_num., vars_cat=&dri_cat.,
-        section=DRIVER, out_table=_biv_driver_catalog);
+    %_biv_init_result_table(table_name=_biv_main_report);
+    %_biv_init_result_table(table_name=_biv_driver_report);
 
-    %_biv_build_detail(source_data=&source_data., train_data=&train_data.,
-        target=&target., byvar=&byvar., vars_num=&vars_num.,
+    %_biv_trend_variables(train_data=work._biv_train,
+        oot_data=work._biv_oot, target=&target., vars_num=&vars_num.,
         vars_cat=&vars_cat., groups=&groups., section=PRINCIPAL,
-        out_table=_biv_main_detail);
-
-    %if %length(%superq(dri_num)) > 0 or %length(%superq(dri_cat)) > 0 %then %do;
-        %_biv_build_detail(source_data=&source_data., train_data=&train_data.,
-            target=&target., byvar=&byvar., vars_num=&dri_num.,
-            vars_cat=&dri_cat., groups=&groups., section=DRIVER,
-            out_table=_biv_driver_detail);
-    %end;
-
-    proc sort data=work._biv_main_detail;
-        by Variable Periodo Valor;
-    run;
-
-    proc sort data=work._biv_driver_detail;
-        by Variable Periodo Valor;
-    run;
-
-    %_biv_prepare_report_table(detail_table=work._biv_main_detail,
         out_table=_biv_main_report);
 
-    %_biv_prepare_report_table(detail_table=work._biv_driver_detail,
-        out_table=_biv_driver_report);
+    %if %length(%superq(dri_num)) > 0 or %length(%superq(dri_cat)) > 0 %then %do;
+        %_biv_trend_variables(train_data=work._biv_train,
+            oot_data=work._biv_oot, target=&target., vars_num=&dri_num.,
+            vars_cat=&dri_cat., groups=&groups., section=DRIVER,
+            out_table=_biv_driver_report);
+    %end;
+
+    proc sort data=work._biv_main_report;
+        by Run_Order Ventana_Orden Valor_X;
+    run;
+
+    proc sort data=work._biv_driver_report;
+        by Run_Order Ventana_Orden Valor_X;
+    run;
+
+    proc datasets library=work nolist nowarn;
+        delete _biv_source _biv_train _biv_oot;
+    quit;
 
 %mend _bivariado_compute;
