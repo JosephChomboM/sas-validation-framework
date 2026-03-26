@@ -10,7 +10,7 @@ Genera:
 %macro _biv_report_section(detail_table=, byvar=, oot_min_mes=,
     image_prefix=, section_title=);
 
-    %local _nvars _idx _var _var_list;
+    %local _nvars _idx _var _var_list _tipo_var _valor_label _xaxis_label;
 
     proc sql noprint;
         select distinct Variable into :_var_list separated by '|'
@@ -23,73 +23,52 @@ Genera:
 
     %do _idx=1 %to &_nvars.;
         %let _var=%scan(%superq(_var_list), &_idx., |);
+        %let _tipo_var=;
+        %let _valor_label=&_var.;
+        %let _xaxis_label=Categorias;
 
-        proc sql;
-            create table work._biv_var_stage as
-            select Variable,
-                   Valor,
-                   Ventana,
-                   sum(N) as N,
-                   sum(Defaults) as Defaults
+        proc sql noprint;
+            select distinct Tipo_Variable into :_tipo_var trimmed
             from &detail_table.
-            where Variable="&_var."
-            group by Variable, Valor, Ventana;
-
-            create table work._biv_var_totals as
-            select Ventana,
-                   sum(N) as Total_N
-            from work._biv_var_stage
-            group by Ventana;
-
-            create table work._biv_var_report as
-            select a.Variable,
-                   a.Valor,
-                   a.Ventana,
-                   a.N,
-                   case
-                       when b.Total_N > 0 then a.N / b.Total_N
-                       else 0
-                   end as Pct_Cuentas format=percent8.2,
-                   a.Defaults,
-                   case
-                       when a.N > 0 then a.Defaults / a.N
-                       else 0
-                   end as RD format=percent8.2
-            from work._biv_var_stage a
-            left join work._biv_var_totals b
-                on a.Ventana = b.Ventana
-            order by a.Valor, a.Ventana;
+            where Variable="&_var.";
         quit;
 
+        %if %upcase(%superq(_tipo_var))=NUMERICA %then
+            %let _xaxis_label=Buckets variable;
+
         title "&section_title. - &_var.";
-        proc print data=work._biv_var_report noobs label;
+        proc print data=&detail_table.(where=(Variable="&_var.")) noobs label;
             var Variable Valor Ventana N Pct_Cuentas Defaults RD;
             format Pct_Cuentas percent8.2 RD percent8.2;
             label Variable="Variable"
-                  Valor="Bucket / Categoria"
+                  Valor="&_valor_label."
                   Ventana="Ventana";
         run;
         title;
 
         ods graphics / imagename="&image_prefix._&_idx." imagefmt=jpeg;
-        title "Bivariado por bucket - &_var.";
-        title2 "Variables continuas: buckets definidos en TRAIN y aplicados a OOT.";
-        proc sgplot data=work._biv_var_report
-            noautolegend;
+        %if %upcase(%superq(_tipo_var))=NUMERICA %then %do;
+            title "Bivariado por bucket - &_var.";
+            title2 "Buckets definidos en TRAIN y aplicados a OOT.";
+        %end;
+        %else %do;
+            title "Bivariado por categoria - &_var.";
+            title2 "Comparacion TRAIN vs OOT sobre categorias observadas.";
+        %end;
+        proc sgplot data=&detail_table.(where=(Variable="&_var."));
             vbar Valor / response=Pct_Cuentas group=Ventana
-                groupdisplay=cluster nooutline transparency=0.15;
+                groupdisplay=cluster nooutline transparency=0.15
+                name="bars";
             vline Valor / response=RD group=Ventana y2axis markers
-                markerattrs=(symbol=circlefilled);
-            xaxis type=discrete discreteorder=data label="Buckets variable";
+                markerattrs=(symbol=circlefilled)
+                name="lines";
+            keylegend "bars" / title="Ventana";
+            xaxis type=discrete discreteorder=data label="&_xaxis_label.";
             yaxis label="% Cuentas";
             y2axis min=0 label="RD" valuesformat=percent8.2;
         run;
         title;
         title2;
-
-        proc datasets library=work nolist nowarn;
-            delete _biv_var_stage _biv_var_totals _biv_var_report;
-        quit;
     %end;
 
 %mend _biv_report_section;
@@ -112,7 +91,7 @@ Genera:
     %let _has_drivers=0;
     proc sql noprint;
         select count(*) into :_has_drivers trimmed
-        from work._biv_driver_detail;
+        from work._biv_driver_report;
     quit;
 
     ods graphics on;
@@ -124,7 +103,7 @@ Genera:
         options(sheet_name="VARIABLES" sheet_interval="none"
         embedded_titles="yes");
 
-    %_biv_report_section(detail_table=work._biv_main_detail,
+    %_biv_report_section(detail_table=work._biv_main_report,
         byvar=&byvar., oot_min_mes=&oot_min_mes.,
         image_prefix=&file_prefix._main, section_title=Variables Principales);
 
@@ -132,7 +111,7 @@ Genera:
         ods excel options(sheet_name="DRIVERS" sheet_interval="now"
             embedded_titles="yes");
 
-        %_biv_report_section(detail_table=work._biv_driver_detail,
+        %_biv_report_section(detail_table=work._biv_driver_report,
             byvar=&byvar., oot_min_mes=&oot_min_mes.,
             image_prefix=&file_prefix._drv, section_title=Drivers);
     %end;

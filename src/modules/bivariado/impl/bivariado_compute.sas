@@ -43,6 +43,40 @@ Principios:
 
 %mend _biv_init_detail_table;
 
+%macro _biv_prepare_report_table(detail_table=, out_table=);
+
+    proc sql;
+        create table work.&out_table. as
+        select a.Variable,
+               a.Tipo_Variable,
+               a.Valor,
+               a.Ventana,
+               sum(a.N) as N,
+               sum(a.Defaults) as Defaults,
+               case
+                   when b.Total_N > 0 then calculated N / b.Total_N
+                   else 0
+               end as Pct_Cuentas format=percent8.2,
+               case
+                   when calculated N > 0 then calculated Defaults / calculated N
+                   else 0
+               end as RD format=percent8.2
+        from &detail_table. a
+        left join (
+            select Variable,
+                   Ventana,
+                   sum(N) as Total_N
+            from &detail_table.
+            group by Variable, Ventana
+        ) b
+            on a.Variable = b.Variable
+           and a.Ventana = b.Ventana
+        group by a.Variable, a.Tipo_Variable, a.Valor, a.Ventana, b.Total_N
+        order by a.Variable, a.Ventana, a.Valor;
+    quit;
+
+%mend _biv_prepare_report_table;
+
 %macro _biv_calcular_cortes(train_data=, var=, groups=);
 
     %local rnd;
@@ -336,5 +370,11 @@ Principios:
     proc sort data=work._biv_driver_detail;
         by Variable Periodo Valor;
     run;
+
+    %_biv_prepare_report_table(detail_table=work._biv_main_detail,
+        out_table=_biv_main_report);
+
+    %_biv_prepare_report_table(detail_table=work._biv_driver_detail,
+        out_table=_biv_driver_report);
 
 %mend _bivariado_compute;
