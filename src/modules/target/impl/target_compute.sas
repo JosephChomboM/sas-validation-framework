@@ -25,54 +25,66 @@ consumido por target_report.sas. Mantiene la logica simple:
 
 %macro _tgt_build_rel_diff(split=, monthly_table=);
 
-    %local _n_months _i _p1 _p2 _p3 _pn_2 _pn_1 _pn _v1 _v2 _v3 _vn_2 _vn_1
-        _vn _start_label _end_label _note _window_type _start_value _end_value
-        _relative_diff;
+    %local _n_months _p1 _p2 _p3 _pn _lp1 _lp2 _lp3 _v1 _v2 _v3 _vn _lv1
+        _lv2 _lv3 _start_label _end_label _note _window_type _start_value
+        _end_value _relative_diff;
 
     %let _n_months=0;
     proc sql noprint;
         select count(*) into :_n_months trimmed
         from &monthly_table.;
 
-        select strip(put(Periodo, best.)),
-               strip(put(RD, best32.))
-          into :_tgt_rel_p1-:_tgt_rel_p999,
-               :_tgt_rel_v1-:_tgt_rel_v999
-        from &monthly_table.
-        order by Periodo;
     quit;
 
     %if %sysevalf(%superq(_n_months)=, boolean) %then %let _n_months=0;
-    %if &_n_months. <= 1 %then %goto _tgt_rel_cleanup;
+    %if &_n_months. <= 1 %then %return;
 
     %if &_n_months. >= 6 %then %do;
+        proc sql noprint outobs=3;
+            select strip(put(Periodo, best.)),
+                   strip(put(RD, best32.))
+              into :_p1-:_p3,
+                   :_v1-:_v3
+            from &monthly_table.
+            order by Periodo;
+        quit;
+
+        proc sql noprint outobs=3;
+            select strip(put(Periodo, best.)),
+                   strip(put(RD, best32.))
+              into :_lp1-:_lp3,
+                   :_lv1-:_lv3
+            from &monthly_table.
+            order by Periodo desc;
+        quit;
+
         %let _window_type=FIRST3_LAST3;
-        %let _p1=&&_tgt_rel_p1.;
-        %let _p2=&&_tgt_rel_p2.;
-        %let _p3=&&_tgt_rel_p3.;
-        %let _pn_2=&&_tgt_rel_p%eval(&_n_months.-2).;
-        %let _pn_1=&&_tgt_rel_p%eval(&_n_months.-1).;
-        %let _pn=&&_tgt_rel_p&_n_months.;
-
-        %let _v1=&&_tgt_rel_v1.;
-        %let _v2=&&_tgt_rel_v2.;
-        %let _v3=&&_tgt_rel_v3.;
-        %let _vn_2=&&_tgt_rel_v%eval(&_n_months.-2).;
-        %let _vn_1=&&_tgt_rel_v%eval(&_n_months.-1).;
-        %let _vn=&&_tgt_rel_v&_n_months.;
-
         %let _start_value=%sysevalf((&_v1. + &_v2. + &_v3.) / 3);
-        %let _end_value=%sysevalf((&_vn_2. + &_vn_1. + &_vn.) / 3);
+        %let _end_value=%sysevalf((&_lv1. + &_lv2. + &_lv3.) / 3);
         %let _start_label=Promedio primeros 3 meses (&_p1.-&_p3.);
-        %let _end_label=Promedio ultimos 3 meses (&_pn_2.-&_pn.);
+        %let _end_label=Promedio ultimos 3 meses (&_lp3.-&_lp1.);
         %let _note=Compara promedio de primeros 3 vs ultimos 3 meses.;
     %end;
     %else %do;
+        proc sql noprint outobs=1;
+            select strip(put(Periodo, best.)),
+                   strip(put(RD, best32.))
+              into :_p1,
+                   :_v1
+            from &monthly_table.
+            order by Periodo;
+        quit;
+
+        proc sql noprint outobs=1;
+            select strip(put(Periodo, best.)),
+                   strip(put(RD, best32.))
+              into :_pn,
+                   :_vn
+            from &monthly_table.
+            order by Periodo desc;
+        quit;
+
         %let _window_type=FIRST_LAST;
-        %let _p1=&&_tgt_rel_p1.;
-        %let _pn=&&_tgt_rel_p&_n_months.;
-        %let _v1=&&_tgt_rel_v1.;
-        %let _vn=&&_tgt_rel_v&_n_months.;
         %let _start_value=&_v1.;
         %let _end_value=&_vn.;
         %let _start_label=Primer mes (&_p1.);
@@ -107,12 +119,6 @@ consumido por target_report.sas. Mantiene la logica simple:
     proc datasets library=casuser nolist nowarn;
         delete _tgt_rel_tmp;
     quit;
-
-%_tgt_rel_cleanup:
-    %do _i=1 %to 999;
-        %if %symexist(_tgt_rel_p&_i.) %then %symdel _tgt_rel_p&_i. / nowarn;
-        %if %symexist(_tgt_rel_v&_i.) %then %symdel _tgt_rel_v&_i. / nowarn;
-    %end;
 
 %mend _tgt_build_rel_diff;
 
