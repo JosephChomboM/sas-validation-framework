@@ -1,96 +1,110 @@
 /* =========================================================================
 bivariado_report.sas - Generacion de reportes HTML + Excel + JPEG
-para Bivariado (tendencia)
+para Bivariado (flujo unificado)
 
 Genera:
-<report_path>/<prefix>.html       - HTML con graficos TRAIN+OOT (inline)
-<report_path>/<prefix>.xlsx       - Excel multi-hoja:
-Hoja 1: TRAIN-OOT (variables principales)
-Hoja 2: DRIVERS (si hay dri_num/dri_cat)
-<images_path>/<prefix>_*.jpeg     - Graficos JPEG independientes
-
-Tablas temporales se copian a work para computo
-(PROC RANK + DATA step dinamico no son CAS-compatibles).
+- un unico HTML por scope
+- un unico Excel por scope
+- un grafico temporal consolidado por variable
+- sin secciones TRAIN/OOT separadas
 ========================================================================= */
-%macro _bivariado_report( input_caslib=, train_table=, oot_table=, target=,
-    vars_num=, vars_cat=, dri_num=, dri_cat=, groups=, report_path=,
-    images_path=, file_prefix=);
 
-    %put NOTE: [bivariado_report] Generando reportes...;
-    %put NOTE: [bivariado_report] report_path=&report_path.;
-    %put NOTE: [bivariado_report] file_prefix=&file_prefix.;
-    %put NOTE: [bivariado_report] target=&target.;
+%macro _biv_report_section(detail_table=, byvar=, oot_min_mes=,
+    image_prefix=, section_title=);
 
-    /* ---- Copiar tablas CAS a work (PROC RANK no soporta CAS) ---------- */
-    data work._biv_train;
-        set &input_caslib..&train_table.;
-    run;
+    %local _nvars _idx _var _var_list;
 
-    data work._biv_oot;
-        set &input_caslib..&oot_table.;
-    run;
+    proc sql noprint;
+        select distinct Variable into :_var_list separated by '|'
+        from &detail_table.
+        order by Variable;
+    quit;
 
-    /* ---- Crear directorios si no existen ------------------------------- */
+    %let _nvars=%sysfunc(countw(%superq(_var_list), |));
+    %if %sysevalf(%superq(_nvars)=, boolean) %then %let _nvars=0;
+
+    %do _idx=1 %to &_nvars.;
+        %let _var=%scan(%superq(_var_list), &_idx., |);
+
+        title "&section_title. - &_var.";
+        proc print data=&detail_table.(where=(Variable="&_var.")) noobs label;
+            var Variable Valor Periodo Ventana N Pct_Cuentas Defaults RD;
+            format Pct_Cuentas percent8.2 RD percent8.2;
+            label Valor='Bucket / Categoria'
+                  Periodo='&byvar.'
+                  Ventana='Periodo Conceptual';
+        run;
+        title;
+
+        ods graphics / imagename="&image_prefix._&_idx." imagefmt=jpeg;
+        title "Tendencia temporal consolidada - &_var.";
+        title2 "La linea roja marca el inicio de OOT en la serie continua.";
+        proc sgplot data=&detail_table.(where=(Variable="&_var.")) noautolegend;
+            vbar Periodo / response=Pct_Cuentas group=Valor groupdisplay=cluster
+                nooutline transparency=0.15;
+            vline Periodo / response=RD group=Valor y2axis markers;
+            refline &oot_min_mes. / axis=x
+                lineattrs=(color=red pattern=shortdash thickness=2)
+                label=("Inicio OOT");
+            xaxis type=discrete label="&byvar.";
+            yaxis label="% Cuentas";
+            y2axis min=0 label="RD" valuesformat=percent8.2;
+        run;
+        title;
+        title2;
+    %end;
+
+%mend _biv_report_section;
+
+%macro _bivariado_report(byvar=, oot_min_mes=, report_path=, images_path=,
+    file_prefix=);
+
     %local _dir_rc _has_drivers;
+
+    %put NOTE: [bivariado_report] Generando reporte unificado...;
+    %put NOTE: [bivariado_report] report_path=&report_path.;
+    %put NOTE: [bivariado_report] images_path=&images_path.;
+    %put NOTE: [bivariado_report] file_prefix=&file_prefix.;
+
     %let _dir_rc=%sysfunc(dcreate(METOD4.3, &report_path./../));
     %let _dir_rc=%sysfunc(dcreate(., &report_path.));
     %let _dir_rc=%sysfunc(dcreate(METOD4.3, &images_path./../));
     %let _dir_rc=%sysfunc(dcreate(., &images_path.));
 
-    /* Determinar si hay drivers */
     %let _has_drivers=0;
-    %if %length(&dri_num.) > 0 or %length(&dri_cat.) > 0 %then %let
-        _has_drivers=1;
+    proc sql noprint;
+        select count(*) into :_has_drivers trimmed
+        from casuser._biv_driver_detail;
+    quit;
 
-    /* ==================================================================
-    Hoja 1: TRAIN-OOT (variables principales)
-    ================================================================== */
     ods graphics on;
     ods listing gpath="&images_path.";
 
     ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
     ods excel file="&report_path./&file_prefix..xlsx"
-        options(sheet_name="TRAIN - OOT" sheet_interval="none"
+        options(sheet_name="VARIABLES" sheet_interval="none"
         embedded_titles="yes");
-    ods graphics / imagename="&file_prefix._biv" imagefmt=jpeg;
 
-    %_biv_trend_variables(train_data=work._biv_train, oot_data=work._biv_oot,
-        target=&target., vars_num=&vars_num., vars_cat=&vars_cat.,
-        groups=&groups.);
+    %_biv_report_section(detail_table=casuser._biv_main_detail,
+        byvar=&byvar., oot_min_mes=&oot_min_mes.,
+        image_prefix=&file_prefix._main, section_title=Variables Principales);
 
-    ods html5 close;
-
-    /* ==================================================================
-    Hoja 2: DRIVERS (si existen)
-    ================================================================== */
-    %if &_has_drivers.=1 %then %do;
-        %put NOTE: [bivariado_report] Generando hoja DRIVERS...;
-        ods html5 file="&report_path./&file_prefix._drivers.html"
-            options(bitmap_mode="inline");
+    %if &_has_drivers. > 0 %then %do;
         ods excel options(sheet_name="DRIVERS" sheet_interval="now"
             embedded_titles="yes");
-        ods graphics / imagename="&file_prefix._drv" imagefmt=jpeg;
 
-        %_biv_trend_variables(train_data=work._biv_train,
-            oot_data=work._biv_oot, target=&target., vars_num=&dri_num.,
-            vars_cat=&dri_cat., groups=&groups.);
-
-        ods html5 close;
+        %_biv_report_section(detail_table=casuser._biv_driver_detail,
+            byvar=&byvar., oot_min_mes=&oot_min_mes.,
+            image_prefix=&file_prefix._drv, section_title=Drivers);
     %end;
 
     ods excel close;
+    ods html5 close;
     ods graphics / reset=all;
     ods graphics off;
 
-    /* ---- Cleanup tablas work ------------------------------------------- */
-    proc datasets library=work nolist nowarn;
-        delete _biv_train _biv_oot;
-    quit;
-
     %put NOTE: [bivariado_report] HTML=> &report_path./&file_prefix..html;
-    %if &_has_drivers.=1 %then %put NOTE: [bivariado_report] HTML drivers=>
-        &report_path./&file_prefix._drivers.html;
     %put NOTE: [bivariado_report] Excel=> &report_path./&file_prefix..xlsx;
     %put NOTE: [bivariado_report] Images=> &images_path./;
 
