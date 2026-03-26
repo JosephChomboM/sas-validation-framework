@@ -24,33 +24,72 @@ Genera:
     %do _idx=1 %to &_nvars.;
         %let _var=%scan(%superq(_var_list), &_idx., |);
 
+        proc sql;
+            create table work._biv_var_stage as
+            select Variable,
+                   Valor,
+                   Ventana,
+                   sum(N) as N,
+                   sum(Defaults) as Defaults
+            from &detail_table.
+            where Variable="&_var."
+            group by Variable, Valor, Ventana;
+
+            create table work._biv_var_totals as
+            select Ventana,
+                   sum(N) as Total_N
+            from work._biv_var_stage
+            group by Ventana;
+
+            create table work._biv_var_report as
+            select a.Variable,
+                   a.Valor,
+                   a.Ventana,
+                   a.N,
+                   case
+                       when b.Total_N > 0 then a.N / b.Total_N
+                       else 0
+                   end as Pct_Cuentas format=percent8.2,
+                   a.Defaults,
+                   case
+                       when a.N > 0 then a.Defaults / a.N
+                       else 0
+                   end as RD format=percent8.2
+            from work._biv_var_stage a
+            left join work._biv_var_totals b
+                on a.Ventana = b.Ventana
+            order by a.Valor, a.Ventana;
+        quit;
+
         title "&section_title. - &_var.";
-        proc print data=&detail_table.(where=(Variable="&_var.")) noobs label;
-            var Variable Valor Periodo Ventana N Pct_Cuentas Defaults RD;
+        proc print data=work._biv_var_report noobs label;
+            var Variable Valor Ventana N Pct_Cuentas Defaults RD;
             format Pct_Cuentas percent8.2 RD percent8.2;
-            label Valor='Bucket / Categoria'
-                  Periodo='&byvar.'
-                  Ventana='Periodo Conceptual';
+            label Variable="Variable"
+                  Valor="Bucket / Categoria"
+                  Ventana="Ventana";
         run;
         title;
 
         ods graphics / imagename="&image_prefix._&_idx." imagefmt=jpeg;
-        title "Tendencia temporal consolidada - &_var.";
-        title2 "La linea roja marca el inicio de OOT en la serie continua.";
-        proc sgplot data=&detail_table.(where=(Variable="&_var."))
+        title "Bivariado por bucket - &_var.";
+        title2 "Variables continuas: buckets definidos en TRAIN y aplicados a OOT.";
+        proc sgplot data=work._biv_var_report
             noautolegend;
-            vbar Periodo / response=Pct_Cuentas group=Valor
+            vbar Valor / response=Pct_Cuentas group=Ventana
                 groupdisplay=cluster nooutline transparency=0.15;
-            vline Periodo / response=RD group=Valor y2axis markers;
-            refline &oot_min_mes. / axis=x
-                lineattrs=(color=red pattern=shortdash thickness=2)
-                label=("Inicio OOT");
-            xaxis type=discrete label="&byvar.";
+            vline Valor / response=RD group=Ventana y2axis markers
+                markerattrs=(symbol=circlefilled);
+            xaxis type=discrete discreteorder=data label="Buckets variable";
             yaxis label="% Cuentas";
             y2axis min=0 label="RD" valuesformat=percent8.2;
         run;
         title;
         title2;
+
+        proc datasets library=work nolist nowarn;
+            delete _biv_var_stage _biv_var_totals _biv_var_report;
+        quit;
     %end;
 
 %mend _biv_report_section;
