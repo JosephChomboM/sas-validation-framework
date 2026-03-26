@@ -49,6 +49,10 @@ Principios:
         create table work.&out_table. as
         select a.Variable,
                a.Tipo_Variable,
+               case
+                   when upcase(a.Tipo_Variable)='NUMERICA' then 1
+                   else 2
+               end as Tipo_Orden,
                a.Valor,
                a.Ventana,
                sum(a.N) as N,
@@ -64,15 +68,17 @@ Principios:
         from &detail_table. a
         left join (
             select Variable,
+                   Tipo_Variable,
                    Ventana,
                    sum(N) as Total_N
             from &detail_table.
-            group by Variable, Ventana
+            group by Variable, Tipo_Variable, Ventana
         ) b
             on a.Variable = b.Variable
+           and a.Tipo_Variable = b.Tipo_Variable
            and a.Ventana = b.Ventana
         group by a.Variable, a.Tipo_Variable, a.Valor, a.Ventana, b.Total_N
-        order by a.Variable, a.Ventana, a.Valor;
+        order by calculated Tipo_Orden, a.Variable, a.Ventana, a.Valor;
     quit;
 
 %mend _biv_prepare_report_table;
@@ -278,6 +284,8 @@ Principios:
     quit;
 
     data work._biv_append_cat;
+        length Seccion $12 Tipo_Variable $12 Variable $64 Valor $200
+            Ventana $10 Periodo 8 N 8 Pct_Cuentas 8 Defaults 8 RD 8;
         set casuser._biv_append;
     run;
 

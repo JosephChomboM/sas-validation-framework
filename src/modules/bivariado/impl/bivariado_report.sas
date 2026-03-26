@@ -13,9 +13,12 @@ Genera:
     %local _nvars _idx _var _var_list _tipo_var _valor_label _xaxis_label;
 
     proc sql noprint;
-        select distinct Variable into :_var_list separated by '|'
-        from &detail_table.
-        order by Variable;
+        select Variable into :_var_list separated by '|'
+        from (
+            select distinct Variable, Tipo_Orden
+            from &detail_table.
+        )
+        order by Tipo_Orden, Variable;
     quit;
 
     %let _nvars=%sysfunc(countw(%superq(_var_list), |));
