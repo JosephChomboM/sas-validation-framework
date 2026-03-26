@@ -516,6 +516,7 @@ Implementacion activa:
               'SPLIT',
               upcase("&byvar."),
               upcase("&target."),
+              '_TYPE_',
               'PERCENT',
               'ROWPERCENT',
               'COLPERCENT',
@@ -525,7 +526,8 @@ Implementacion activa:
                     when upcase(name)='COUNT' then 0
                     when upcase(name)='FREQUENCY' then 1
                     when upcase(name)='N' then 2
-                    else 3
+                    when upcase(name)='_FREQ_' then 3
+                    else 4
                  end,
                  name;
     quit;
@@ -559,20 +561,29 @@ Implementacion activa:
         run;
     %end;
     %else %do;
-        proc sql;
-            create table casuser._tgt_materiality as
-            select Split,
-                   &byvar. as Periodo,
-                   &target. as Target_Value,
-                   count(*) as N_Cuentas
-            from &data.
-            where &target. is not missing
-            group by Split, &byvar., &target.;
-        quit;
+        data casuser._tgt_mat_base;
+            set &data.(where=(not missing(&target.)));
+            _obs_count=1;
+        run;
+
+        proc summary data=casuser._tgt_mat_base nway;
+            class Split &byvar. &target.;
+            var _obs_count;
+            output out=casuser._tgt_materiality(drop=_type_ _freq_)
+                sum(_obs_count)=N_Cuentas;
+        run;
+
+        data casuser._tgt_materiality;
+            set casuser._tgt_materiality(rename=(
+                &byvar.=Periodo
+                &target.=Target_Value
+            ));
+            keep Split Periodo Target_Value N_Cuentas;
+        run;
     %end;
 
     proc datasets library=casuser nolist nowarn;
-        delete _tgt_mat_raw;
+        delete _tgt_mat_raw _tgt_mat_base;
     quit;
 
 %mend _tgt_build_materiality;
@@ -633,17 +644,27 @@ Implementacion activa:
 
     %if %sysevalf(%superq(_n_rows)=, boolean) or &_n_rows.=0 %then %return;
 
-    proc sql;
-        create table casuser._tgt_weight_avg as
-        select Split,
-               &byvar. as Periodo,
-               count(*) as N_Cuentas,
-               sum(&monto.) as Total_Monto,
-               sum(&target. * &monto.) / sum(&monto.) as RD_Pond_Prom
-        from &data.
-        where &monto. > 0
-        group by Split, &byvar.;
-    quit;
+    data casuser._tgt_wavg_base;
+        set &data.(where=(&monto. > 0));
+        _obs_count=1;
+        _target_monto=&target. * &monto.;
+    run;
+
+    proc summary data=casuser._tgt_wavg_base nway;
+        class Split &byvar.;
+        var _obs_count &monto. _target_monto;
+        output out=casuser._tgt_weight_avg(drop=_type_ _freq_)
+            sum(_obs_count)=N_Cuentas
+            sum(&monto.)=Total_Monto
+            sum(_target_monto)=_sum_target_monto;
+    run;
+
+    data casuser._tgt_weight_avg;
+        set casuser._tgt_weight_avg(rename=(&byvar.=Periodo));
+        if Total_Monto > 0 then RD_Pond_Prom=_sum_target_monto / Total_Monto;
+        else RD_Pond_Prom=.;
+        keep Split Periodo N_Cuentas Total_Monto RD_Pond_Prom;
+    run;
 
     proc sql noprint;
         select count(*) into :_train_rows trimmed
@@ -683,6 +704,10 @@ Implementacion activa:
             percent8.6 Total_Monto comma18.2;
     run;
 
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_wavg_base;
+    quit;
+
 %mend _tgt_build_weight_avg;
 
 %macro _tgt_build_weight_sum(data=, byvar=, target=, monto=);
@@ -691,16 +716,25 @@ Implementacion activa:
         _global_ratio _std_ratio _inf_ratio _sup_ratio _min_ratio _max_ratio;
     %let _ref_split=TRAIN;
 
-    proc sql;
-        create table casuser._tgt_weight_sum as
-        select Split,
-               &byvar. as Periodo,
-               count(*) as N_Cuentas,
-               sum(&target. * &monto.) as Sum_Target_Pond,
-               sum(&monto.) as Total_Monto
-        from &data.
-        group by Split, &byvar.;
-    quit;
+    data casuser._tgt_wsum_base;
+        set &data.;
+        _obs_count=1;
+        _target_monto=&target. * &monto.;
+    run;
+
+    proc summary data=casuser._tgt_wsum_base nway;
+        class Split &byvar.;
+        var _obs_count _target_monto &monto.;
+        output out=casuser._tgt_weight_sum(drop=_type_ _freq_)
+            sum(_obs_count)=N_Cuentas
+            sum(_target_monto)=Sum_Target_Pond
+            sum(&monto.)=Total_Monto;
+    run;
+
+    data casuser._tgt_weight_sum;
+        set casuser._tgt_weight_sum(rename=(&byvar.=Periodo));
+        keep Split Periodo N_Cuentas Sum_Target_Pond Total_Monto;
+    run;
 
     proc sql noprint;
         select count(*) into :_train_rows trimmed
@@ -763,6 +797,10 @@ Implementacion activa:
             Axis_Max percent8.6 Sum_Target_Pond Total_Monto comma18.2;
     run;
 
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_wsum_base;
+    quit;
+
 %mend _tgt_build_weight_sum;
 
 %macro _target_compute(input_caslib=, train_table=, oot_table=, byvar=,
@@ -778,6 +816,9 @@ Implementacion activa:
             &input_caslib..&oot_table.(in=_oot where=(&byvar. <= &def_cld.));
         if _train then Split='TRAIN';
         else if _oot then Split='OOT';
+        _obs_count=1;
+        _valid_target=not missing(&target.);
+        _default_target=coalesce(&target., 0);
     run;
 
     data casuser._tgt_rel_diff;
@@ -787,17 +828,21 @@ Implementacion activa:
         stop;
     run;
 
-    proc sql;
-        create table casuser._tgt_rd_monthly as
-        select Split,
-               &byvar. as Periodo,
-               count(*) as N_Total,
-               count(&target.) as N_Valid,
-               sum(&target.) as N_Default,
-               mean(&target.) as RD format=percent8.4
-        from casuser._tgt_input
-        group by Split, &byvar.;
-    quit;
+    proc summary data=casuser._tgt_input nway;
+        class Split &byvar.;
+        var _obs_count _valid_target _default_target &target.;
+        output out=casuser._tgt_rd_monthly(drop=_type_ _freq_)
+            sum(_obs_count)=N_Total
+            sum(_valid_target)=N_Valid
+            sum(_default_target)=N_Default
+            mean(&target.)=RD;
+    run;
+
+    data casuser._tgt_rd_monthly;
+        set casuser._tgt_rd_monthly(rename=(&byvar.=Periodo));
+        keep Split Periodo N_Total N_Valid N_Default RD;
+        format RD percent8.4;
+    run;
 
     %_tgt_build_rel_diff(split=TRAIN,
         monthly_table=casuser._tgt_rd_monthly(where=(Split='TRAIN')));
