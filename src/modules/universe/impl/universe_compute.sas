@@ -1,32 +1,9 @@
 /* =========================================================================
 universe_compute.sas - CAS-first descriptive computations for Universe
 
-The module operates on a single CAS table that already contains TRAIN and OOT
-rows together. Differences are exposed only through a split column.
+The module computes summaries in CAS and only moves final report tables to
+WORK for ordered rendering in PROC REPORT / PROC SGPLOT.
 ======================================================================== */
-%macro _univ_sort_cas(table_name=, orderby=, groupby={});
-
-    %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
-        %return;
-
-    /* Orden solo de salida para print/plots del reporte. */
-    proc cas;
-        session conn;
-        table.partition /
-            table={
-                caslib="casuser",
-                name="&table_name.",
-                orderby=&orderby.,
-                groupby=&groupby.
-            },
-            casout={
-                caslib="casuser",
-                name="&table_name.",
-                replace=true
-            };
-    quit;
-
-%mend _univ_sort_cas;
 
 %macro _univ_describe_id(data=, split_var=_univ_split, byvar=, id_var=);
 
@@ -39,13 +16,22 @@ rows together. Differences are exposed only through a split column.
         group by &split_var., &byvar.;
     quit;
 
-    %_univ_sort_cas(table_name=_univ_evolut_cuenta,
-        orderby=%str({"&split_var.", "&byvar."}));
-
-    proc print data=casuser._univ_evolut_cuenta noobs;
+    data work._univ_evolut_cuenta;
+        set casuser._univ_evolut_cuenta;
     run;
 
-    proc sgplot data=casuser._univ_evolut_cuenta;
+    proc sort data=work._univ_evolut_cuenta;
+        by &split_var. &byvar.;
+    run;
+
+    proc report data=work._univ_evolut_cuenta nowd;
+        columns &split_var. &byvar. Count;
+        define &split_var. / order order=internal;
+        define &byvar. / order order=internal;
+        define Count / display;
+    run;
+
+    proc sgplot data=work._univ_evolut_cuenta;
         vbarparm category=&byvar. response=Count /
             group=&split_var.
             groupdisplay=cluster
@@ -62,16 +48,29 @@ rows together. Differences are exposed only through a split column.
         having count(*) > 1;
     quit;
 
-    %_univ_sort_cas(table_name=_univ_dup,
-        orderby=%str({"&split_var.", "&byvar.", "&id_var."}));
+    data work._univ_dup;
+        set casuser._univ_dup;
+    run;
+
+    proc sort data=work._univ_dup;
+        by &split_var. &byvar. &id_var.;
+    run;
 
     title "Duplicados - &data.";
-    proc print data=casuser._univ_dup noobs;
+    proc report data=work._univ_dup nowd;
+        columns &split_var. &byvar. &id_var. N;
+        define &split_var. / order order=internal;
+        define &byvar. / order order=internal;
+        define &id_var. / order order=internal;
+        define N / display;
     run;
 
     title;
 
     proc datasets library=casuser nolist nowarn;
+        delete _univ_evolut_cuenta _univ_dup;
+    quit;
+    proc datasets library=work nolist nowarn;
         delete _univ_evolut_cuenta _univ_dup;
     quit;
 
@@ -128,16 +127,31 @@ rows together. Differences are exposed only through a split column.
         from casuser._univ_freq_cuentas;
     quit;
 
-    %_univ_sort_cas(table_name=_univ_freq_cuentas,
-        orderby=%str({"&split_var.", "&byvar."}));
-    %_univ_sort_cas(table_name=_univ_freq_cuentas_plot,
-        orderby=%str({"&split_var.", "&byvar."}));
-
-    title "Evolutivo Cuentas - &data.";
-    proc print data=casuser._univ_freq_cuentas noobs;
+    data work._univ_freq_cuentas;
+        set casuser._univ_freq_cuentas;
     run;
 
-    proc sgplot data=casuser._univ_freq_cuentas_plot subpixel;
+    data work._univ_freq_cuentas_plot;
+        set casuser._univ_freq_cuentas_plot;
+    run;
+
+    proc sort data=work._univ_freq_cuentas;
+        by &split_var. &byvar.;
+    run;
+
+    proc sort data=work._univ_freq_cuentas_plot;
+        by &split_var. &byvar.;
+    run;
+
+    title "Evolutivo Cuentas - &data.";
+    proc report data=work._univ_freq_cuentas nowd;
+        columns &split_var. &byvar. Count;
+        define &split_var.;
+        define &byvar.;
+        define Count / display;
+    run;
+
+    proc sgplot data=work._univ_freq_cuentas_plot subpixel;
         band x=&byvar. lower=LowerBand upper=UpperBand /
             fillattrs=(color=graydd)
             transparency=0.5
@@ -163,6 +177,9 @@ rows together. Differences are exposed only through a split column.
     proc datasets library=casuser nolist nowarn;
         delete _univ_sindup _univ_freq_cuentas _univ_freq_cuentas_plot;
     quit;
+    proc datasets library=work nolist nowarn;
+        delete _univ_freq_cuentas _univ_freq_cuentas_plot;
+    quit;
 
 %mend _univ_bandas_cuentas;
 
@@ -176,15 +193,24 @@ rows together. Differences are exposed only through a split column.
         group by &split_var., &byvar.;
     quit;
 
-    %_univ_sort_cas(table_name=_univ_sum_monto,
-        orderby=%str({"&split_var.", "&byvar."}));
+    data work._univ_sum_monto;
+        set casuser._univ_sum_monto;
+    run;
+
+    proc sort data=work._univ_sum_monto;
+        by &split_var. &byvar.;
+    run;
 
     title "Suma &monto_var. por &byvar.";
 
-    proc print data=casuser._univ_sum_monto noobs;
+    proc report data=work._univ_sum_monto nowd;
+        columns &split_var. &byvar. Sum_Monto;
+        define &split_var.;
+        define &byvar.;
+        define Sum_Monto / display;
     run;
 
-    proc sgplot data=casuser._univ_sum_monto;
+    proc sgplot data=work._univ_sum_monto;
         vbarparm category=&byvar. response=Sum_Monto /
             group=&split_var.
             groupdisplay=cluster;
@@ -195,6 +221,9 @@ rows together. Differences are exposed only through a split column.
     title;
 
     proc datasets library=casuser nolist nowarn;
+        delete _univ_sum_monto;
+    quit;
+    proc datasets library=work nolist nowarn;
         delete _univ_sum_monto;
     quit;
 
@@ -213,16 +242,26 @@ rows together. Differences are exposed only through a split column.
         group by &split_var., &byvar.;
     quit;
 
-    %_univ_sort_cas(table_name=_univ_evolut_monto,
-        orderby=%str({"&split_var.", "&byvar."}));
+    data work._univ_evolut_monto;
+        set casuser._univ_evolut_monto;
+    run;
+
+    proc sort data=work._univ_evolut_monto;
+        by &split_var. &byvar.;
+    run;
 
     title "Evolutivo Monto - &monto_var.";
 
-    proc print data=casuser._univ_evolut_monto noobs;
+    proc report data=work._univ_evolut_monto nowd;
+        columns &split_var. &byvar. N Mean;
+        define &split_var.;
+        define &byvar.;
+        define N / display;
+        define Mean / display;
     run;
 
     title "Evolutivo &monto_var..";
-    proc sgplot data=casuser._univ_evolut_monto;
+    proc sgplot data=work._univ_evolut_monto;
         series x=&byvar. y=Mean /
             group=&split_var.
             markers
@@ -234,6 +273,9 @@ rows together. Differences are exposed only through a split column.
     title;
 
     proc datasets library=casuser nolist nowarn;
+        delete _univ_evolut_monto;
+    quit;
+    proc datasets library=work nolist nowarn;
         delete _univ_evolut_monto;
     quit;
 
