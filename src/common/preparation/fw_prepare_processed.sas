@@ -26,7 +26,7 @@ design.md §7.3 - Preparación idempotente:
 ========================================================================= */
 %macro fw_prepare_processed(raw_table=mydataset);
     %global fw_prepare_processed_rc;
-    %local _cfg_has_flag_col _raw_has_flag;
+    %local _cfg_has_flag_col _raw_has_flag _path_base _path_seg;
     %let fw_prepare_processed_rc=0;
 
 	%put NOTE:======================================================;

@@ -1,478 +1,822 @@
 /* =========================================================================
-target_compute.sas - Computo CAS-first para Target (METOD2.1)
-========================================================================= */
+target_compute.sas - Calculo del modulo Target (Metodo 2.1)
 
-%macro _target_prepare_inputs(input_caslib=, train_table=, oot_table=,
-    byvar=, target=, monto_var=, def_cld=, has_monto=0);
+Reconstruye la logica de target_legacy.sas respetando el contrato actual
+consumido por target_report.sas. Mantiene la logica simple:
+- TRAIN y OOT entran ya derivados por target_run
+- Se filtra por &byvar. <= &def_cld.
+- Las salidas finales quedan en casuser._tgt_*
+- Donde el legacy usaba PROC FREQ, aqui se privilegia PROC FREQTAB
+======================================================================== */
 
-    proc cas;
-        session conn;
-        table.dropTable / caslib="casuser" name="_tgt_train" quiet=true;
-        table.dropTable / caslib="casuser" name="_tgt_oot" quiet=true;
-        table.dropTable / caslib="casuser" name="_tgt_all" quiet=true;
-    quit;
+%macro _tgt_append(base=, data=);
 
-    proc fedsql sessref=conn;
-        create table casuser._tgt_train {options replace=true} as
-        select 'TRAIN' as Split,
-            &byvar. as Periodo,
-            &target. as Target
-            %if &has_monto.=1 %then %do;
-                , &monto_var. as Monto
-            %end;
-        from &input_caslib..&train_table.
-        where &byvar. <= &def_cld.;
-
-        create table casuser._tgt_oot {options replace=true} as
-        select 'OOT' as Split,
-            &byvar. as Periodo,
-            &target. as Target
-            %if &has_monto.=1 %then %do;
-                , &monto_var. as Monto
-            %end;
-        from &input_caslib..&oot_table.
-        where &byvar. <= &def_cld.;
-
-        create table casuser._tgt_all {options replace=true} as
-        select * from casuser._tgt_train;
-    quit;
-
-    proc cas;
-        session conn;
-        table.append /
-            source={caslib="casuser", name="_tgt_oot"},
-            target={caslib="casuser", name="_tgt_all"};
-        table.dropTable / caslib="casuser" name="_tgt_train" quiet=true;
-        table.dropTable / caslib="casuser" name="_tgt_oot" quiet=true;
-    quit;
-
-%mend _target_prepare_inputs;
-
-%macro _target_compute_monthly_rd(out=casuser._tgt_rd_monthly);
-
-    proc fedsql sessref=conn;
-        create table &out. {options replace=true} as
-        select Split,
-            Periodo,
-            count(*) as N_Total,
-            count(Target) as N_Valid,
-            sum(case when Target=1 then 1 else 0 end) as N_Default,
-            avg(Target) as RD
-        from casuser._tgt_all
-        group by Split, Periodo
-        order by Split, Periodo;
-    quit;
-
-%mend _target_compute_monthly_rd;
-
-%macro _target_sort_cas(table_name=, orderby=);
-
-    %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
-        %return;
-
-    proc cas;
-        session conn;
-        table.partition /
-            table={
-                caslib="casuser",
-                name="&table_name.",
-                orderby=&orderby.,
-                groupby={}
-            },
-            casout={
-                caslib="casuser",
-                name="&table_name.",
-                replace=true
-            };
-    quit;
-
-%mend _target_sort_cas;
-
-%macro _target_init_rel_diff(out=casuser._tgt_rel_diff);
-
-    proc cas;
-        session conn;
-        table.dropTable / caslib="casuser" name="_tgt_rel_diff" quiet=true;
-    quit;
-
-    proc fedsql sessref=conn;
-        create table &out. {options replace=true} as
-        select cast('' as varchar(5)) as Split,
-            cast(0 as double) as N_Months,
-            cast(0 as double) as Window_Size,
-            cast('' as varchar(12)) as Window_Type,
-            cast('' as varchar(40)) as Start_Label,
-            cast(0 as double) as Start_Value,
-            cast('' as varchar(40)) as End_Label,
-            cast(0 as double) as End_Value,
-            cast(0 as double) as Relative_Diff,
-            cast('' as varchar(120)) as Note
-        from casuser._tgt_rd_monthly
-        where 1=0;
-    quit;
-
-%mend _target_init_rel_diff;
-
-%macro _target_rel_diff_split(split=, monthly=casuser._tgt_rd_monthly,
-    out=casuser._tgt_rel_diff);
-
-    %local _n_months _take _start_label _end_label _window_type _first_mean
-        _last_mean _note _j;
-
-    %let _n_months=0;
-    %let _take=0;
-    %let _start_label=;
-    %let _end_label=;
-    %let _window_type=;
-    %let _first_mean=.;
-    %let _last_mean=.;
-    %let _note=;
-
-    proc sql noprint;
-        select count(*) into :_n_months trimmed
-        from &monthly.
-        where Split="&split.";
-    quit;
-
-    %if &_n_months.=0 %then %return;
-
-    %if &_n_months. >= 6 %then %do;
-        %let _take=3;
-        %let _start_label=Promedio primeros 3 meses;
-        %let _end_label=Promedio ultimos 3 meses;
-        %let _window_type=3V3;
-    %end;
-    %else %if &_n_months. > 1 %then %do;
-        %let _take=1;
-        %let _start_label=Primer mes;
-        %let _end_label=Ultimo mes;
-        %let _window_type=1V1;
+    %if %sysfunc(exist(&base.)) %then %do;
+        proc append base=&base. data=&data. force;
+        run;
     %end;
     %else %do;
-        proc fedsql sessref=conn;
-            create table casuser._tgt_rel_row {options replace=true} as
-            select min(Split) as Split,
-                &_n_months. as N_Months,
-                1 as Window_Size,
-                'SIN_COMP' as Window_Type,
-                'Primer mes' as Start_Label,
-                . as Start_Value,
-                'Ultimo mes' as End_Label,
-                . as End_Value,
-                . as Relative_Diff,
-                'Solo un periodo; no aplica diferencia relativa.' as Note
-            from &monthly.
-            where Split="&split.";
-        quit;
-
-        proc cas;
-            session conn;
-            table.append /
-                source={caslib="casuser", name="_tgt_rel_row"},
-                target={caslib="casuser", name="_tgt_rel_diff"};
-            table.dropTable / caslib="casuser" name="_tgt_rel_row" quiet=true;
-        quit;
-        %return;
+        data &base.;
+            set &data.;
+        run;
     %end;
 
-    %let _first_mean=0;
-    proc sql noprint outobs=&_take.;
-        select RD into :_tgt_first1-:_tgt_first&_take.
-        from &monthly.
-        where Split="&split."
+%mend _tgt_append;
+
+%macro _tgt_build_rel_diff(split=, monthly_table=);
+
+    %local _n_months _i _p1 _p2 _p3 _pn_2 _pn_1 _pn _v1 _v2 _v3 _vn_2 _vn_1
+        _vn _start_label _end_label _note _window_type _start_value _end_value
+        _relative_diff;
+
+    %let _n_months=0;
+    proc sql noprint;
+        select count(*) into :_n_months trimmed
+        from &monthly_table.;
+
+        select strip(put(Periodo, best.)),
+               strip(put(RD, best32.))
+          into :_tgt_rel_p1-:_tgt_rel_p999,
+               :_tgt_rel_v1-:_tgt_rel_v999
+        from &monthly_table.
         order by Periodo;
     quit;
 
-    %do _j=1 %to &_take.;
-        %if %length(%superq(_tgt_first&_j.)) > 0 %then
-            %let _first_mean=%sysevalf(&_first_mean. + &&_tgt_first&_j..);
+    %if %sysevalf(%superq(_n_months)=, boolean) %then %let _n_months=0;
+    %if &_n_months. <= 1 %then %goto _tgt_rel_cleanup;
+
+    %if &_n_months. >= 6 %then %do;
+        %let _window_type=FIRST3_LAST3;
+        %let _p1=&&_tgt_rel_p1.;
+        %let _p2=&&_tgt_rel_p2.;
+        %let _p3=&&_tgt_rel_p3.;
+        %let _pn_2=&&_tgt_rel_p%eval(&_n_months.-2).;
+        %let _pn_1=&&_tgt_rel_p%eval(&_n_months.-1).;
+        %let _pn=&&_tgt_rel_p&_n_months.;
+
+        %let _v1=&&_tgt_rel_v1.;
+        %let _v2=&&_tgt_rel_v2.;
+        %let _v3=&&_tgt_rel_v3.;
+        %let _vn_2=&&_tgt_rel_v%eval(&_n_months.-2).;
+        %let _vn_1=&&_tgt_rel_v%eval(&_n_months.-1).;
+        %let _vn=&&_tgt_rel_v&_n_months.;
+
+        %let _start_value=%sysevalf((&_v1. + &_v2. + &_v3.) / 3);
+        %let _end_value=%sysevalf((&_vn_2. + &_vn_1. + &_vn.) / 3);
+        %let _start_label=Promedio primeros 3 meses (&_p1.-&_p3.);
+        %let _end_label=Promedio ultimos 3 meses (&_pn_2.-&_pn.);
+        %let _note=Compara promedio de primeros 3 vs ultimos 3 meses.;
     %end;
-    %let _first_mean=%sysevalf(&_first_mean. / &_take.);
-
-    %let _last_mean=0;
-    proc sql noprint outobs=&_take.;
-        select RD into :_tgt_last1-:_tgt_last&_take.
-        from &monthly.
-        where Split="&split."
-        order by Periodo desc;
-    quit;
-
-    %do _j=1 %to &_take.;
-        %if %length(%superq(_tgt_last&_j.)) > 0 %then
-            %let _last_mean=%sysevalf(&_last_mean. + &&_tgt_last&_j..);
-    %end;
-    %let _last_mean=%sysevalf(&_last_mean. / &_take.);
-
-    %if %sysevalf(%superq(_first_mean)=, boolean) %then %let _first_mean=.;
-    %if %sysevalf(%superq(_last_mean)=, boolean) %then %let _last_mean=.;
-
-    %if %sysevalf(%superq(_first_mean)=., boolean) or
-        %sysevalf(%superq(_last_mean)=., boolean) %then %do;
-        %let _note=No fue posible calcular la diferencia relativa por datos faltantes.;
-    %end;
-    %else %if %sysevalf(&_first_mean.=0) %then %do;
-        %let _note=Promedio inicial igual a 0; diferencia relativa no definida.;
+    %else %do;
+        %let _window_type=FIRST_LAST;
+        %let _p1=&&_tgt_rel_p1.;
+        %let _pn=&&_tgt_rel_p&_n_months.;
+        %let _v1=&&_tgt_rel_v1.;
+        %let _vn=&&_tgt_rel_v&_n_months.;
+        %let _start_value=&_v1.;
+        %let _end_value=&_vn.;
+        %let _start_label=Primer mes (&_p1.);
+        %let _end_label=Ultimo mes (&_pn.);
+        %let _note=Compara primer vs ultimo mes.;
     %end;
 
-    proc fedsql sessref=conn;
-        create table casuser._tgt_rel_row {options replace=true} as
-        select min(Split) as Split,
-            &_n_months. as N_Months,
-            &_take. as Window_Size,
-            "&_window_type." as Window_Type,
-            "&_start_label." as Start_Label,
-            &_first_mean. as Start_Value,
-            "&_end_label." as End_Label,
-            &_last_mean. as End_Value,
-            %if %length(%superq(_note)) > 0 %then %do;
-                . as Relative_Diff,
-                "&_note." as Note
-            %end;
-            %else %do;
-                ((&_last_mean.) - (&_first_mean.)) / (&_first_mean.) as Relative_Diff,
-                '' as Note
-            %end;
-        from &monthly.
-        where Split="&split.";
+    %if %sysevalf(&_start_value.=0) %then %do;
+        %let _relative_diff=.;
+        %let _note=&_note. Referencia inicial igual a cero.;
+    %end;
+    %else %let _relative_diff=%sysevalf((&_end_value. - &_start_value.) /
+        &_start_value.);
+
+    data casuser._tgt_rel_tmp;
+        length Split $5 Window_Type $20 Start_Label End_Label $64 Note $120;
+        format Start_Value End_Value percent8.4 Relative_Diff percent8.2;
+        Split="&split.";
+        N_Months=&_n_months.;
+        Window_Type="&_window_type.";
+        Start_Label="&_start_label.";
+        Start_Value=&_start_value.;
+        End_Label="&_end_label.";
+        End_Value=&_end_value.;
+        Relative_Diff=&_relative_diff.;
+        Note="&_note.";
+        output;
+    run;
+
+    %_tgt_append(base=casuser._tgt_rel_diff, data=casuser._tgt_rel_tmp);
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_rel_tmp;
     quit;
 
-    proc cas;
-        session conn;
-        table.append /
-            source={caslib="casuser", name="_tgt_rel_row"},
-            target={caslib="casuser", name="_tgt_rel_diff"};
-        table.dropTable / caslib="casuser" name="_tgt_rel_row" quiet=true;
+%_tgt_rel_cleanup:
+    %do _i=1 %to 999;
+        %if %symexist(_tgt_rel_p&_i.) %then %symdel _tgt_rel_p&_i. / nowarn;
+        %if %symexist(_tgt_rel_v&_i.) %then %symdel _tgt_rel_v&_i. / nowarn;
+    %end;
+
+%mend _tgt_build_rel_diff;
+
+/* -------------------------------------------------------------------------
+Codigo legacy inactivo. Se conserva solo como referencia temporal.
+------------------------------------------------------------------------- */
+/*
+%macro _legacy_tgt_build_materiality(data=, split=, byvar=, target=);
+
+    %local _cnt_var;
+    %let _cnt_var=;
+
+    proc freqtab data=&data. noprint;
+        tables &byvar. * &target. / norow nopercent nocum nocol;
+        output out=casuser._tgt_mat_raw;
+    run;
+
+    proc sql noprint;
+        select name into :_cnt_var trimmed
+        from dictionary.columns
+        where upcase(libname)='CASUSER'
+          and upcase(memname)='_TGT_MAT_RAW'
+          and upcase(name) not in (
+              upcase("&byvar."),
+              upcase("&target."),
+              'PERCENT',
+              'ROWPERCENT',
+              'COLPERCENT',
+              'TABLEPERCENT'
+          )
+        order by case
+                    when upcase(name)='COUNT' then 0
+                    when upcase(name)='FREQUENCY' then 1
+                    when upcase(name)='N' then 2
+                    else 3
+                 end,
+                 name;
     quit;
-%mend _target_rel_diff_split;
 
-%macro _target_compute_rel_diff(monthly=casuser._tgt_rd_monthly,
-    out=casuser._tgt_rel_diff);
+    %if %length(%superq(_cnt_var)) = 0 %then %do;
+        proc fedsql sessref=conn;
+            create table casuser._tgt_mat_tmp {options replace=true} as
+            select "&split." as Split,
+                   &byvar. as Periodo,
+                   &target. as Target_Value,
+                   count(*) as N_Cuentas
+            from &data.
+            where &target. is not missing
+            group by &byvar., &target.;
+        quit;
+    %end;
+    %else %do;
+        proc fedsql sessref=conn;
+            create table casuser._tgt_mat_tmp {options replace=true} as
+            select "&split." as Split,
+                   &byvar. as Periodo,
+                   &target. as Target_Value,
+                   &_cnt_var. as N_Cuentas
+            from casuser._tgt_mat_raw
+            where &byvar. is not missing
+              and &target. is not missing;
+        quit;
+    %end;
 
-    %_target_sort_cas(table_name=_tgt_rd_monthly, orderby={"Split","Periodo"});
-    %_target_init_rel_diff(out=&out.);
-    %_target_rel_diff_split(split=TRAIN, monthly=&monthly., out=&out.);
-    %_target_rel_diff_split(split=OOT, monthly=&monthly., out=&out.);
-    %_target_sort_cas(table_name=_tgt_rel_diff, orderby={"Split"});
+    %_tgt_append(base=casuser._tgt_materiality, data=casuser._tgt_mat_tmp);
 
-%mend _target_compute_rel_diff;
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_mat_raw _tgt_mat_tmp;
+    quit;
 
-%macro _target_compute_materiality(out=casuser._tgt_materiality);
+%mend _legacy_tgt_build_materiality;
+
+%macro _legacy_tgt_build_bands(split=, rd_table=);
+
+    %global _tgt_rd_avg _tgt_rd_std;
+    %local _global_avg _std_monthly _inf _sup _min_val _max_val;
+
+    %if %upcase(&split.)=TRAIN or %sysevalf(%superq(_tgt_rd_avg)=, boolean)
+        %then %do;
+        proc sql noprint;
+            select coalesce(mean(RD), 0),
+                   coalesce(std(RD), 0)
+              into :_global_avg trimmed,
+                   :_std_monthly trimmed
+            from &rd_table.;
+        quit;
+        %let _tgt_rd_avg=&_global_avg.;
+        %let _tgt_rd_std=&_std_monthly.;
+    %end;
+    %else %do;
+        %let _global_avg=&_tgt_rd_avg.;
+        %let _std_monthly=&_tgt_rd_std.;
+    %end;
+
+    %let _inf=%sysevalf(&_global_avg. - 2 * &_std_monthly.);
+    %let _sup=%sysevalf(&_global_avg. + 2 * &_std_monthly.);
+    %let _min_val=%sysevalf(&_global_avg. - 3 * &_std_monthly.);
+    %let _max_val=%sysevalf(&_global_avg. + 3 * &_std_monthly.);
+
+    data casuser._tgt_bands_tmp;
+        set &rd_table.;
+        length Split $5;
+        Lower_Band=&_inf.;
+        Upper_Band=&_sup.;
+        Global_Avg=&_global_avg.;
+        Axis_Min=&_min_val.;
+        Axis_Max=&_max_val.;
+        format RD Lower_Band Upper_Band Global_Avg Axis_Min Axis_Max percent8.4;
+    run;
+
+    %_tgt_append(base=casuser._tgt_bands, data=casuser._tgt_bands_tmp);
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_bands_tmp;
+    quit;
+
+%mend _legacy_tgt_build_bands;
+
+%macro _legacy_tgt_build_weight_avg(data=, split=, byvar=, target=, monto=);
+
+    %global _tgt_wavg_mean _tgt_wavg_std;
+    %local _n_rows _global_avg _std_monthly _inf _sup _min_val _max_val;
+
+    %let _n_rows=0;
+    proc sql noprint;
+        select count(*) into :_n_rows trimmed
+        from &data.
+        where &monto. > 0;
+    quit;
+
+    %if &_n_rows.=0 %then %return;
 
     proc fedsql sessref=conn;
-        create table &out. {options replace=true} as
-        select Split,
-            Periodo,
-            Target as Target_Value,
-            count(*) as N_Cuentas
-        from casuser._tgt_all
-        group by Split, Periodo, Target
-        order by Split, Periodo, Target_Value;
+        create table casuser._tgt_wavg_tmp {options replace=true} as
+        select "&split." as Split,
+               &byvar. as Periodo,
+               count(*) as N_Cuentas,
+               sum(&monto.) as Total_Monto,
+               sum(&target. * &monto.) / sum(&monto.) as RD_Pond_Prom
+        from &data.
+        where &monto. > 0
+        group by &byvar.;
     quit;
 
-%mend _target_compute_materiality;
+    %if %upcase(&split.)=TRAIN or %sysevalf(%superq(_tgt_wavg_mean)=, boolean)
+        %then %do;
+        proc sql noprint;
+            select coalesce(sum(&target. * &monto.) / sum(&monto.), 0)
+              into :_global_avg trimmed
+            from &data.
+            where &monto. > 0;
 
-%macro _target_compute_bands(monthly=casuser._tgt_rd_monthly,
-    out=casuser._tgt_bands);
+            select coalesce(std(RD_Pond_Prom), 0)
+              into :_std_monthly trimmed
+            from casuser._tgt_wavg_tmp;
+        quit;
+        %let _tgt_wavg_mean=&_global_avg.;
+        %let _tgt_wavg_std=&_std_monthly.;
+    %end;
+    %else %do;
+        %let _global_avg=&_tgt_wavg_mean.;
+        %let _std_monthly=&_tgt_wavg_std.;
+    %end;
+
+    %let _inf=%sysevalf(&_global_avg. - 2 * &_std_monthly.);
+    %let _sup=%sysevalf(&_global_avg. + 2 * &_std_monthly.);
+    %let _min_val=%sysevalf(&_global_avg. - 5 * &_std_monthly.);
+    %let _max_val=%sysevalf(&_global_avg. + 5 * &_std_monthly.);
+
+    data casuser._tgt_wavg_tmp;
+        set casuser._tgt_wavg_tmp;
+        Lower_Band=&_inf.;
+        Upper_Band=&_sup.;
+        Global_Avg=&_global_avg.;
+        Axis_Min=&_min_val.;
+        Axis_Max=&_max_val.;
+        format RD_Pond_Prom Lower_Band Upper_Band Global_Avg Axis_Min Axis_Max
+            percent8.6 Total_Monto comma18.2;
+    run;
+
+    %_tgt_append(base=casuser._tgt_weight_avg, data=casuser._tgt_wavg_tmp);
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_wavg_tmp;
+    quit;
+
+%mend _legacy_tgt_build_weight_avg;
+
+%macro _legacy_tgt_build_weight_sum(data=, split=, byvar=, target=, monto=);
+
+    %global _tgt_wsum_mean _tgt_wsum_std _tgt_ratio_mean _tgt_ratio_std;
+    %local _global_sum _std_sum _inf _sup _global_ratio _std_ratio _inf_ratio
+        _sup_ratio _min_ratio _max_ratio;
 
     proc fedsql sessref=conn;
-        create table casuser._tgt_band_stats {options replace=true} as
-        select mean(RD) as Global_Avg,
-            coalesce(stddev_samp(RD), 0) as Std_Monthly
-        from &monthly.
+        create table casuser._tgt_wsum_tmp {options replace=true} as
+        select "&split." as Split,
+               &byvar. as Periodo,
+               count(*) as N_Cuentas,
+               sum(&target. * &monto.) as Sum_Target_Pond,
+               sum(&monto.) as Total_Monto
+        from &data.
+        group by &byvar.;
+    quit;
+
+    %if %upcase(&split.)=TRAIN or %sysevalf(%superq(_tgt_wsum_mean)=, boolean)
+        %then %do;
+        proc sql noprint;
+            select coalesce(mean(Sum_Target_Pond), 0),
+                   coalesce(std(Sum_Target_Pond), 0)
+              into :_global_sum trimmed,
+                   :_std_sum trimmed
+            from casuser._tgt_wsum_tmp;
+        quit;
+        %let _tgt_wsum_mean=&_global_sum.;
+        %let _tgt_wsum_std=&_std_sum.;
+    %end;
+    %else %do;
+        %let _global_sum=&_tgt_wsum_mean.;
+        %let _std_sum=&_tgt_wsum_std.;
+    %end;
+
+    %let _inf=%sysevalf(&_global_sum. - 2 * &_std_sum.);
+    %let _sup=%sysevalf(&_global_sum. + 2 * &_std_sum.);
+
+    data casuser._tgt_wsum_tmp;
+        set casuser._tgt_wsum_tmp;
+        Lower_Band=&_inf.;
+        Upper_Band=&_sup.;
+        Global_Sum=&_global_sum.;
+        format Sum_Target_Pond Total_Monto Lower_Band Upper_Band Global_Sum
+            comma18.2;
+    run;
+
+    %_tgt_append(base=casuser._tgt_weight_sum, data=casuser._tgt_wsum_tmp);
+
+    data casuser._tgt_ratio_tmp;
+        set casuser._tgt_wsum_tmp;
+        if Total_Monto > 0 then Ratio_RD_Monto=Sum_Target_Pond / Total_Monto;
+        else Ratio_RD_Monto=.;
+    run;
+
+    %if %upcase(&split.)=TRAIN or
+        %sysevalf(%superq(_tgt_ratio_mean)=, boolean) %then %do;
+        proc sql noprint;
+            select coalesce(mean(Ratio_RD_Monto), 0),
+                   coalesce(std(Ratio_RD_Monto), 0)
+              into :_global_ratio trimmed,
+                   :_std_ratio trimmed
+            from casuser._tgt_ratio_tmp;
+        quit;
+        %let _tgt_ratio_mean=&_global_ratio.;
+        %let _tgt_ratio_std=&_std_ratio.;
+    %end;
+    %else %do;
+        %let _global_ratio=&_tgt_ratio_mean.;
+        %let _std_ratio=&_tgt_ratio_std.;
+    %end;
+
+    %let _inf_ratio=%sysevalf(&_global_ratio. - 2 * &_std_ratio.);
+    %let _sup_ratio=%sysevalf(&_global_ratio. + 2 * &_std_ratio.);
+    %let _min_ratio=%sysevalf(&_global_ratio. - 5 * &_std_ratio.);
+    %let _max_ratio=%sysevalf(&_global_ratio. + 5 * &_std_ratio.);
+
+    data casuser._tgt_ratio_tmp;
+        set casuser._tgt_ratio_tmp;
+        Lower_Band=&_inf_ratio.;
+        Upper_Band=&_sup_ratio.;
+        Global_Ratio=&_global_ratio.;
+        Axis_Min=&_min_ratio.;
+        Axis_Max=&_max_ratio.;
+        format Ratio_RD_Monto Lower_Band Upper_Band Global_Ratio Axis_Min
+            Axis_Max percent8.6 Sum_Target_Pond Total_Monto comma18.2;
+    run;
+
+    %_tgt_append(base=casuser._tgt_weight_ratio, data=casuser._tgt_ratio_tmp);
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_wsum_tmp _tgt_ratio_tmp;
+    quit;
+
+%mend _legacy_tgt_build_weight_sum;
+
+%macro _legacy_tgt_process_split(data=, split=, byvar=, target=, monto_var=,
+    has_monto=0);
+
+    proc fedsql sessref=conn;
+        create table casuser._tgt_rd_tmp {options replace=true} as
+        select "&split." as Split,
+               &byvar. as Periodo,
+               count(*) as N_Total,
+               count(&target.) as N_Valid,
+               sum(&target.) as N_Default,
+               avg(&target.) as RD
+        from &data.
+        group by &byvar.;
+    quit;
+
+    %_tgt_append(base=casuser._tgt_rd_monthly, data=casuser._tgt_rd_tmp);
+    %_tgt_build_rel_diff(split=&split., monthly_table=casuser._tgt_rd_tmp);
+    %_legacy_tgt_build_materiality(data=&data., split=&split., byvar=&byvar.,
+        target=&target.);
+    %_legacy_tgt_build_bands(split=&split., rd_table=casuser._tgt_rd_tmp);
+
+    %if &has_monto.=1 %then %do;
+        %_legacy_tgt_build_weight_avg(data=&data., split=&split., byvar=&byvar.,
+            target=&target., monto=&monto_var.);
+        %_legacy_tgt_build_weight_sum(data=&data., split=&split., byvar=&byvar.,
+            target=&target., monto=&monto_var.);
+    %end;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_rd_tmp;
+    quit;
+
+%mend _legacy_tgt_process_split;
+
+%macro _legacy_target_compute(input_caslib=, train_table=, oot_table=, byvar=,
+    target=, monto_var=, def_cld=, has_monto=0);
+
+    %global _tgt_rd_avg _tgt_rd_std _tgt_wavg_mean _tgt_wavg_std
+        _tgt_wsum_mean _tgt_wsum_std _tgt_ratio_mean _tgt_ratio_std;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_:;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._tgt_train_base {options replace=true} as
+        select *
+        from &input_caslib..&train_table.
+        where &byvar. <= &def_cld.;
+
+        create table casuser._tgt_oot_base {options replace=true} as
+        select *
+        from &input_caslib..&oot_table.
+        where &byvar. <= &def_cld.;
+    quit;
+
+    %_legacy_tgt_process_split(data=casuser._tgt_train_base, split=TRAIN,
+        byvar=&byvar., target=&target., monto_var=&monto_var.,
+        has_monto=&has_monto.);
+
+    %_legacy_tgt_process_split(data=casuser._tgt_oot_base, split=OOT,
+        byvar=&byvar., target=&target., monto_var=&monto_var.,
+        has_monto=&has_monto.);
+
+    %if %sysfunc(exist(casuser._tgt_rd_monthly)) %then
+        %_tgt_sort_cas(table_name=_tgt_rd_monthly,
+            orderby=%str({"Split", "Periodo"}));
+    %if %sysfunc(exist(casuser._tgt_rel_diff)) %then
+        %_tgt_sort_cas(table_name=_tgt_rel_diff,
+            orderby=%str({"Split"}));
+    %if %sysfunc(exist(casuser._tgt_materiality)) %then
+        %_tgt_sort_cas(table_name=_tgt_materiality,
+            orderby=%str({"Split", "Periodo", "Target_Value"}));
+    %if %sysfunc(exist(casuser._tgt_bands)) %then
+        %_tgt_sort_cas(table_name=_tgt_bands,
+            orderby=%str({"Split", "Periodo"}));
+    %if %sysfunc(exist(casuser._tgt_weight_avg)) %then
+        %_tgt_sort_cas(table_name=_tgt_weight_avg,
+            orderby=%str({"Split", "Periodo"}));
+    %if %sysfunc(exist(casuser._tgt_weight_sum)) %then
+        %_tgt_sort_cas(table_name=_tgt_weight_sum,
+            orderby=%str({"Split", "Periodo"}));
+    %if %sysfunc(exist(casuser._tgt_weight_ratio)) %then
+        %_tgt_sort_cas(table_name=_tgt_weight_ratio,
+            orderby=%str({"Split", "Periodo"}));
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_train_base _tgt_oot_base;
+    quit;
+
+    %symdel _tgt_rd_avg _tgt_rd_std _tgt_wavg_mean _tgt_wavg_std
+        _tgt_wsum_mean _tgt_wsum_std _tgt_ratio_mean _tgt_ratio_std / nowarn;
+
+%mend _legacy_target_compute;
+*/
+
+/* -------------------------------------------------------------------------
+Implementacion activa:
+- Usa una sola tabla casuser._tgt_input con columna Split
+- Evita sorts y FEDSQL
+- Mantiene el contrato que consume target_report.sas
+------------------------------------------------------------------------- */
+
+%macro _tgt_detect_freq_count(raw_table=, byvar=, target=, outvar=);
+
+    %local _memname;
+    %let _memname=%upcase(%scan(&raw_table., 2, .));
+    %if %length(%superq(_memname))=0 %then
+        %let _memname=%upcase(&raw_table.);
+
+    proc sql noprint;
+        select name into :&outvar trimmed
+        from dictionary.columns
+        where upcase(libname)='CASUSER'
+          and upcase(memname)="&_memname."
+          and type='num'
+          and upcase(name) not in (
+              'SPLIT',
+              upcase("&byvar."),
+              upcase("&target."),
+              'PERCENT',
+              'ROWPERCENT',
+              'COLPERCENT',
+              'TABLEPERCENT'
+          )
+        order by case
+                    when upcase(name)='COUNT' then 0
+                    when upcase(name)='FREQUENCY' then 1
+                    when upcase(name)='N' then 2
+                    else 3
+                 end,
+                 name;
+    quit;
+
+%mend _tgt_detect_freq_count;
+
+%macro _tgt_build_materiality(data=, byvar=, target=);
+
+    %local _cnt_var;
+    %let _cnt_var=;
+
+    proc freqtab data=&data. noprint;
+        tables &byvar. * &target. / norow nopercent nocum nocol;
+        output out=casuser._tgt_mat_raw;
+    run;
+
+    %_tgt_detect_freq_count(raw_table=casuser._tgt_mat_raw, byvar=&byvar.,
+        target=&target., outvar=_cnt_var);
+
+    %if %length(%superq(_cnt_var)) > 0 %then %do;
+        data casuser._tgt_materiality;
+            set casuser._tgt_mat_raw(rename=(
+                &byvar.=Periodo
+                &target.=Target_Value
+                &_cnt_var.=N_Cuentas
+            ));
+            where not missing(Split)
+              and not missing(Periodo)
+              and not missing(Target_Value);
+            keep Split Periodo Target_Value N_Cuentas;
+        run;
+    %end;
+    %else %do;
+        proc sql;
+            create table casuser._tgt_materiality as
+            select Split,
+                   &byvar. as Periodo,
+                   &target. as Target_Value,
+                   count(*) as N_Cuentas
+            from &data.
+            where &target. is not missing
+            group by Split, &byvar., &target.;
+        quit;
+    %end;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_mat_raw;
+    quit;
+
+%mend _tgt_build_materiality;
+
+%macro _tgt_build_bands(rd_table=);
+
+    %local _ref_split _train_rows _global_avg _std_monthly _inf _sup _min_val
+        _max_val;
+    %let _ref_split=TRAIN;
+
+    proc sql noprint;
+        select count(*) into :_train_rows trimmed
+        from &rd_table.
         where Split='TRAIN';
-
-        create table &out. {options replace=true} as
-        select a.Split,
-            a.Periodo,
-            a.N_Total,
-            a.N_Valid,
-            a.N_Default,
-            a.RD,
-            b.Global_Avg,
-            b.Std_Monthly,
-            (b.Global_Avg - 2 * b.Std_Monthly) as Lower_Band,
-            (b.Global_Avg + 2 * b.Std_Monthly) as Upper_Band,
-            (b.Global_Avg - 3 * b.Std_Monthly) as Axis_Min,
-            (b.Global_Avg + 3 * b.Std_Monthly) as Axis_Max
-        from &monthly. a, casuser._tgt_band_stats b
-        order by a.Split, a.Periodo;
     quit;
 
-    proc cas;
-        session conn;
-        table.dropTable / caslib="casuser" name="_tgt_band_stats" quiet=true;
+    %if %sysevalf(%superq(_train_rows)=, boolean) or &_train_rows.=0 %then
+        %let _ref_split=OOT;
+
+    proc sql noprint;
+        select coalesce(mean(RD), 0),
+               coalesce(std(RD), 0)
+          into :_global_avg trimmed,
+               :_std_monthly trimmed
+        from &rd_table.
+        where Split="&_ref_split.";
     quit;
 
-%mend _target_compute_bands;
+    %let _inf=%sysevalf(&_global_avg. - 2 * &_std_monthly.);
+    %if %sysevalf(&_inf. < 0) %then %let _inf=0;
+    %let _sup=%sysevalf(&_global_avg. + 2 * &_std_monthly.);
+    %let _min_val=%sysevalf(&_global_avg. - 3 * &_std_monthly.);
+    %let _max_val=%sysevalf(&_global_avg. + 3 * &_std_monthly.);
 
-%macro _target_compute_weighted_avg(out=casuser._tgt_weight_avg);
+    data casuser._tgt_bands;
+        set &rd_table.;
+        Lower_Band=&_inf.;
+        Upper_Band=&_sup.;
+        Global_Avg=&_global_avg.;
+        Axis_Min=&_min_val.;
+        Axis_Max=&_max_val.;
+        format RD Lower_Band Upper_Band Global_Avg Axis_Min Axis_Max percent8.4;
+    run;
 
-    proc fedsql sessref=conn;
-        create table casuser._tgt_weight_avg_base {options replace=true} as
+%mend _tgt_build_bands;
+
+%macro _tgt_build_weight_avg(data=, byvar=, target=, monto=);
+
+    %local _ref_split _n_rows _train_rows _global_avg _std_monthly _inf _sup
+        _min_val _max_val;
+    %let _ref_split=TRAIN;
+
+    proc sql noprint;
+        select count(*) into :_n_rows trimmed
+        from &data.
+        where &monto. > 0;
+    quit;
+
+    %if %sysevalf(%superq(_n_rows)=, boolean) or &_n_rows.=0 %then %return;
+
+    proc sql;
+        create table casuser._tgt_weight_avg as
         select Split,
-            Periodo,
-            count(*) as N_Cuentas,
-            sum(Monto) as Total_Monto,
-            (sum(Target * Monto) / sum(Monto)) as RD_Pond_Prom
-        from casuser._tgt_all
-        where Monto > 0
-        group by Split, Periodo;
+               &byvar. as Periodo,
+               count(*) as N_Cuentas,
+               sum(&monto.) as Total_Monto,
+               sum(&target. * &monto.) / sum(&monto.) as RD_Pond_Prom
+        from &data.
+        where &monto. > 0
+        group by Split, &byvar.;
+    quit;
 
-        create table casuser._tgt_weight_avg_stats {options replace=true} as
-        select mean(RD_Pond_Prom) as Global_Avg,
-            coalesce(stddev_samp(RD_Pond_Prom), 0) as Std_Monthly
-        from casuser._tgt_weight_avg_base
+    proc sql noprint;
+        select count(*) into :_train_rows trimmed
+        from casuser._tgt_weight_avg
         where Split='TRAIN';
-
-        create table &out. {options replace=true} as
-        select a.Split,
-            a.Periodo,
-            a.N_Cuentas,
-            a.Total_Monto,
-            a.RD_Pond_Prom,
-            b.Global_Avg,
-            b.Std_Monthly,
-            (b.Global_Avg - 2 * b.Std_Monthly) as Lower_Band,
-            (b.Global_Avg + 2 * b.Std_Monthly) as Upper_Band,
-            (b.Global_Avg - 5 * b.Std_Monthly) as Axis_Min,
-            (b.Global_Avg + 5 * b.Std_Monthly) as Axis_Max
-        from casuser._tgt_weight_avg_base a, casuser._tgt_weight_avg_stats b
-        order by a.Split, a.Periodo;
     quit;
 
-    proc cas;
-        session conn;
-        table.dropTable / caslib="casuser" name="_tgt_weight_avg_base"
-            quiet=true;
-        table.dropTable / caslib="casuser" name="_tgt_weight_avg_stats"
-            quiet=true;
+    %if %sysevalf(%superq(_train_rows)=, boolean) or &_train_rows.=0 %then
+        %let _ref_split=OOT;
+
+    proc sql noprint;
+        select coalesce(sum(&target. * &monto.) / sum(&monto.), 0)
+          into :_global_avg trimmed
+        from &data.
+        where Split="&_ref_split."
+          and &monto. > 0;
+
+        select coalesce(std(RD_Pond_Prom), 0)
+          into :_std_monthly trimmed
+        from casuser._tgt_weight_avg
+        where Split="&_ref_split.";
     quit;
 
-%mend _target_compute_weighted_avg;
+    %let _inf=%sysevalf(&_global_avg. - 2 * &_std_monthly.);
+    %let _sup=%sysevalf(&_global_avg. + 2 * &_std_monthly.);
+    %let _min_val=%sysevalf(&_global_avg. - 5 * &_std_monthly.);
+    %let _max_val=%sysevalf(&_global_avg. + 5 * &_std_monthly.);
 
-%macro _target_compute_weighted_sum(out=casuser._tgt_weight_sum,
-    out_ratio=casuser._tgt_weight_ratio);
+    data casuser._tgt_weight_avg;
+        set casuser._tgt_weight_avg;
+        Lower_Band=&_inf.;
+        Upper_Band=&_sup.;
+        Global_Avg=&_global_avg.;
+        Axis_Min=&_min_val.;
+        Axis_Max=&_max_val.;
+        format RD_Pond_Prom Lower_Band Upper_Band Global_Avg Axis_Min Axis_Max
+            percent8.6 Total_Monto comma18.2;
+    run;
 
-    proc fedsql sessref=conn;
-        create table casuser._tgt_weight_sum_base {options replace=true} as
+%mend _tgt_build_weight_avg;
+
+%macro _tgt_build_weight_sum(data=, byvar=, target=, monto=);
+
+    %local _ref_split _train_rows _global_sum _std_sum _inf _sup
+        _global_ratio _std_ratio _inf_ratio _sup_ratio _min_ratio _max_ratio;
+    %let _ref_split=TRAIN;
+
+    proc sql;
+        create table casuser._tgt_weight_sum as
         select Split,
-            Periodo,
-            count(*) as N_Cuentas,
-            sum(Target * Monto) as Sum_Target_Pond,
-            sum(Monto) as Total_Monto
-        from casuser._tgt_all
-        group by Split, Periodo;
-
-        create table casuser._tgt_weight_sum_stats {options replace=true} as
-        select mean(Sum_Target_Pond) as Global_Sum,
-            coalesce(stddev_samp(Sum_Target_Pond), 0) as Std_Monthly_Sum
-        from casuser._tgt_weight_sum_base
-        where Split='TRAIN';
-
-        create table &out. {options replace=true} as
-        select a.Split,
-            a.Periodo,
-            a.N_Cuentas,
-            a.Sum_Target_Pond,
-            a.Total_Monto,
-            b.Global_Sum,
-            b.Std_Monthly_Sum,
-            (b.Global_Sum - 2 * b.Std_Monthly_Sum) as Lower_Band,
-            (b.Global_Sum + 2 * b.Std_Monthly_Sum) as Upper_Band
-        from casuser._tgt_weight_sum_base a, casuser._tgt_weight_sum_stats b
-        order by a.Split, a.Periodo;
-
-        create table casuser._tgt_weight_ratio_base {options replace=true} as
-        select Split,
-            Periodo,
-            N_Cuentas,
-            Sum_Target_Pond,
-            Total_Monto,
-            case
-                when Total_Monto = 0 then .
-                else Sum_Target_Pond / Total_Monto
-            end as Ratio_RD_Monto
-        from casuser._tgt_weight_sum_base;
-
-        create table casuser._tgt_weight_ratio_stats {options replace=true} as
-        select mean(Ratio_RD_Monto) as Global_Ratio,
-            coalesce(stddev_samp(Ratio_RD_Monto), 0) as Std_Ratio
-        from casuser._tgt_weight_ratio_base
-        where Split='TRAIN';
-
-        create table &out_ratio. {options replace=true} as
-        select a.Split,
-            a.Periodo,
-            a.N_Cuentas,
-            a.Sum_Target_Pond,
-            a.Total_Monto,
-            a.Ratio_RD_Monto,
-            b.Global_Ratio,
-            b.Std_Ratio,
-            (b.Global_Ratio - 2 * b.Std_Ratio) as Lower_Band,
-            (b.Global_Ratio + 2 * b.Std_Ratio) as Upper_Band,
-            (b.Global_Ratio - 5 * b.Std_Ratio) as Axis_Min,
-            (b.Global_Ratio + 5 * b.Std_Ratio) as Axis_Max
-        from casuser._tgt_weight_ratio_base a, casuser._tgt_weight_ratio_stats b
-        order by a.Split, a.Periodo;
+               &byvar. as Periodo,
+               count(*) as N_Cuentas,
+               sum(&target. * &monto.) as Sum_Target_Pond,
+               sum(&monto.) as Total_Monto
+        from &data.
+        group by Split, &byvar.;
     quit;
 
-    proc cas;
-        session conn;
-        table.dropTable / caslib="casuser" name="_tgt_weight_sum_base"
-            quiet=true;
-        table.dropTable / caslib="casuser" name="_tgt_weight_sum_stats"
-            quiet=true;
-        table.dropTable / caslib="casuser" name="_tgt_weight_ratio_base"
-            quiet=true;
-        table.dropTable / caslib="casuser" name="_tgt_weight_ratio_stats"
-            quiet=true;
+    proc sql noprint;
+        select count(*) into :_train_rows trimmed
+        from casuser._tgt_weight_sum
+        where Split='TRAIN';
     quit;
 
-%mend _target_compute_weighted_sum;
+    %if %sysevalf(%superq(_train_rows)=, boolean) or &_train_rows.=0 %then
+        %let _ref_split=OOT;
+
+    proc sql noprint;
+        select coalesce(mean(Sum_Target_Pond), 0),
+               coalesce(std(Sum_Target_Pond), 0)
+          into :_global_sum trimmed,
+               :_std_sum trimmed
+        from casuser._tgt_weight_sum
+        where Split="&_ref_split.";
+    quit;
+
+    %let _inf=%sysevalf(&_global_sum. - 2 * &_std_sum.);
+    %let _sup=%sysevalf(&_global_sum. + 2 * &_std_sum.);
+
+    data casuser._tgt_weight_sum;
+        set casuser._tgt_weight_sum;
+        Lower_Band=&_inf.;
+        Upper_Band=&_sup.;
+        Global_Sum=&_global_sum.;
+        format Sum_Target_Pond Total_Monto Lower_Band Upper_Band Global_Sum
+            comma18.2;
+    run;
+
+    data casuser._tgt_weight_ratio;
+        set casuser._tgt_weight_sum;
+        if Total_Monto > 0 then Ratio_RD_Monto=Sum_Target_Pond / Total_Monto;
+        else Ratio_RD_Monto=.;
+    run;
+
+    proc sql noprint;
+        select coalesce(mean(Ratio_RD_Monto), 0),
+               coalesce(std(Ratio_RD_Monto), 0)
+          into :_global_ratio trimmed,
+               :_std_ratio trimmed
+        from casuser._tgt_weight_ratio
+        where Split="&_ref_split.";
+    quit;
+
+    %let _inf_ratio=%sysevalf(&_global_ratio. - 2 * &_std_ratio.);
+    %let _sup_ratio=%sysevalf(&_global_ratio. + 2 * &_std_ratio.);
+    %let _min_ratio=%sysevalf(&_global_ratio. - 5 * &_std_ratio.);
+    %let _max_ratio=%sysevalf(&_global_ratio. + 5 * &_std_ratio.);
+
+    data casuser._tgt_weight_ratio;
+        set casuser._tgt_weight_ratio;
+        Lower_Band=&_inf_ratio.;
+        Upper_Band=&_sup_ratio.;
+        Global_Ratio=&_global_ratio.;
+        Axis_Min=&_min_ratio.;
+        Axis_Max=&_max_ratio.;
+        format Ratio_RD_Monto Lower_Band Upper_Band Global_Ratio Axis_Min
+            Axis_Max percent8.6 Sum_Target_Pond Total_Monto comma18.2;
+    run;
+
+%mend _tgt_build_weight_sum;
 
 %macro _target_compute(input_caslib=, train_table=, oot_table=, byvar=,
     target=, monto_var=, def_cld=, has_monto=0);
 
-    %put NOTE: [target_compute] Preparando inputs filtrados en CAS.;
-    %_target_prepare_inputs(input_caslib=&input_caslib.,
-        train_table=&train_table., oot_table=&oot_table., byvar=&byvar.,
-        target=&target., monto_var=&monto_var., def_cld=&def_cld.,
-        has_monto=&has_monto.);
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_:;
+    quit;
 
-    %put NOTE: [target_compute] Calculando RD mensual.;
-    %_target_compute_monthly_rd(out=casuser._tgt_rd_monthly);
-    %_target_sort_cas(table_name=_tgt_rd_monthly, orderby={"Split","Periodo"});
+    data casuser._tgt_input;
+        length Split $5;
+        set &input_caslib..&train_table.(in=_train where=(&byvar. <= &def_cld.))
+            &input_caslib..&oot_table.(in=_oot where=(&byvar. <= &def_cld.));
+        if _train then Split='TRAIN';
+        else if _oot then Split='OOT';
+    run;
 
-    %put NOTE: [target_compute] Calculando diferencia relativa.;
-    %_target_compute_rel_diff(monthly=casuser._tgt_rd_monthly,
-        out=casuser._tgt_rel_diff);
+    data casuser._tgt_rel_diff;
+        length Split $5 Window_Type $20 Start_Label End_Label $64 Note $120;
+        length N_Months Start_Value End_Value Relative_Diff 8;
+        format Start_Value End_Value percent8.4 Relative_Diff percent8.2;
+        stop;
+    run;
 
-    %put NOTE: [target_compute] Calculando materialidad.;
-    %_target_compute_materiality(out=casuser._tgt_materiality);
-    %_target_sort_cas(table_name=_tgt_materiality,
-        orderby={"Split","Periodo","Target_Value"});
+    proc sql;
+        create table casuser._tgt_rd_monthly as
+        select Split,
+               &byvar. as Periodo,
+               count(*) as N_Total,
+               count(&target.) as N_Valid,
+               sum(&target.) as N_Default,
+               mean(&target.) as RD format=percent8.4
+        from casuser._tgt_input
+        group by Split, &byvar.;
+    quit;
 
-    %put NOTE: [target_compute] Calculando bandas del target.;
-    %_target_compute_bands(monthly=casuser._tgt_rd_monthly,
-        out=casuser._tgt_bands);
-    %_target_sort_cas(table_name=_tgt_bands, orderby={"Split","Periodo"});
+    %_tgt_build_rel_diff(split=TRAIN,
+        monthly_table=casuser._tgt_rd_monthly(where=(Split='TRAIN')));
+    %_tgt_build_rel_diff(split=OOT,
+        monthly_table=casuser._tgt_rd_monthly(where=(Split='OOT')));
+
+    %_tgt_build_materiality(data=casuser._tgt_input, byvar=&byvar.,
+        target=&target.);
+    %_tgt_build_bands(rd_table=casuser._tgt_rd_monthly);
 
     %if &has_monto.=1 %then %do;
-        %put NOTE: [target_compute] Calculando variantes ponderadas.;
-        %_target_compute_weighted_avg(out=casuser._tgt_weight_avg);
-        %_target_sort_cas(table_name=_tgt_weight_avg,
-            orderby={"Split","Periodo"});
-        %_target_compute_weighted_sum(out=casuser._tgt_weight_sum,
-            out_ratio=casuser._tgt_weight_ratio);
-        %_target_sort_cas(table_name=_tgt_weight_sum,
-            orderby={"Split","Periodo"});
-        %_target_sort_cas(table_name=_tgt_weight_ratio,
-            orderby={"Split","Periodo"});
+        %_tgt_build_weight_avg(data=casuser._tgt_input, byvar=&byvar.,
+            target=&target., monto=&monto_var.);
+        %_tgt_build_weight_sum(data=casuser._tgt_input, byvar=&byvar.,
+            target=&target., monto=&monto_var.);
     %end;
-    %else %do;
-        %put NOTE: [target_compute] Analisis ponderados omitidos
-            (has_monto=&has_monto.).;
-    %end;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_input;
+    quit;
 
 %mend _target_compute;
