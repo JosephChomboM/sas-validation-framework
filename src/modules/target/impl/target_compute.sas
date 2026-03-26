@@ -12,7 +12,8 @@ consumido por target_report.sas. Mantiene la logica simple:
 %macro _tgt_append(base=, data=);
 
     %if %sysfunc(exist(&base.)) %then %do;
-        proc append base=&base. data=&data. force;
+        data &base.;
+            set &base. &data.;
         run;
     %end;
     %else %do;
