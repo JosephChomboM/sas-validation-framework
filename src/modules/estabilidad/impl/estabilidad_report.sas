@@ -7,10 +7,11 @@ Genera:
 <report_path>/<prefix>.xlsx        - Excel combinado TRAIN + OOT
 <images_path>/<prefix>_*.jpeg      - Graficos como JPEG independientes
 
+Consume una sola tabla consolidada con columna Muestra.
 Tablas temporales se crean en casuser (CAS) via PROC FEDSQL.
 Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
 ========================================================================= */
-%macro _estabilidad_report( input_caslib=, train_table=, oot_table=, byvar=,
+%macro _estabilidad_report(input_caslib=, input_table=, byvar=,
     vars_num=, vars_cat=, report_path=, images_path=, file_prefix=);
 
     %put NOTE: [estabilidad_report] Generando reportes...;
@@ -18,15 +19,11 @@ Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
     %put NOTE: [estabilidad_report] images_path=&images_path.;
     %put NOTE: [estabilidad_report] file_prefix=&file_prefix.;
 
-    /* ---- Copiar tablas CAS a casuser (FEDSQL para CAS-to-CAS) --------- */
+    /* ---- Copiar input consolidado a casuser --------------------------- */
     proc fedsql sessref=conn;
-        create table casuser._estab_train {options replace=true} as select *
-            from &input_caslib..&train_table.;
-    quit;
-
-    proc fedsql sessref=conn;
-        create table casuser._estab_oot {options replace=true} as select * from
-            &input_caslib..&oot_table.;
+        create table casuser._estab_all {options replace=true} as
+        select *
+        from &input_caslib..&input_table.;
     quit;
 
     /* ---- Crear directorios si no existen ------------------------------- */
@@ -35,13 +32,6 @@ Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
     %let _dir_rc=%sysfunc(dcreate(., &report_path.));
     %let _dir_rc=%sysfunc(dcreate(METOD4.2, &images_path./../));
     %let _dir_rc=%sysfunc(dcreate(., &images_path.));
-
-    proc fedsql sessref=conn noprint;
-        create table casuser._estab_all {options replace=true} as
-            select 'TRAIN' as Muestra, * from casuser._estab_train
-            union all
-            select 'OOT' as Muestra, * from casuser._estab_oot;
-    quit;
 
     /* ==================================================================
     Reporte combinado TRAIN + OOT
@@ -69,7 +59,7 @@ Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
 
     /* ---- Cleanup tablas temporales CAS --------------------------------- */
     proc datasets library=casuser nolist nowarn;
-        delete _estab_train _estab_oot _estab_all;
+        delete _estab_all;
     quit;
 
     %put NOTE: [estabilidad_report] HTML=>

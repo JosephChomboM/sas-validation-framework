@@ -7,14 +7,15 @@ Flujo:
 2) Configuracion propia del modulo (estab_mode, variables custom)
 3) Crear CASLIBs PROC + OUT
 4) Iteracion segun ctx_scope:
-- SEGMENTO -> itera segmentos via run_module(dual_input=1)
-- UNIVERSO -> ejecuta base via run_module(dual_input=1)
+- SEGMENTO -> itera segmentos via run_module(scope_input=1)
+- UNIVERSO -> ejecuta base via run_module(scope_input=1)
 5) Cleanup CASLIBs
 
 NOTA IMPORTANTE:
-Estabilidad compara TRAIN vs OOT -> usa run_module con dual_input=1.
-run_module en modo B promueve ambas tablas (_train_input, _oot_input),
-ejecuta %estabilidad_run, y dropea ambas tablas promovidas.
+Estabilidad usa un unico _scope_input y deriva TRAIN/OOT internamente
+desde ventanas de cfg_troncales.
+run_module en modo C promueve _scope_input, ejecuta %estabilidad_run,
+y luego limpia la tabla promovida.
 
 Dependencias:
 - &ctx_scope (SEGMENTO | UNIVERSO) - seteado por context_and_modules.sas
@@ -84,13 +85,13 @@ Outputs van a experiments/ (analisis exploratorio).           */
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             /* Segmento especifico */
             %run_module(module=estabilidad, troncal_id=&ctx_troncal_id., split=,
-                seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
+                seg_id=&ctx_seg_id., run_id=&run_id., scope_input=1);
         %end;
         %else %do;
             /* Todos los segmentos */
             %do _sg=1 %to &ctx_n_segments.;
                 %run_module(module=estabilidad, troncal_id=&ctx_troncal_id.,
-                    split=, seg_id=&_sg., run_id=&run_id., dual_input=1);
+                    split=, seg_id=&_sg., run_id=&run_id., scope_input=1);
             %end;
         %end;
 
@@ -100,7 +101,7 @@ Outputs van a experiments/ (analisis exploratorio).           */
         %put NOTE: [step_estabilidad] UNIVERSO: troncal=&ctx_troncal_id.;
 
         %run_module(module=estabilidad, troncal_id=&ctx_troncal_id., split=,
-            seg_id=, run_id=&run_id., dual_input=1);
+            seg_id=, run_id=&run_id., scope_input=1);
 
     %end; /* fin UNIVERSO */
     %else %do;

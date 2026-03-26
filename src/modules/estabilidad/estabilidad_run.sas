@@ -4,8 +4,7 @@ estabilidad_run.sas - Macro publica del modulo Estabilidad (Metodo 4.2)
 API:
 %estabilidad_run(
 input_caslib  = PROC,
-train_table   = _train_input,
-oot_table     = _oot_input,
+input_table   = _scope_input,
 output_caslib = OUT,
 troncal_id    = <id>,
 scope         = base | segNNN,
@@ -14,14 +13,15 @@ run_id        = <run_id>
 
 Flujo interno:
 1) Resolver variables desde cfg_troncales/cfg_segmentos (byvar, vars num/cat)
-2) Ejecutar contract (validaciones)
-3) Generar reportes HTML + Excel (TRAIN + OOT en un solo reporte)
-4) Cleanup
+2) Derivar TRAIN/OOT internamente desde input consolidado (tabla canonica)
+3) Ejecutar contract (validaciones)
+4) Generar reportes HTML + Excel (TRAIN + OOT en un solo reporte)
+5) Cleanup
 
 NOTA: No persiste tablas .sas7bdat (analisis visual solamente).
-Usa oot_max_mes como fecha maxima (no usa target/PD/XB).
+Usa ventanas TRAIN/OOT desde cfg_troncales (sin def_cld).
 
-Dual-input: recibe train + oot promovidas por run_module(dual_input=1).
+Scope-input: recibe _scope_input promovida por run_module(scope_input=1).
 
 Compatibilidad: segmento y universo.
 
@@ -35,21 +35,21 @@ CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
 %include "&fw_root./src/modules/estabilidad/impl/estabilidad_compute.sas";
 %include "&fw_root./src/modules/estabilidad/impl/estabilidad_report.sas";
 
-%macro estabilidad_run( input_caslib=PROC, train_table=_train_input,
-    oot_table=_oot_input, output_caslib=OUT, troncal_id=, scope=, run_id=);
+%macro estabilidad_run(input_caslib=PROC, input_table=_scope_input,
+    output_caslib=OUT, troncal_id=, scope=, run_id=);
 
     /* ---- Return code ---------------------------------------------------- */
     %global _estab_rc;
     %let _estab_rc=0;
 
     %local _estab_byvar _estab_vars_num _estab_vars_cat _report_path
-        _images_path _file_prefix _scope_abbr _estab_is_custom _seg_num;
+        _images_path _file_prefix _scope_abbr _estab_is_custom _seg_num
+        _estab_train_min _estab_train_max _estab_oot_min _estab_oot_max;
 
     %put NOTE:======================================================;
     %put NOTE: [estabilidad_run] INICIO;
     %put NOTE: troncal=&troncal_id. scope=&scope.;
-    %put NOTE: train=&input_caslib..&train_table.;
-    %put NOTE: oot=&input_caslib..&oot_table.;
+    %put NOTE: input=&input_caslib..&input_table.;
     %put NOTE:======================================================;
 
     /* ==================================================================
@@ -59,6 +59,26 @@ CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
     %let _estab_vars_cat= ;
     %let _estab_byvar= ;
     %let _estab_is_custom=0;
+    %let _estab_train_min= ;
+    %let _estab_train_max= ;
+    %let _estab_oot_min= ;
+    %let _estab_oot_max= ;
+
+    /* Resolver byvar y ventanas desde configuracion del troncal */
+    proc sql noprint;
+        select strip(byvar),
+               strip(put(train_min_mes, best.)),
+               strip(put(train_max_mes, best.)),
+               strip(put(oot_min_mes, best.)),
+               strip(put(oot_max_mes, best.))
+          into :_estab_byvar trimmed,
+               :_estab_train_min trimmed,
+               :_estab_train_max trimmed,
+               :_estab_oot_min trimmed,
+               :_estab_oot_max trimmed
+        from casuser.cfg_troncales
+        where troncal_id=&troncal_id.;
+    quit;
 
     /* ------ Modo CUSTOM: variables personalizadas ---------------------- */
     %if %upcase(&estab_mode.)=CUSTOM %then %do;
@@ -78,12 +98,6 @@ CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
     /* ------ Modo AUTO (o fallback): variables de configuracion ---------- */
     %if &_estab_is_custom.=0 %then %do;
         %put NOTE: [estabilidad_run] Modo AUTO - resolviendo vars desde config.;
-
-        /* Resolver byvar desde config del troncal */
-        proc sql noprint;
-            select strip(byvar) into :_estab_byvar trimmed from
-                casuser.cfg_troncales where troncal_id=&troncal_id.;
-        quit;
 
         /* Si es segmento, intentar override desde cfg_segmentos */
         %if %substr(&scope., 1, 3)=seg %then %do;
@@ -115,18 +129,13 @@ CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
             quit;
         %end;
     %end;
-    %else %do;
-        /* CUSTOM: resolver byvar desde config igualmente */
-        proc sql noprint;
-            select strip(byvar) into :_estab_byvar trimmed from
-                casuser.cfg_troncales where troncal_id=&troncal_id.;
-        quit;
-    %end;
 
     %put NOTE: [estabilidad_run] Variables resueltas:;
     %put NOTE: [estabilidad_run] num=&_estab_vars_num.;
     %put NOTE: [estabilidad_run] cat=&_estab_vars_cat.;
     %put NOTE: [estabilidad_run] byvar=&_estab_byvar.;
+    %put NOTE: [estabilidad_run] TRAIN ventana=&_estab_train_min.-&_estab_train_max.;
+    %put NOTE: [estabilidad_run] OOT ventana=&_estab_oot_min.-&_estab_oot_max.;
 
     /* ==================================================================
     Determinar rutas de salida
@@ -149,12 +158,14 @@ CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
     %end;
 
     /* ==================================================================
-    2) Contract - validaciones
+    2) Contract - validaciones sobre input consolidado
     ================================================================== */
-    %estabilidad_contract( input_caslib=&input_caslib.,
-        train_table=&train_table., oot_table=&oot_table.,
+    %estabilidad_contract(input_caslib=&input_caslib.,
+        input_table=&input_table.,
         vars_num=&_estab_vars_num., vars_cat=&_estab_vars_cat.,
-        byvar=&_estab_byvar. );
+        byvar=&_estab_byvar., train_min_mes=&_estab_train_min.,
+        train_max_mes=&_estab_train_max., oot_min_mes=&_estab_oot_min.,
+        oot_max_mes=&_estab_oot_max.);
 
     %if &_estab_rc. ne 0 %then %do;
         %put ERROR: [estabilidad_run] Contract fallido - modulo abortado.;
@@ -162,13 +173,45 @@ CUSTOM - usa estab_custom_vars_num / estab_custom_vars_cat
     %end;
 
     /* ==================================================================
-    3) Report - HTML + Excel (incluye computo inline)
+    3) Construir tabla canonica con Muestra=TRAIN/OOT
     ================================================================== */
-    %_estabilidad_report( input_caslib=&input_caslib.,
-        train_table=&train_table., oot_table=&oot_table., byvar=&_estab_byvar.,
+    proc cas;
+        session conn;
+        table.dropTable / caslib='casuser' name='_estab_input' quiet=true;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._estab_input {options replace=true} as
+        select 'TRAIN' as Muestra, *
+        from &input_caslib..&input_table.
+        where &_estab_byvar. >= &_estab_train_min.
+          and &_estab_byvar. <= &_estab_train_max.
+        union all
+        select 'OOT' as Muestra, *
+        from &input_caslib..&input_table.
+        where &_estab_byvar. >= &_estab_oot_min.
+          and &_estab_byvar. <= &_estab_oot_max.;
+    quit;
+
+    /* ==================================================================
+    4) Report - HTML + Excel (incluye computo inline)
+    ================================================================== */
+    %_estabilidad_report(input_caslib=casuser, input_table=_estab_input,
+        byvar=&_estab_byvar.,
         vars_num=&_estab_vars_num., vars_cat=&_estab_vars_cat.,
         report_path=&_report_path., images_path=&_images_path.,
-        file_prefix=&_file_prefix. );
+        file_prefix=&_file_prefix.);
+
+    /* ==================================================================
+    5) Cleanup
+    ================================================================== */
+    proc datasets library=casuser nolist nowarn;
+        delete _estab_:;
+    quit;
+
+    proc datasets library=work nolist nowarn;
+        delete _estab_:;
+    quit;
 
     /* No se persisten tablas (analisis visual solamente) */
     %put NOTE:======================================================;
