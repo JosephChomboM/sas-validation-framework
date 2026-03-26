@@ -201,6 +201,7 @@ Flujo CAS-first:
         raw_list=&_biv_dri_cat., outvar=_biv_dri_cat, label=dri_cat);
 
     %put NOTE: [bivariado_run] target=&_biv_target. byvar=&_biv_byvar. def_cld=&_biv_def_cld.;
+    %put NOTE: [bivariado_run] RD usara default cerrado (config target)=&_biv_target.;
     %put NOTE: [bivariado_run] vars_num=&_biv_vars_num.;
     %put NOTE: [bivariado_run] vars_cat=&_biv_vars_cat.;
     %put NOTE: [bivariado_run] dri_num=&_biv_dri_num.;
@@ -264,6 +265,7 @@ Flujo CAS-first:
                    then 'TRAIN'
                    else 'OOT'
                end as _biv_period,
+               a.&_biv_target. as _biv_target_cld,
                &_select_sql.
         from &input_caslib..&input_table. a
         where a.&_biv_byvar. <= &_biv_def_cld.
@@ -285,7 +287,7 @@ Flujo CAS-first:
     quit;
 
     %_bivariado_compute(source_data=casuser._biv_input,
-        train_data=casuser._biv_train, target=&_biv_target.,
+        train_data=casuser._biv_train, target=_biv_target_cld,
         byvar=&_biv_byvar., vars_num=&_biv_vars_num.,
         vars_cat=&_biv_vars_cat., dri_num=&_biv_dri_num.,
         dri_cat=&_biv_dri_cat., groups=&biv_n_groups.);
