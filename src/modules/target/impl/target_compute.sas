@@ -1,15 +1,23 @@
 /* =========================================================================
 target_compute.sas - Calculo del modulo Target (Metodo 2.1)
 
-Implementacion simple y rapida:
-- Input unificado TRAIN + OOT en casuser._tgt_input
-- Sin codigo legacy ni comentado
-- Sin sort innecesario
-- Calculo directo con DATA STEP + SUMMARY/SQL
+Implementacion consolidada:
+- Tabla unificada TRAIN + OOT (casuser._tgt_input)
+- Sin codigo legacy/duplicado
+- Sin cortes fisicos por split
+- Salidas para reporte en tablas consolidadas con columna Split
 ======================================================================== */
 
-%macro _tgt_append(base=, data=);
+%macro _tgt_rows(data=, where=1=1, outvar=_tgt_rows);
+    proc sql noprint;
+        select count(*) into :&outvar trimmed
+        from &data.
+        where &where.;
+    quit;
+    %if %sysevalf(%superq(&outvar)=, boolean) %then %let &outvar=0;
+%mend _tgt_rows;
 
+%macro _tgt_append(base=, data=);
     %if %sysfunc(exist(&base.)) %then %do;
         data &base.;
             set &base. &data.;
@@ -20,10 +28,9 @@ Implementacion simple y rapida:
             set &data.;
         run;
     %end;
-
 %mend _tgt_append;
 
-%macro _tgt_build_rel_diff(split=, monthly_table=);
+%macro _tgt_rel_diff_one(split=, monthly_table=, out=casuser._tgt_rel_diff);
 
     %local _n_months _p1 _p2 _p3 _pn _lp1 _lp2 _lp3 _v1 _v2 _v3 _vn _lv1
         _lv2 _lv3 _start_label _end_label _note _window_type _start_value
@@ -32,7 +39,8 @@ Implementacion simple y rapida:
     %let _n_months=0;
     proc sql noprint;
         select count(*) into :_n_months trimmed
-        from &monthly_table.;
+        from &monthly_table.
+        where Split="&split.";
     quit;
 
     %if %sysevalf(%superq(_n_months)=, boolean) %then %let _n_months=0;
@@ -45,6 +53,7 @@ Implementacion simple y rapida:
               into :_p1-:_p3,
                    :_v1-:_v3
             from &monthly_table.
+            where Split="&split."
             order by Periodo;
         quit;
 
@@ -54,6 +63,7 @@ Implementacion simple y rapida:
               into :_lp1-:_lp3,
                    :_lv1-:_lv3
             from &monthly_table.
+            where Split="&split."
             order by Periodo desc;
         quit;
 
@@ -71,6 +81,7 @@ Implementacion simple y rapida:
               into :_p1,
                    :_v1
             from &monthly_table.
+            where Split="&split."
             order by Periodo;
         quit;
 
@@ -80,6 +91,7 @@ Implementacion simple y rapida:
               into :_pn,
                    :_vn
             from &monthly_table.
+            where Split="&split."
             order by Periodo desc;
         quit;
 
@@ -98,7 +110,7 @@ Implementacion simple y rapida:
     %else %let _relative_diff=%sysevalf((&_end_value. - &_start_value.) /
         &_start_value.);
 
-    data casuser._tgt_rel_tmp;
+    data casuser._tgt_rel_row;
         length Split $5 Window_Type $20 Start_Label End_Label $64 Note $120;
         format Start_Value End_Value percent8.4 Relative_Diff percent8.2;
         Split="&split.";
@@ -113,11 +125,39 @@ Implementacion simple y rapida:
         output;
     run;
 
-    %_tgt_append(base=casuser._tgt_rel_diff, data=casuser._tgt_rel_tmp);
+    %_tgt_append(base=&out., data=casuser._tgt_rel_row);
 
     proc datasets library=casuser nolist nowarn;
-        delete _tgt_rel_tmp;
+        delete _tgt_rel_row;
     quit;
+
+%mend _tgt_rel_diff_one;
+
+%macro _tgt_build_rel_diff(monthly_table=, out=casuser._tgt_rel_diff);
+
+    %local _split_n _i;
+
+    data &out.;
+        length Split $5 Window_Type $20 Start_Label End_Label $64 Note $120;
+        length N_Months Start_Value End_Value Relative_Diff 8;
+        format Start_Value End_Value percent8.4 Relative_Diff percent8.2;
+        stop;
+    run;
+
+    proc sql noprint;
+        select distinct Split into :_tgt_split_1-:_tgt_split_999
+        from &monthly_table.
+        where not missing(Split)
+        order by Split;
+        %let _split_n=&sqlobs.;
+    quit;
+
+    %if %sysevalf(%superq(_split_n)=, boolean) %then %let _split_n=0;
+
+    %do _i=1 %to &_split_n.;
+        %_tgt_rel_diff_one(split=&&_tgt_split_&_i.,
+            monthly_table=&monthly_table., out=&out.);
+    %end;
 
 %mend _tgt_build_rel_diff;
 
@@ -127,14 +167,8 @@ Implementacion simple y rapida:
         _max_val;
     %let _ref_split=TRAIN;
 
-    proc sql noprint;
-        select count(*) into :_train_rows trimmed
-        from &rd_table.
-        where Split='TRAIN';
-    quit;
-
-    %if %sysevalf(%superq(_train_rows)=, boolean) or &_train_rows.=0 %then
-        %let _ref_split=OOT;
+    %_tgt_rows(data=&rd_table., where=Split='TRAIN', outvar=_train_rows);
+    %if &_train_rows.=0 %then %let _ref_split=OOT;
 
     proc sql noprint;
         select coalesce(mean(RD), 0),
@@ -191,26 +225,17 @@ Implementacion simple y rapida:
         keep Split Periodo N_Cuentas Total_Monto RD_Pond_Prom;
     run;
 
-    proc sql noprint;
-        select count(*) into :_rows trimmed
-        from casuser._tgt_weight_avg;
-    quit;
-
-    %if %sysevalf(%superq(_rows)=, boolean) or &_rows.=0 %then %do;
+    %_tgt_rows(data=casuser._tgt_weight_avg, outvar=_rows);
+    %if &_rows.=0 %then %do;
         proc datasets library=casuser nolist nowarn;
             delete _tgt_wavg_base _tgt_weight_avg;
         quit;
         %return;
     %end;
 
-    proc sql noprint;
-        select count(*) into :_train_rows trimmed
-        from casuser._tgt_weight_avg
-        where Split='TRAIN';
-    quit;
-
-    %if %sysevalf(%superq(_train_rows)=, boolean) or &_train_rows.=0 %then
-        %let _ref_split=OOT;
+    %_tgt_rows(data=casuser._tgt_weight_avg, where=Split='TRAIN',
+        outvar=_train_rows);
+    %if &_train_rows.=0 %then %let _ref_split=OOT;
 
     proc sql noprint;
         select coalesce(sum(_target_monto) / sum(&monto.), 0)
@@ -272,26 +297,17 @@ Implementacion simple y rapida:
         keep Split Periodo N_Cuentas Sum_Target_Pond Total_Monto;
     run;
 
-    proc sql noprint;
-        select count(*) into :_rows trimmed
-        from casuser._tgt_weight_sum;
-    quit;
-
-    %if %sysevalf(%superq(_rows)=, boolean) or &_rows.=0 %then %do;
+    %_tgt_rows(data=casuser._tgt_weight_sum, outvar=_rows);
+    %if &_rows.=0 %then %do;
         proc datasets library=casuser nolist nowarn;
             delete _tgt_wsum_base _tgt_weight_sum;
         quit;
         %return;
     %end;
 
-    proc sql noprint;
-        select count(*) into :_train_rows trimmed
-        from casuser._tgt_weight_sum
-        where Split='TRAIN';
-    quit;
-
-    %if %sysevalf(%superq(_train_rows)=, boolean) or &_train_rows.=0 %then
-        %let _ref_split=OOT;
+    %_tgt_rows(data=casuser._tgt_weight_sum, where=Split='TRAIN',
+        outvar=_train_rows);
+    %if &_train_rows.=0 %then %let _ref_split=OOT;
 
     proc sql noprint;
         select coalesce(mean(Sum_Target_Pond), 0),
@@ -366,13 +382,6 @@ Implementacion simple y rapida:
         else if _oot then Split='OOT';
     run;
 
-    data casuser._tgt_rel_diff;
-        length Split $5 Window_Type $20 Start_Label End_Label $64 Note $120;
-        length N_Months Start_Value End_Value Relative_Diff 8;
-        format Start_Value End_Value percent8.4 Relative_Diff percent8.2;
-        stop;
-    run;
-
     proc summary data=casuser._tgt_input nway;
         class Split &byvar.;
         var &target.;
@@ -390,11 +399,8 @@ Implementacion simple y rapida:
         format RD percent8.4;
     run;
 
-    %_tgt_build_rel_diff(split=TRAIN,
-        monthly_table=casuser._tgt_rd_monthly(where=(Split='TRAIN')));
-    %_tgt_build_rel_diff(split=OOT,
-        monthly_table=casuser._tgt_rd_monthly(where=(Split='OOT')));
-
+    %_tgt_build_rel_diff(monthly_table=casuser._tgt_rd_monthly,
+        out=casuser._tgt_rel_diff);
     %_tgt_build_bands(rd_table=casuser._tgt_rd_monthly);
 
     %if &has_monto.=1 %then %do;
