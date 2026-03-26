@@ -24,11 +24,16 @@ Compatibilidad:
 
 %macro _biv_append_unique(word=, listvar=);
 
-    %if %length(%superq(word)) = 0 %then %return;
+    %local _current_list;
 
-    %if %length(%superq(&listvar.)) = 0 %then %let &listvar.=%superq(word);
-    %else %if %sysfunc(findw(%superq(&listvar.), %superq(word), %str( ))) = 0 %then
-        %let &listvar.=&&&listvar. %superq(word);
+    %if %length(%superq(word)) = 0 %then %return;
+    %if %length(%superq(listvar)) = 0 %then %return;
+
+    %let _current_list=&&&listvar.;
+
+    %if %length(%superq(_current_list)) = 0 %then %let &listvar.=%superq(word);
+    %else %if %sysfunc(findw(%superq(_current_list), %superq(word), %str( ))) = 0 %then
+        %let &listvar.=&_current_list. %superq(word);
 
 %mend _biv_append_unique;
 
@@ -61,15 +66,16 @@ Compatibilidad:
 
 %macro _biv_build_select_sql(var_list=, outvar=);
 
-    %local _idx _var;
+    %local _idx _var _current_select;
     %let &outvar.=;
     %let _idx=1;
     %let _var=%scan(%superq(var_list), &_idx., %str( ));
 
     %do %while(%length(%superq(_var)) > 0);
-        %if %length(%superq(&outvar.)) = 0 %then
+        %let _current_select=&&&outvar.;
+        %if %length(%superq(_current_select)) = 0 %then
             %let &outvar.=a.&_var. as &_var.;
-        %else %let &outvar.=&&&outvar., a.&_var. as &_var.;
+        %else %let &outvar.=&_current_select., a.&_var. as &_var.;
         %let _idx=%eval(&_idx. + 1);
         %let _var=%scan(%superq(var_list), &_idx., %str( ));
     %end;
