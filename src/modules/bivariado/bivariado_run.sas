@@ -24,19 +24,19 @@ Compatibilidad:
 
 %macro _biv_append_unique(word=, listvar=);
 
-    %local _current_list _found;
+    %local _current_list _current_list_pad _word_pad;
 
     %if %length(%superq(word)) = 0 %then %return;
     %if %length(%superq(listvar)) = 0 %then %return;
 
     %let _current_list=&&&listvar.;
-    %let _found=0;
 
     %if %length(%superq(_current_list)) = 0 %then %let &listvar.=%superq(word);
     %else %do;
-        %let _found=%sysfunc(findw(%superq(_current_list), %superq(word), %str( )));
-        %if %sysevalf(%superq(_found)=, boolean) %then %let _found=0;
-        %if &_found.=0 %then %let &listvar.=&_current_list. %superq(word);
+        %let _current_list_pad=%str( )%upcase(%superq(_current_list))%str( );
+        %let _word_pad=%str( )%upcase(%superq(word))%str( );
+        %if %index(%superq(_current_list_pad), %superq(_word_pad)) = 0 %then
+            %let &listvar.=&_current_list. %superq(word);
     %end;
 
 %mend _biv_append_unique;
