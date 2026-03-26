@@ -14,12 +14,14 @@ Codificación de colores (semáforo por valor absoluto):
 0.5 ≤ |r| < 0.6 → yellow (correlación moderada)
 |r| ≥ 0.6   → red        (correlación fuerte)
 ========================================================================= */
-%macro _correlacion_report(report_path=, file_prefix=);
+%macro _correlacion_report(report_path=, file_prefix=, pearson_table=_corr_pearson,
+  spearman_table=_corr_spearman, create_metod_dir=Y);
 
   /* ---- Crear directorios METOD4.3 si no existen ----------------------- */
   %local _dir_rc;
-  %let _dir_rc=%sysfunc(dcreate(METOD4.3, &report_path./../));
-  %let _dir_rc=%sysfunc(dcreate(., &report_path.));
+  %if %upcase(&create_metod_dir.)=Y %then %do;
+    %let _dir_rc=%sysfunc(dcreate(METOD4.3, &report_path./../));
+  %end;
 
   /* ---- Formato semáforo de correlación -------------------------------- */
   proc format;
@@ -32,12 +34,12 @@ Codificación de colores (semáforo por valor absoluto):
   ods html5 file="&report_path./&file_prefix..html"
     options(bitmap_mode="inline");
 
-  proc print data=casuser._corr_pearson(drop=_type_ rename=(_name_=Variable))
+  proc print data=casuser.&pearson_table.(drop=_type_ rename=(_name_=Variable))
     style(column)={backgroundcolor=CorrSignif.} noobs;
     title "Correlation Matrix (Pearson) - &file_prefix.";
   run;
 
-  proc print data=casuser._corr_spearman(drop=_type_ rename=(_name_=Variable))
+  proc print data=casuser.&spearman_table.(drop=_type_ rename=(_name_=Variable))
     style(column)={backgroundcolor=CorrSignif.} noobs;
     title "Correlation Matrix (Spearman) - &file_prefix.";
   run;
@@ -50,7 +52,7 @@ Codificación de colores (semáforo por valor absoluto):
   ods excel file="&report_path./&file_prefix..xlsx" options(sheet_name="Pearson"
     sheet_interval="none" embedded_titles="yes");
 
-  proc print data=casuser._corr_pearson(drop=_type_ rename=(_name_=Variable))
+  proc print data=casuser.&pearson_table.(drop=_type_ rename=(_name_=Variable))
     style(column)={backgroundcolor=CorrSignif.} noobs;
     title "Correlation Matrix (Pearson)";
   run;
@@ -58,7 +60,7 @@ Codificación de colores (semáforo por valor absoluto):
   ods excel options(sheet_name="Spearman" sheet_interval="now"
     embedded_titles="yes");
 
-  proc print data=casuser._corr_spearman(drop=_type_ rename=(_name_=Variable))
+  proc print data=casuser.&spearman_table.(drop=_type_ rename=(_name_=Variable))
     style(column)={backgroundcolor=CorrSignif.} noobs;
     title "Correlation Matrix (Spearman)";
   run;

@@ -129,9 +129,16 @@ Convencion: el modulo debe exponer %<module>_run(...).
 
 		/* 3) Ejecutar modulo scope-input */
 		%include "&fw_root./src/modules/&module./&module._run.sas";
-		%&module._run( input_caslib=PROC, input_table=_scope_input,
-			output_caslib=&_out_caslib., troncal_id=&troncal_id.,
-			scope=&_scope., run_id=&run_id. );
+		%if %upcase(&module.)=CORRELACION %then %do;
+			%&module._run( input_caslib=PROC, input_table=_scope_input,
+				output_caslib=&_out_caslib., troncal_id=&troncal_id.,
+				split=&split., scope=&_scope., run_id=&run_id. );
+		%end;
+		%else %do;
+			%&module._run( input_caslib=PROC, input_table=_scope_input,
+				output_caslib=&_out_caslib., troncal_id=&troncal_id.,
+				scope=&_scope., run_id=&run_id. );
+		%end;
 
 		%put NOTE: [run_module] &module. completado para
 			troncal_&troncal_id./&_scope. (scope-input).;

@@ -53,23 +53,7 @@ Outputs van a experiments/ (análisis exploratorio).           */
         lib_caslib=OUT, global=Y, cas_sess_name=conn, term_global_sess=0,
         subdirs_flg=1 );
 
-    /* ---- 2) Resolver splits (común para ambos scopes) ------------------- */
-    %local _sp1 _sp2;
-
-    %if %upcase(&ctx_split.)=TRAIN %then %do;
-        %let _sp1=train;
-        %let _sp2= ;
-    %end;
-    %else %if %upcase(&ctx_split.)=OOT %then %do;
-        %let _sp1=oot;
-        %let _sp2= ;
-    %end;
-    %else %do;
-        %let _sp1=train;
-        %let _sp2=oot;
-    %end;
-
-    /* ---- 3) Iterar según ctx_scope -------------------------------------- */
+    /* ---- 2) Iterar según ctx_scope -------------------------------------- */
     %if %upcase(&ctx_scope.)=SEGMENTO %then %do;
 
         %put NOTE: [step_correlacion] SEGMENTO: troncal=&ctx_troncal_id.
@@ -80,23 +64,17 @@ Outputs van a experiments/ (análisis exploratorio).           */
                 0 segmentos. Nada que ejecutar.;
         %end;
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
-            /* Segmento específico */
-            %if %superq(_sp1) ne %then %run_module(module=correlacion,
-                troncal_id=&ctx_troncal_id., split=&_sp1., seg_id=&ctx_seg_id.,
-                run_id=&run_id.);
-            %if %superq(_sp2) ne %then %run_module(module=correlacion,
-                troncal_id=&ctx_troncal_id., split=&_sp2., seg_id=&ctx_seg_id.,
-                run_id=&run_id.);
+            /* Segmento especifico: un solo promote, splits internos */
+            %run_module(module=correlacion, troncal_id=&ctx_troncal_id.,
+                split=&ctx_split., seg_id=&ctx_seg_id., run_id=&run_id.,
+                scope_input=1);
         %end;
         %else %do;
             /* Todos los segmentos */
             %do _sg=1 %to &ctx_n_segments.;
-                %if %superq(_sp1) ne %then %run_module(module=correlacion,
-                    troncal_id=&ctx_troncal_id., split=&_sp1., seg_id=&_sg.,
-                    run_id=&run_id.);
-                %if %superq(_sp2) ne %then %run_module(module=correlacion,
-                    troncal_id=&ctx_troncal_id., split=&_sp2., seg_id=&_sg.,
-                    run_id=&run_id.);
+                %run_module(module=correlacion, troncal_id=&ctx_troncal_id.,
+                    split=&ctx_split., seg_id=&_sg., run_id=&run_id.,
+                    scope_input=1);
             %end;
         %end;
 
@@ -106,11 +84,9 @@ Outputs van a experiments/ (análisis exploratorio).           */
         %put NOTE: [step_correlacion] UNIVERSO: troncal=&ctx_troncal_id.
             split=&ctx_split.;
 
-        /* Ejecutar base (universo) del troncal */
-        %if %superq(_sp1) ne %then %run_module(module=correlacion,
-            troncal_id=&ctx_troncal_id., split=&_sp1., seg_id=, run_id=&run_id.);
-        %if %superq(_sp2) ne %then %run_module(module=correlacion,
-            troncal_id=&ctx_troncal_id., split=&_sp2., seg_id=, run_id=&run_id.);
+        /* Ejecutar base del troncal una sola vez */
+        %run_module(module=correlacion, troncal_id=&ctx_troncal_id.,
+            split=&ctx_split., seg_id=, run_id=&run_id., scope_input=1);
 
     %end; /* fin UNIVERSO */
     %else %do;
