@@ -57,16 +57,8 @@ Principios:
 
     %local rnd;
     %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
-    %global _biv_case_sql;
-
-    %let _biv_case_sql=case
-        when a.&var. is null
-          or a.&var. in (1111111111,-1111111111,2222222222,-2222222222,
-              3333333333,-3333333333,4444444444,5555555555,6666666666,
-              7777777777,-999999999)
-        then '00. Missing'
-        else '99. Sin Asignar'
-    end;
+    %global _biv_cut_n;
+    %let _biv_cut_n=0;
 
     data work._biv_cut_&rnd._0;
         set &train_data.(keep=&var.);
@@ -120,37 +112,20 @@ Principios:
             '; ', strip(put(MAXVAL, F12.4)), ']');
     run;
 
+    proc sql noprint;
+        select count(*) into :_biv_cut_n trimmed
+        from work._biv_cortes
+        where RANGO > 0;
+    quit;
+
     data _null_;
-        set work._biv_cortes end=EOF;
-        length _piece $800 _case_sql $32767;
-        retain _case_sql 'case';
-
-        if RANGO=0 then _piece = cats(
-            ' when a.', "&var.",
-            ' is null or a.', "&var.",
-            ' in (1111111111,-1111111111,2222222222,-2222222222,3333333333,-3333333333,4444444444,5555555555,6666666666,7777777777,-999999999) then ''',
-            strip(ETIQUETA), ''''
-        );
-        else if FLAG_INI=1 then _piece = cats(
-            ' when a.', "&var.", ' <= ', strip(put(MAXVAL, best32.-L)),
-            ' and a.', "&var.", ' is not null then ''', strip(ETIQUETA), ''''
-        );
-        else if FLAG_FIN=1 then _piece = cats(
-            ' when a.', "&var.", ' > ', strip(put(LAGMAXVAL, best32.-L)),
-            ' then ''', strip(ETIQUETA), ''''
-        );
-        else _piece = cats(
-            ' when a.', "&var.", ' > ', strip(put(LAGMAXVAL, best32.-L)),
-            ' and a.', "&var.", ' <= ', strip(put(MAXVAL, best32.-L)),
-            ' then ''', strip(ETIQUETA), ''''
-        );
-
-        _case_sql = catx(' ', _case_sql, _piece);
-
-        if EOF then do;
-            _case_sql = catx(' ', _case_sql, " else '99. Sin Asignar' end");
-            call symputx('_biv_case_sql', _case_sql, 'G');
-        end;
+        set work._biv_cortes(where=(RANGO > 0));
+        _idx + 1;
+        call symputx(cats('_biv_cut_label', _idx), ETIQUETA, 'G');
+        call symputx(cats('_biv_cut_flag_ini', _idx), FLAG_INI, 'G');
+        call symputx(cats('_biv_cut_flag_fin', _idx), FLAG_FIN, 'G');
+        call symputx(cats('_biv_cut_max', _idx), strip(put(MAXVAL, best32.-L)), 'G');
+        call symputx(cats('_biv_cut_lag', _idx), strip(put(LAGMAXVAL, best32.-L)), 'G');
     run;
 
     proc datasets library=work nolist nowarn;
@@ -162,22 +137,47 @@ Principios:
 %macro _biv_append_numeric(source_data=, train_data=, target=, byvar=, var=,
     groups=5, section=, out_table=);
 
+    %local _i;
     %_biv_calcular_cortes(train_data=&train_data., var=&var., groups=&groups.);
 
-    proc fedsql sessref=conn;
-        create table casuser._biv_stage {options replace=true} as
-        select cast('&section.' as varchar(12)) as Seccion,
-               cast('NUMERICA' as varchar(12)) as Tipo_Variable,
-               cast('&var.' as varchar(64)) as Variable,
-               &_biv_case_sql. as Valor,
-               cast(a._biv_period as varchar(10)) as Ventana,
-               a.&byvar. as Periodo,
-               a.&target. as Target
-        from &source_data. a;
-    quit;
+    data work._biv_stage_num;
+        length Seccion $12 Tipo_Variable $12 Variable $64 Valor $200
+            Ventana $10 Periodo 8 Target 8;
+        set &source_data.(keep=_biv_period &byvar. &target. &var.);
+        Seccion="&section.";
+        Tipo_Variable='NUMERICA';
+        Variable="&var.";
+        Ventana=_biv_period;
+        Periodo=&byvar.;
+        Target=&target.;
 
-    proc fedsql sessref=conn;
-        create table casuser._biv_append {options replace=true} as
+        if missing(&var.) or &var. in (1111111111, -1111111111, 2222222222,
+            -2222222222, 3333333333, -3333333333, 4444444444, 5555555555,
+            6666666666, 7777777777, -999999999) then Valor='00. Missing';
+        %if &_biv_cut_n. > 0 %then %do;
+            %do _i=1 %to &_biv_cut_n.;
+                %if &&_biv_cut_flag_ini&_i. = 1 %then %do;
+                    else if &var. <= &&_biv_cut_max&_i. then Valor="&&_biv_cut_label&_i.";
+                %end;
+                %else %if &&_biv_cut_flag_fin&_i. = 1 %then %do;
+                    else if &var. > &&_biv_cut_lag&_i. then Valor="&&_biv_cut_label&_i.";
+                %end;
+                %else %do;
+                    else if &var. > &&_biv_cut_lag&_i. and
+                        &var. <= &&_biv_cut_max&_i. then Valor="&&_biv_cut_label&_i.";
+                %end;
+            %end;
+            else Valor='99. Sin Asignar';
+        %end;
+        %else %do;
+            else Valor='01. Sin Corte';
+        %end;
+
+        keep Seccion Tipo_Variable Variable Valor Ventana Periodo Target;
+    run;
+
+    proc sql;
+        create table work._biv_append_num as
         select a.Seccion,
                a.Tipo_Variable,
                a.Variable,
@@ -188,11 +188,17 @@ Principios:
                case when b.Total_Obs > 0 then count(*) / b.Total_Obs else 0 end as Pct_Cuentas,
                sum(a.Target) as Defaults,
                avg(a.Target) as RD
-        from casuser._biv_stage a
-        inner join casuser._biv_period_totals b
+        from work._biv_stage_num a
+        inner join work._biv_period_totals b
             on a.Periodo = b.Periodo
         group by a.Seccion, a.Tipo_Variable, a.Variable, a.Valor,
                  a.Ventana, a.Periodo, b.Total_Obs;
+    quit;
+
+    proc casutil;
+        droptable casdata="_biv_append" incaslib="casuser" quiet;
+        load data=work._biv_append_num casout="_biv_append"
+            outcaslib="casuser" replace;
     quit;
 
     proc cas;
@@ -200,12 +206,11 @@ Principios:
         table.append /
             source={caslib='casuser', name='_biv_append'},
             target={caslib='casuser', name='&out_table.'};
-        table.dropTable / caslib='casuser' name='_biv_stage' quiet=true;
         table.dropTable / caslib='casuser' name='_biv_append' quiet=true;
     quit;
 
     proc datasets library=work nolist nowarn;
-        delete _biv_cortes;
+        delete _biv_cortes _biv_stage_num _biv_append_num;
     quit;
 
 %mend _biv_append_numeric;
@@ -306,6 +311,10 @@ Principios:
 
     %_biv_sort_cas(table_name=_biv_period_totals,
         orderby=%str({"Periodo"}));
+
+    data work._biv_period_totals;
+        set casuser._biv_period_totals;
+    run;
 
     %_biv_init_detail_table(table_name=_biv_main_detail);
     %_biv_init_detail_table(table_name=_biv_driver_detail);
