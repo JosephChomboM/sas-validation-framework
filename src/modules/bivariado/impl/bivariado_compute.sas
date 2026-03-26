@@ -35,21 +35,11 @@ Principios:
 
 %macro _biv_init_detail_table(table_name=);
 
-    proc fedsql sessref=conn;
-        create table casuser.&table_name. {options replace=true} as
-        select cast('' as varchar(12)) as Seccion,
-               cast('' as varchar(12)) as Tipo_Variable,
-               cast('' as varchar(64)) as Variable,
-               cast('' as varchar(200)) as Valor,
-               cast('' as varchar(10)) as Ventana,
-               cast(. as double) as Periodo,
-               cast(. as double) as N,
-               cast(. as double) as Pct_Cuentas,
-               cast(. as double) as Defaults,
-               cast(. as double) as RD
-        from casuser._biv_period_totals
-        where 1=0;
-    quit;
+    data work.&table_name.;
+        length Seccion $12 Tipo_Variable $12 Variable $64 Valor $200
+            Ventana $10 Periodo 8 N 8 Pct_Cuentas 8 Defaults 8 RD 8;
+        stop;
+    run;
 
 %mend _biv_init_detail_table;
 
@@ -195,18 +185,7 @@ Principios:
                  a.Ventana, a.Periodo, b.Total_Obs;
     quit;
 
-    proc casutil;
-        droptable casdata="_biv_append" incaslib="casuser" quiet;
-        load data=work._biv_append_num casout="_biv_append"
-            outcaslib="casuser" replace;
-    quit;
-
-    proc cas;
-        session conn;
-        table.append /
-            source={caslib='casuser', name='_biv_append'},
-            target={caslib='casuser', name='&out_table.'};
-        table.dropTable / caslib='casuser' name='_biv_append' quiet=true;
+    proc append base=work.&out_table. data=work._biv_append_num force;
     quit;
 
     proc datasets library=work nolist nowarn;
@@ -253,13 +232,21 @@ Principios:
                  a.Ventana, a.Periodo, b.Total_Obs;
     quit;
 
+    data work._biv_append_cat;
+        set casuser._biv_append;
+    run;
+
+    proc append base=work.&out_table. data=work._biv_append_cat force;
+    quit;
+
     proc cas;
         session conn;
-        table.append /
-            source={caslib='casuser', name='_biv_append'},
-            target={caslib='casuser', name='&out_table.'};
         table.dropTable / caslib='casuser' name='_biv_stage' quiet=true;
         table.dropTable / caslib='casuser' name='_biv_append' quiet=true;
+    quit;
+
+    proc datasets library=work nolist nowarn;
+        delete _biv_append_cat;
     quit;
 
 %mend _biv_append_categorical;
@@ -331,9 +318,12 @@ Principios:
             out_table=_biv_driver_detail);
     %end;
 
-    %_biv_sort_cas(table_name=_biv_main_detail,
-        orderby=%str({"Variable", "Periodo", "Valor"}));
-    %_biv_sort_cas(table_name=_biv_driver_detail,
-        orderby=%str({"Variable", "Periodo", "Valor"}));
+    proc sort data=work._biv_main_detail;
+        by Variable Periodo Valor;
+    run;
+
+    proc sort data=work._biv_driver_detail;
+        by Variable Periodo Valor;
+    run;
 
 %mend _bivariado_compute;

@@ -74,7 +74,7 @@ Genera:
     %let _has_drivers=0;
     proc sql noprint;
         select count(*) into :_has_drivers trimmed
-        from casuser._biv_driver_detail;
+        from work._biv_driver_detail;
     quit;
 
     ods graphics on;
@@ -86,7 +86,7 @@ Genera:
         options(sheet_name="VARIABLES" sheet_interval="none"
         embedded_titles="yes");
 
-    %_biv_report_section(detail_table=casuser._biv_main_detail,
+    %_biv_report_section(detail_table=work._biv_main_detail,
         byvar=&byvar., oot_min_mes=&oot_min_mes.,
         image_prefix=&file_prefix._main, section_title=Variables Principales);
 
@@ -94,7 +94,7 @@ Genera:
         ods excel options(sheet_name="DRIVERS" sheet_interval="now"
             embedded_titles="yes");
 
-        %_biv_report_section(detail_table=casuser._biv_driver_detail,
+        %_biv_report_section(detail_table=work._biv_driver_detail,
             byvar=&byvar., oot_min_mes=&oot_min_mes.,
             image_prefix=&file_prefix._drv, section_title=Drivers);
     %end;
