@@ -1,35 +1,11 @@
 /* =========================================================================
 segmentacion_report.sas - Reportes HTML + Excel + JPEG para Segmentacion
 
-Genera:
-<report_path>/<prefix>.html   - HTML con graficos y resultados
-<report_path>/<prefix>.xlsx   - Excel multi-hoja:
-    Hoja 1: MATERIALIDAD_GLOBAL (suficiencia global)
-    Hoja 2: MATERIALIDAD_SEGMENTO (suficiencia por segmento, si aplica)
-    Hoja 3: HETEROGENEIDAD_KS (test KS entre pares, si aplica)
-    Hoja 4: KRUSKAL_WALLIS (test KW, si aplica)
-    Hoja 5: MIGRACION (tipos + resumen + heatmap, si aplica)
-    Hoja 6: GRAFICOS (distribucion mensual por segmento)
-<images_path>/<prefix>_*.jpeg  - Graficos JPEG independientes
-
-Consume tablas de work generadas por _seg_compute.
-
-Convencion ODS: JPEG, bitmap_mode=inline, dual ODS (HTML5 + Excel),
-reset=all al cerrar (ver design.md 7.9).
+Genera un unico reporte consolidado y un unico grafico temporal continuo.
+Los periodos TRAIN/OOT siguen siendo identificables de forma implicita a
+traves de la columna Periodo y de la linea de corte en el grafico.
 ========================================================================= */
 
-/* =====================================================================
-%_seg_get_ticks - Helper para etiquetas de eje x en PROC SGPLOT
-
-Genera macro vars con valores de byvar y etiquetas para display
-(muestra solo cada N-esima etiqueta para evitar solapamiento).
-
-Parametros:
-data     - dataset de entrada
-byvar    - variable temporal
-out_vals - nombre de macrovar para valores (default: _seg_ticks)
-out_disp - nombre de macrovar para display labels (default: _seg_tdisp)
-===================================================================== */
 %macro _seg_get_ticks(data=, byvar=, out_vals=_seg_ticks,
     out_disp=_seg_tdisp);
 
@@ -37,7 +13,8 @@ out_disp - nombre de macrovar para display labels (default: _seg_tdisp)
 
     proc sql noprint;
         select distinct &byvar. into :&out_vals. separated by ' '
-        from &data.;
+        from &data.
+        order by &byvar.;
     quit;
 
     %local n v t;
@@ -62,114 +39,43 @@ out_disp - nombre de macrovar para display labels (default: _seg_tdisp)
 
 %mend _seg_get_ticks;
 
-/* =====================================================================
-%_seg_plot_distrib - Grafico de distribucion mensual por segmento
-
-sep=0: combinado vbar + vline (dual y-axis)
-sep=1: graficos separados (vbar, vline, cluster)
-===================================================================== */
-%macro _seg_plot_distrib(data=, target=, byvar=, segvar=, sep=0);
+%macro _seg_plot_unificado(data=, target=, byvar=, segvar=, oot_min_mes=);
 
     %_seg_get_ticks(data=&data., byvar=&byvar.);
 
-    %if &sep. = 0 %then %do;
+    title "Evolucion temporal consolidada por &segvar.";
+    title2 "La linea roja marca el inicio del periodo OOT dentro del flujo continuo.";
 
-        title "Distribucion mensual por &segvar.";
-        proc sgplot data=&data.;
-            vbar &byvar. / nooutline group=&segvar.;
-            vline &byvar. / response=&target. group=&segvar.
-                markers stat=mean
-                markerattrs=(symbol=circlefilled)
-                y2axis;
-            yaxis label="Cuentas";
-            y2axis min=0 label="Mean &target."
-                valuesformat=percentn8.0;
-            xaxis values=(&_seg_ticks.)
-                valuesdisplay=(&_seg_tdisp.);
-        run;
-        title;
+    proc sgplot data=&data.;
+        vbar &byvar. / nooutline group=&segvar.;
+        vline &byvar. / response=&target. group=&segvar.
+            stat=mean markers markerattrs=(symbol=circlefilled) y2axis;
+        refline &oot_min_mes. / axis=x
+            lineattrs=(color=red pattern=shortdash thickness=2)
+            label=("Inicio OOT");
+        yaxis label="Cuentas";
+        y2axis min=0 label="Mean &target." valuesformat=percentn8.0;
+        xaxis values=(&_seg_ticks.) valuesdisplay=(&_seg_tdisp.);
+    run;
 
-    %end;
-    %else %do;
+    title;
+    title2;
 
-        /* Calcular distribucion porcentual */
-        proc sql;
-            create table work._seg_rpt_dist as
-            select &segvar., &byvar.,
-                count(*) as cuentas,
-                (select count(*) from &data.
-                 where &byvar. = a.&byvar.) as total_por_periodo
-            from &data. as a
-            group by &byvar., &segvar.;
-        quit;
+%mend _seg_plot_unificado;
 
-        proc sql;
-            create table work._seg_rpt_distpct as
-            select *, round((cuentas / total_por_periodo) * 100, 0.01) as pct
-            from work._seg_rpt_dist;
-        quit;
-
-        title "Distribucion de cuentas por &segvar.";
-        proc sgplot data=&data.;
-            vbar &byvar. / nooutline group=&segvar.;
-            yaxis label="Cuentas";
-            xaxis values=(&_seg_ticks.)
-                valuesdisplay=(&_seg_tdisp.);
-        run;
-        title;
-
-        title "Mean &target. por segmento &segvar.";
-        proc sgplot data=&data.;
-            vline &byvar. / response=&target. group=&segvar.
-                markers stat=mean
-                markerattrs=(symbol=circlefilled);
-            yaxis min=0 label="Mean &target."
-                valuesformat=percentn8.0;
-            xaxis type=discrete values=(&_seg_ticks.)
-                valuesdisplay=(&_seg_tdisp.);
-        run;
-        title;
-
-        title "Distribucion porcentual por &segvar.";
-        proc sgplot data=work._seg_rpt_distpct;
-            vbar &byvar. / response=cuentas group=&segvar.
-                groupdisplay=cluster datalabel=pct;
-            xaxis display=(nolabel);
-            yaxis label="Cuentas";
-        run;
-        title;
-
-        proc datasets lib=work nolist nowarn;
-            delete _seg_rpt_dist _seg_rpt_distpct;
-        quit;
-
-    %end;
-
-%mend _seg_plot_distrib;
-
-/* =====================================================================
-%_seg_report - Orquestador de reportes
-
-Parametros:
-report_path  - Directorio para HTML + Excel
-images_path  - Directorio para JPEG independientes
-file_prefix  - Prefijo de nombre de archivos
-data         - Dataset de trabajo (work)
-target       - Variable target
-byvar        - Variable temporal
-segvar       - Variable segmentadora
-has_segm     - 1 si hay segmentos, 0 si no
-data_type    - TRAIN u OOT
-plot_sep     - 0=combinado, 1=separado (graficos distribucion)
-===================================================================== */
 %macro _seg_report(report_path=, images_path=, file_prefix=, data=,
-    target=, byvar=, segvar=, has_segm=0, data_type=, plot_sep=0);
+    target=, byvar=, segvar=, has_segm=0, has_id=0, oot_min_mes=,
+    plot_sep=0);
 
-    %put NOTE: [seg_report] Generando reportes...;
+    %local _has_ks _has_mig _has_kw;
+
+    %put NOTE: [seg_report] Generando reportes consolidados...;
     %put NOTE: [seg_report] report_path=&report_path.;
     %put NOTE: [seg_report] file_prefix=&file_prefix.;
 
-    /* ---- Formatos condicionales para proc print ----------------------- */
+    %if &plot_sep. ne 0 %then
+        %put NOTE: [seg_report] seg_plot_sep=&plot_sep. se ignora por compatibilidad; el modulo genera un unico grafico consolidado.;
+
     proc format;
         value $statusmtd
             'CUMPLE'     = 'LightGreen'
@@ -179,7 +85,27 @@ plot_sep     - 0=combinado, 1=separado (graficos distribucion)
             'SIMILARES'  = 'LightRed';
     run;
 
-    /* ---- Abrir destinos ODS (HTML5 + Excel simultaneo) ---------------- */
+    %let _has_ks = 0;
+    %let _has_mig = 0;
+    %let _has_kw = 0;
+
+    proc sql noprint;
+        select count(*) into :_has_ks trimmed
+        from dictionary.tables
+        where upcase(libname) = 'CASUSER'
+          and upcase(memname) = '_SEG_KS_RESULTS';
+
+        select count(*) into :_has_mig trimmed
+        from dictionary.tables
+        where upcase(libname) = 'CASUSER'
+          and upcase(memname) = '_SEG_MIG_TIPOS';
+
+        select count(*) into :_has_kw trimmed
+        from dictionary.tables
+        where upcase(libname) = 'CASUSER'
+          and upcase(memname) = '_SEG_KW_TEST';
+    quit;
+
     ods graphics on;
     ods listing gpath="&images_path.";
 
@@ -189,14 +115,9 @@ plot_sep     - 0=combinado, 1=separado (graficos distribucion)
         options(sheet_name="MATERIALIDAD_GLOBAL" sheet_interval="none"
         embedded_titles="yes");
 
-    /* ==================================================================
-    Hoja 1: MATERIALIDAD_GLOBAL - Suficiencia global
-    ================================================================== */
-    ods graphics / imagename="&file_prefix._mtd_global" imagefmt=jpeg;
-
-    title "Validacion de Suficiencia Global - &data_type.";
-    proc print data=work._seg_mtd_global noobs label;
-        var Tipo_Muestra Materialidad;
+    title "Validacion de Suficiencia Consolidada";
+    proc print data=casuser._seg_mtd_global noobs label;
+        var Periodo Materialidad;
         var Verif_Materialidad / style={background=$statusmtd.};
         var Cantidad_Target;
         var Verif_Target / style={background=$statusmtd.};
@@ -204,16 +125,13 @@ plot_sep     - 0=combinado, 1=separado (graficos distribucion)
     run;
     title;
 
-    /* ==================================================================
-    Hoja 2: MATERIALIDAD_SEGMENTO - Suficiencia por segmento
-    ================================================================== */
     %if &has_segm. = 1 %then %do;
         ods excel options(sheet_name="MATERIALIDAD_SEGMENTO"
             sheet_interval="now");
 
-        title "Materialidad de Segmentos - &data_type.";
-        proc print data=work._seg_mtd_segm noobs label;
-            var Segmento Materialidad;
+        title "Materialidad de Segmentos - Vista Consolidada";
+        proc print data=casuser._seg_mtd_segm noobs label;
+            var Periodo Segmento Materialidad;
             var Verif_Materialidad / style={background=$statusmtd.};
             var Cantidad_Target;
             var Verif_Target / style={background=$statusmtd.};
@@ -221,106 +139,79 @@ plot_sep     - 0=combinado, 1=separado (graficos distribucion)
         run;
         title;
 
-        title "Resumen de Cumplimiento - &data_type.";
-        proc print data=work._seg_mtd_resumen noobs label;
+        title "Resumen de Cumplimiento por Periodo";
+        proc print data=casuser._seg_mtd_resumen noobs label;
+            format PCT_Cumplimiento percent8.2;
         run;
         title;
     %end;
 
-    /* ==================================================================
-    Hoja 3: HETEROGENEIDAD_KS - Test KS entre pares de segmentos
-    ================================================================== */
-    %if &has_segm. = 1 %then %do;
+    %if &has_segm. = 1 and &_has_ks. > 0 %then %do;
         ods excel options(sheet_name="HETEROGENEIDAD_KS"
             sheet_interval="now");
-        ods graphics / imagename="&file_prefix._ks" imagefmt=jpeg;
 
-        title "Test de Heterogeneidad KS entre Segmentos - &data_type.";
-        proc print data=work._seg_ks_results noobs;
-            var Segmento1 Segmento2 KS_Statistic D_Statistic P_Value;
+        title "Test KS entre Segmentos - Ventana Consolidada";
+        proc print data=casuser._seg_ks_results noobs;
+            var Tipo_Muestra Segmento1 Segmento2 KS_Statistic D_Statistic P_Value;
             var Prueba_KS / style={background=$statusks.};
             format P_Value pvalue6.4 KS_Statistic D_Statistic 6.4;
         run;
         title;
 
-        title "Resumen Heterogeneidad - &data_type.";
-        proc print data=work._seg_ks_resumen noobs;
+        title "Resumen Heterogeneidad";
+        proc print data=casuser._seg_ks_resumen noobs;
+            format Proporcion_Diferentes percent8.1;
         run;
         title;
     %end;
 
-    /* ==================================================================
-    Hoja 4: KRUSKAL_WALLIS - Test de diferencias entre segmentos
-    ================================================================== */
     %if &has_segm. = 1 %then %do;
         ods excel options(sheet_name="KRUSKAL_WALLIS"
             sheet_interval="now");
 
-        title "Medias de &target. por Segmento y Periodo";
-        proc print data=work._seg_kw_means noobs;
+        title "Medias de &target. por Segmento y Periodo Temporal";
+        proc print data=casuser._seg_kw_means noobs;
         run;
         title;
 
-        title "Test de Kruskal-Wallis";
-        proc print data=work._seg_kw_test noobs;
-        run;
-        title;
+        %if &_has_kw. > 0 %then %do;
+            title "Test de Kruskal-Wallis";
+            proc print data=casuser._seg_kw_test noobs;
+            run;
+            title;
+        %end;
     %end;
 
-    /* ==================================================================
-    Hoja 5: MIGRACION - Analisis de migracion de segmentos
-    ================================================================== */
-    %if &has_segm. = 1 and %sysfunc(exist(work._seg_mig_tipos))
-    %then %do;
+    %if &has_segm. = 1 and &has_id. = 1 and &_has_mig. > 0 %then %do;
         ods excel options(sheet_name="MIGRACION" sheet_interval="now");
-        ods graphics / imagename="&file_prefix._mig" imagefmt=jpeg;
 
-        title "Distribucion por Tipo de Cliente - &data_type.";
-        proc print data=work._seg_mig_tipos noobs;
+        title "Distribucion por Tipo de Cliente";
+        proc print data=casuser._seg_mig_tipos noobs;
+            format PCT_Total 8.2;
         run;
         title;
 
-        title "Migracion de Segmentos - &data_type.";
-        proc print data=work._seg_mig_resumen noobs;
-            var Segmento Cant_Retirados Pct_Retirados Cant_Nuevos Pct_Nuevos;
+        title "Migracion de Segmentos: primer mes TRAIN vs ultimo mes OOT";
+        proc print data=casuser._seg_mig_resumen noobs;
+            format Pct_Retirados Pct_Nuevos 8.2;
         run;
         title;
 
-        /* Heatmap de migracion */
-        proc template;
-            define statgraph _seg_migration_heatmap;
-                begingraph;
-                    entrytitle "Migracion entre Segmentos - &data_type.";
-                    layout overlay /
-                        xaxisopts=(label="Segmento Inicial")
-                        yaxisopts=(label="Segmento Final");
-                        heatmapparm x=seg_primer_mes y=seg_ultimo_mes
-                            colorresponse=Percent /
-                            name="heatmap" colormodel=ThreeColorRamp
-                            primary=true display=all;
-                        continuouslegend "heatmap" / title="Porcentaje";
-                    endlayout;
-                endgraph;
-            end;
+        title "Matriz de Cruce de Segmentos";
+        proc print data=casuser._seg_mig_cruce noobs;
+            format Percent 8.2;
         run;
-
-        proc sgrender data=work._seg_mig_cruce
-            template=_seg_migration_heatmap;
-        run;
+        title;
     %end;
 
-    /* ==================================================================
-    Hoja 6: GRAFICOS - Distribucion mensual por segmento
-    ================================================================== */
     %if &has_segm. = 1 %then %do;
         ods excel options(sheet_name="GRAFICOS" sheet_interval="now");
-        ods graphics / imagename="&file_prefix._dist" imagefmt=jpeg;
+        ods graphics / imagename="&file_prefix._timeline" imagefmt=jpeg;
 
-        %_seg_plot_distrib(data=&data., target=&target., byvar=&byvar.,
-            segvar=&segvar., sep=&plot_sep.);
+        %_seg_plot_unificado(data=&data., target=&target., byvar=&byvar.,
+            segvar=&segvar., oot_min_mes=&oot_min_mes.);
     %end;
 
-    /* ---- Cerrar destinos ODS ------------------------------------------ */
     ods excel close;
     ods html5 close;
     ods graphics / reset=all;
@@ -328,6 +219,6 @@ plot_sep     - 0=combinado, 1=separado (graficos distribucion)
 
     %put NOTE: [seg_report] HTML => &report_path./&file_prefix..html;
     %put NOTE: [seg_report] Excel => &report_path./&file_prefix..xlsx;
-    %put NOTE: [seg_report] Images => &images_path./;
+    %put NOTE: [seg_report] Image => &images_path./&file_prefix._timeline.jpeg;
 
 %mend _seg_report;

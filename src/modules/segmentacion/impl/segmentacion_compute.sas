@@ -1,120 +1,146 @@
 /* =========================================================================
 segmentacion_compute.sas - Computo del modulo Segmentacion (Metodo 3)
 
-Macros:
-%_seg_materialidad  - Verificacion de suficiencia (obs + target por segmento)
-%_seg_kolmogorov    - Test KS de heterogeneidad entre pares de segmentos
-%_seg_kruskall      - Test de Kruskal-Wallis para diferencias entre segmentos
-%_seg_migracion     - Analisis de migracion de segmentos entre periodos
-%_seg_compute       - Orquestador
+Flujo optimizado para CAS:
+- la tabla canonica de analisis vive en CAS (`casuser._seg_input`)
+- agregaciones, filtros y joins se hacen con PROC FEDSQL
+- el ordenamiento se hace con table.partition
+- `work` solo se usa para salidas de procedimientos no CAS-native
+  (principalmente PROC NPAR1WAY)
 
-Todas las operaciones usan Pattern B (work staging):
-PROC NPAR1WAY, PROC SORT, PROC FREQ, PROC MEANS, PROC APPEND
-no son CAS-compatibles.
-
-Outputs (tablas work):
-work._seg_mtd_global   - Materialidad global
-work._seg_mtd_segm     - Materialidad por segmento (si existen)
-work._seg_mtd_resumen  - Resumen pct cumplimiento
-work._seg_ks_results   - Resultados KS por par de segmentos
-work._seg_ks_resumen   - Resumen KS
-work._seg_kw_means     - Medias por segmento y byvar
-work._seg_kw_test      - Test Kruskal-Wallis
-work._seg_mig_tipos    - Distribucion por tipo (CRUCE/RETIRADO/NUEVO)
-work._seg_mig_cruce    - Matriz de migracion cruzada
-work._seg_mig_resumen  - Resumen nuevos/retirados por segmento
+Outputs principales (tablas CAS):
+casuser._seg_mtd_global   - Materialidad consolidada y por periodo
+casuser._seg_mtd_segm     - Materialidad por segmento y periodo
+casuser._seg_mtd_resumen  - Resumen pct cumplimiento por periodo
+casuser._seg_ks_results   - Resultados KS por par de segmentos
+casuser._seg_ks_resumen   - Resumen KS
+casuser._seg_kw_means     - Medias por segmento y periodo temporal
+casuser._seg_kw_test      - Test Kruskal-Wallis
+casuser._seg_mig_tipos    - Distribucion por tipo (CRUCE/RETIRADO/NUEVO)
+casuser._seg_mig_cruce    - Matriz de migracion cruzada
+casuser._seg_mig_resumen  - Resumen nuevos/retirados por segmento
 ========================================================================= */
 
-/* =====================================================================
-%_seg_materialidad - Verificacion de suficiencia
+%macro _seg_sort_cas(table_name=, orderby=, groupby={});
 
-Entrada: data work, target, segvar, data_type, min_obs, min_target, has_segm
-Salida:  _seg_mtd_global (siempre)
-         _seg_mtd_segm, _seg_mtd_resumen (solo si has_segm=1)
-===================================================================== */
-%macro _seg_materialidad(data=, target=, segvar=, data_type=, min_obs=1000,
-    min_target=450, has_segm=0);
+    %if %length(%superq(table_name)) = 0 or %length(%superq(orderby)) = 0 %then
+        %return;
 
-    %local total_obs total_target;
-
-    proc sql noprint;
-        select count(*) into :total_obs trimmed from &data.;
-        select sum(&target.) into :total_target trimmed from &data.;
+    proc cas;
+        session conn;
+        table.partition /
+            table={
+                caslib="casuser",
+                name="&table_name.",
+                orderby=&orderby.,
+                groupby=&groupby.
+            },
+            casout={
+                caslib="casuser",
+                name="&table_name.",
+                replace=true
+            };
     quit;
 
-    data work._seg_mtd_global;
-        length Tipo_Muestra $20 Verif_Materialidad $10 Verif_Target $10;
-        Tipo_Muestra = "&data_type.";
-        Materialidad = &total_obs.;
-        Cantidad_Target = &total_target.;
-        if Materialidad >= &min_obs. then Verif_Materialidad = 'CUMPLE';
-        else Verif_Materialidad = 'NO CUMPLE';
-        if Cantidad_Target >= &min_target. then Verif_Target = 'CUMPLE';
-        else Verif_Target = 'NO CUMPLE';
-    run;
+%mend _seg_sort_cas;
+
+%macro _seg_materialidad(data=, target=, segvar=, period_var=_seg_period,
+    min_obs=1000, min_target=450, has_segm=0);
+
+    proc fedsql sessref=conn;
+        create table casuser._seg_mtd_global {options replace=true} as
+        select cast('CONSOLIDADO' as varchar(20)) as Periodo,
+               count(*) as Materialidad,
+               coalesce(sum(&target.), 0) as Cantidad_Target,
+               case when count(*) >= &min_obs.
+                    then 'CUMPLE' else 'NO CUMPLE'
+               end as Verif_Materialidad,
+               case when coalesce(sum(&target.), 0) >= &min_target.
+                    then 'CUMPLE' else 'NO CUMPLE'
+               end as Verif_Target
+        from &data.
+        union all
+        select cast(&period_var. as varchar(20)) as Periodo,
+               count(*) as Materialidad,
+               coalesce(sum(&target.), 0) as Cantidad_Target,
+               case when count(*) >= &min_obs.
+                    then 'CUMPLE' else 'NO CUMPLE'
+               end as Verif_Materialidad,
+               case when coalesce(sum(&target.), 0) >= &min_target.
+                    then 'CUMPLE' else 'NO CUMPLE'
+               end as Verif_Target
+        from &data.
+        group by &period_var.;
+    quit;
+
+    %_seg_sort_cas(table_name=_seg_mtd_global,
+        orderby=%str({"Periodo"}));
 
     %if &has_segm. = 1 %then %do;
-
-        proc sql noprint;
-            create table work._seg_mtd_segm as
-            select
-                &segvar. as Segmento,
-                count(*) as Materialidad,
-                sum(&target.) as Cantidad_Target,
-                case when calculated Materialidad >= &min_obs.
-                    then 'CUMPLE' else 'NO CUMPLE'
-                end as Verif_Materialidad length=10,
-                case when calculated Cantidad_Target >= &min_target.
-                    then 'CUMPLE' else 'NO CUMPLE'
-                end as Verif_Target length=10
+        proc fedsql sessref=conn;
+            create table casuser._seg_mtd_segm {options replace=true} as
+            select cast('CONSOLIDADO' as varchar(20)) as Periodo,
+                   &segvar. as Segmento,
+                   count(*) as Materialidad,
+                   coalesce(sum(&target.), 0) as Cantidad_Target,
+                   case when count(*) >= &min_obs.
+                        then 'CUMPLE' else 'NO CUMPLE'
+                   end as Verif_Materialidad,
+                   case when coalesce(sum(&target.), 0) >= &min_target.
+                        then 'CUMPLE' else 'NO CUMPLE'
+                   end as Verif_Target
             from &data.
             group by &segvar.
-            order by &segvar.;
+            union all
+            select cast(&period_var. as varchar(20)) as Periodo,
+                   &segvar. as Segmento,
+                   count(*) as Materialidad,
+                   coalesce(sum(&target.), 0) as Cantidad_Target,
+                   case when count(*) >= &min_obs.
+                        then 'CUMPLE' else 'NO CUMPLE'
+                   end as Verif_Materialidad,
+                   case when coalesce(sum(&target.), 0) >= &min_target.
+                        then 'CUMPLE' else 'NO CUMPLE'
+                   end as Verif_Target
+            from &data.
+            group by &period_var., &segvar.;
         quit;
 
-        %local total_segs cumplen_mat cumplen_tgt cumplen_ambos;
+        %_seg_sort_cas(table_name=_seg_mtd_segm,
+            orderby=%str({"Periodo", "Segmento"}));
 
-        proc sql noprint;
-            select count(distinct Segmento) into :total_segs trimmed
-                from work._seg_mtd_segm;
-            select count(*) into :cumplen_mat trimmed
-                from work._seg_mtd_segm
-                where Verif_Materialidad = 'CUMPLE';
-            select count(*) into :cumplen_tgt trimmed
-                from work._seg_mtd_segm
-                where Verif_Target = 'CUMPLE';
-            select count(*) into :cumplen_ambos trimmed
-                from work._seg_mtd_segm
-                where Verif_Materialidad = 'CUMPLE'
-                  and Verif_Target = 'CUMPLE';
+        proc fedsql sessref=conn;
+            create table casuser._seg_mtd_resumen {options replace=true} as
+            select Periodo,
+                   count(*) as Total_Segmentos,
+                   sum(case when Verif_Materialidad = 'CUMPLE' then 1 else 0 end)
+                       as Cumplen_Materialidad,
+                   sum(case when Verif_Target = 'CUMPLE' then 1 else 0 end)
+                       as Cumplen_Target,
+                   sum(case
+                           when Verif_Materialidad = 'CUMPLE'
+                            and Verif_Target = 'CUMPLE'
+                           then 1 else 0
+                       end) as Cumplen_Ambos,
+                   case when count(*) > 0
+                        then sum(case
+                                    when Verif_Materialidad = 'CUMPLE'
+                                     and Verif_Target = 'CUMPLE'
+                                    then 1 else 0
+                                 end) / count(*)
+                        else 0
+                   end as PCT_Cumplimiento
+            from casuser._seg_mtd_segm
+            group by Periodo;
         quit;
 
-        data work._seg_mtd_resumen;
-            length Tipo_Muestra $20;
-            Tipo_Muestra = "&data_type.";
-            Total_Segmentos = &total_segs.;
-            Cumplen_Materialidad = &cumplen_mat.;
-            Cumplen_Target = &cumplen_tgt.;
-            Cumplen_Ambos = &cumplen_ambos.;
-            PCT_Cumplimiento = Cumplen_Ambos / Total_Segmentos;
-            format PCT_Cumplimiento percent8.2;
-        run;
-
+        %_seg_sort_cas(table_name=_seg_mtd_resumen,
+            orderby=%str({"Periodo"}));
     %end;
 
 %mend _seg_materialidad;
 
-/* =====================================================================
-%_seg_kolmogorov - Test KS de heterogeneidad entre pares de segmentos
-
-Usa PROC NPAR1WAY con OUTPUT OUT= para extraer _KS_, _KSA_, _D_, P_KSA.
-Itera todas las combinaciones C(n,2) de segmentos.
-P_KSA < 0.05 => DIFERENTES (segmentos heterogeneos).
-
-Entrada: data work, segvar, target, data_type
-Salida:  _seg_ks_results (detalle por par), _seg_ks_resumen (resumen)
-===================================================================== */
-%macro _seg_kolmogorov(data=, segvar=, target=, data_type=);
+%macro _seg_kolmogorov(data=, segvar=, target=);
 
     %local seg_list n_segs i j seg_i seg_j n_obs dsid rc;
 
@@ -125,7 +151,6 @@ Salida:  _seg_ks_results (detalle por par), _seg_ks_resumen (resumen)
         from &data.;
     quit;
 
-    /* Inicializar tabla de resultados con estructura */
     data work._seg_ks_results;
         length Tipo_Muestra $20 Segmento1 8 Segmento2 8
             KS_Statistic 8 KS_Asymptotic 8 D_Statistic 8
@@ -139,21 +164,15 @@ Salida:  _seg_ks_results (detalle por par), _seg_ks_resumen (resumen)
         %do j = %eval(&i. + 1) %to &n_segs.;
             %let seg_j = %scan(&seg_list., &j.);
 
-            data work._seg_ks_pair;
-                set &data.;
-                where &segvar. in (&seg_i., &seg_j.);
-                keep &segvar. &target.;
-            run;
-
             proc sql noprint;
                 select count(*) into :n_obs trimmed
-                from work._seg_ks_pair;
+                from &data.
+                where &segvar. in (&seg_i., &seg_j.);
             quit;
 
             %if &n_obs. > 10 %then %do;
-
                 ods select none;
-                proc npar1way data=work._seg_ks_pair KS;
+                proc npar1way data=&data.(where=(&segvar. in (&seg_i., &seg_j.))) KS;
                     class &segvar.;
                     var &target.;
                     output out=work._seg_ks_temp;
@@ -168,7 +187,7 @@ Salida:  _seg_ks_results (detalle por par), _seg_ks_resumen (resumen)
                         length Tipo_Muestra $20 Prueba_KS $20;
                         set work._seg_ks_temp;
                         if _N_ = 1;
-                        Tipo_Muestra = "&data_type.";
+                        Tipo_Muestra = 'CONSOLIDADO';
                         Segmento1 = &seg_i.;
                         Segmento2 = &seg_j.;
                         KS_Statistic = _KS_;
@@ -186,234 +205,248 @@ Salida:  _seg_ks_results (detalle por par), _seg_ks_resumen (resumen)
                         data=work._seg_ks_row force;
                     run;
                 %end;
-
             %end;
             %else %do;
-                %put WARNING: [seg_kolmogorov] Insuficientes obs para
-                    par &seg_i. vs &seg_j. (n=&n_obs.).;
+                %put WARNING: [seg_kolmogorov] Insuficientes obs para par &seg_i. vs &seg_j. (n=&n_obs.).;
             %end;
-
         %end;
     %end;
 
-    /* Resumen de heterogeneidad */
-    proc sql;
-        create table work._seg_ks_resumen as
-        select
-            "&data_type." as Tipo_Muestra length=20,
-            count(*) as Total_Pares,
-            sum(case when Prueba_KS = 'DIFERENTES' then 1 else 0 end)
-                as Pares_Diferentes,
-            calculated Pares_Diferentes / calculated Total_Pares
-                as Proporcion_Diferentes format=percent8.1
-        from work._seg_ks_results;
+    data casuser._seg_ks_results;
+        set work._seg_ks_results;
+    run;
+
+    proc fedsql sessref=conn;
+        create table casuser._seg_ks_resumen {options replace=true} as
+        select cast('CONSOLIDADO' as varchar(20)) as Tipo_Muestra,
+               count(*) as Total_Pares,
+               sum(case when Prueba_KS = 'DIFERENTES' then 1 else 0 end)
+                   as Pares_Diferentes,
+               case when count(*) > 0
+                    then sum(case when Prueba_KS = 'DIFERENTES' then 1 else 0 end) / count(*)
+                    else 0
+               end as Proporcion_Diferentes
+        from casuser._seg_ks_results;
     quit;
 
-    /* Cleanup intermedias */
+    %_seg_sort_cas(table_name=_seg_ks_results,
+        orderby=%str({"Segmento1", "Segmento2"}));
+
     proc datasets lib=work nolist nowarn;
-        delete _seg_ks_pair _seg_ks_temp _seg_ks_row;
+        delete _seg_ks_temp _seg_ks_row;
     quit;
 
 %mend _seg_kolmogorov;
 
-/* =====================================================================
-%_seg_kruskall - Test de Kruskal-Wallis
+%macro _seg_kruskall(data=, segvar=, target=, byvar=, period_var=_seg_period);
 
-Calcula medias de target por segmento*byvar, luego aplica PROC NPAR1WAY
-sobre las medias agrupadas. Prueba si la distribucion de medias difiere
-entre segmentos.
-
-Entrada: data work, segvar, target, byvar
-Salida:  _seg_kw_means (medias), _seg_kw_test (test)
-===================================================================== */
-%macro _seg_kruskall(data=, segvar=, target=, byvar=);
-
-    %local total_obs_kw;
+    %local total_obs_kw _seg_kw_nseg;
 
     proc sql noprint;
         select count(*) into :total_obs_kw trimmed from &data.;
     quit;
 
-    proc means data=&data. noprint;
-        class &segvar. &byvar.;
-        var &target.;
-        output out=work._seg_kw_means(where=(_TYPE_ = 3))
-            n=NObs mean=Media;
-    run;
+    %if %sysevalf(%superq(total_obs_kw)=, boolean) %then %let total_obs_kw = 0;
 
-    data work._seg_kw_means;
-        set work._seg_kw_means;
-        Porcentaje = round((NObs / &total_obs_kw.) * 100, 0.01);
-        drop _TYPE_ _FREQ_;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser._seg_kw_means {options replace=true} as
+        select cast(&period_var. as varchar(20)) as Periodo,
+               &segvar. as Segmento,
+               &byvar. as Periodo_Temporal,
+               count(*) as NObs,
+               avg(&target.) as Media,
+               case when &total_obs_kw. > 0
+                    then round((count(*) / &total_obs_kw.) * 100, 0.01)
+                    else 0
+               end as Porcentaje
+        from &data.
+        group by &period_var., &segvar., &byvar.;
+    quit;
 
-    ods select none;
-    proc npar1way data=work._seg_kw_means wilcoxon;
-        class &segvar.;
-        var Media;
-        ods output KruskalWallisTest=work._seg_kw_test;
-    run;
-    ods select all;
+    %_seg_sort_cas(table_name=_seg_kw_means,
+        orderby=%str({"Periodo", "Segmento", "Periodo_Temporal"}));
+
+    proc sql noprint;
+        select count(distinct Segmento) into :_seg_kw_nseg trimmed
+        from casuser._seg_kw_means;
+    quit;
+
+    %if %sysevalf(%superq(_seg_kw_nseg)=, boolean) %then %let _seg_kw_nseg = 0;
+
+    %if &_seg_kw_nseg. > 1 %then %do;
+        ods select none;
+        proc npar1way data=casuser._seg_kw_means wilcoxon;
+            class Segmento;
+            var Media;
+            ods output KruskalWallisTest=work._seg_kw_test;
+        run;
+        ods select all;
+
+        data casuser._seg_kw_test;
+            length Tipo_Muestra $20;
+            set work._seg_kw_test;
+            Tipo_Muestra = 'CONSOLIDADO';
+        run;
+    %end;
+    %else %put WARNING: [seg_kruskall] Menos de 2 segmentos con datos. Se omite el test de Kruskal-Wallis.;
 
 %mend _seg_kruskall;
 
-/* =====================================================================
-%_seg_migracion - Analisis de migracion de segmentos
+%macro _seg_migracion(data=, idvar=, segvar=, byvar=, train_first_mes=,
+    oot_last_mes=);
 
-Compara asignacion de segmentos entre primer_mes y ultimo_mes.
-Clasifica cuentas como CRUCE (permanece), RETIRADO (sale) o NUEVO (entra).
-Genera matriz de migracion cruzada entre segmentos.
+    %local _seg_ret_total _seg_new_total _seg_cross_total _seg_type_total;
 
-Entrada: data work, idvar, segvar, byvar, primer_mes, ultimo_mes, data_type
-Salida:  _seg_mig_resumen (nuevos/retirados por segmento)
-         _seg_mig_cruce (cross-tab para heatmap)
-         _seg_mig_tipos (distribucion CRUCE/RETIRADO/NUEVO)
-===================================================================== */
-%macro _seg_migracion(data=, idvar=, segvar=, byvar=, primer_mes=,
-    ultimo_mes=, data_type=);
+    proc fedsql sessref=conn;
+        create table casuser._seg_mig_pri {options replace=true} as
+        select &idvar. as Id_Registro,
+               &segvar. as Segmento_Train
+        from &data.
+        where &byvar. = &train_first_mes.;
+    quit;
 
-    /* Subsets primer y ultimo mes */
-    data work._seg_m_pri;
-        set &data.;
-        where &byvar. = &primer_mes.;
-        rename &segvar. = seg_primer_mes;
-        keep &idvar. &segvar.;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser._seg_mig_ult {options replace=true} as
+        select &idvar. as Id_Registro,
+               &segvar. as Segmento_OOT
+        from &data.
+        where &byvar. = &oot_last_mes.;
+    quit;
 
-    proc sort data=work._seg_m_pri;
-        by &idvar.;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser._seg_mig_base {options replace=true} as
+        select coalesce(a.Id_Registro, b.Id_Registro) as Id_Registro,
+               a.Segmento_Train,
+               b.Segmento_OOT,
+               case
+                   when a.Id_Registro is not null and b.Id_Registro is not null then 'CRUCE'
+                   when a.Id_Registro is not null then 'RETIRADO'
+                   else 'NUEVO'
+               end as Tipo_Cliente
+        from casuser._seg_mig_pri a
+        full join casuser._seg_mig_ult b
+            on a.Id_Registro = b.Id_Registro;
+    quit;
 
-    data work._seg_m_ult;
-        set &data.;
-        where &byvar. = &ultimo_mes.;
-        rename &segvar. = seg_ultimo_mes;
-        keep &idvar. &segvar.;
-    run;
+    proc sql noprint;
+        select count(*) into :_seg_ret_total trimmed
+        from casuser._seg_mig_base where Tipo_Cliente = 'RETIRADO';
+        select count(*) into :_seg_new_total trimmed
+        from casuser._seg_mig_base where Tipo_Cliente = 'NUEVO';
+        select count(*) into :_seg_cross_total trimmed
+        from casuser._seg_mig_base where Tipo_Cliente = 'CRUCE';
+        select count(*) into :_seg_type_total trimmed
+        from casuser._seg_mig_base;
+    quit;
 
-    proc sort data=work._seg_m_ult;
-        by &idvar.;
-    run;
+    %if %sysevalf(%superq(_seg_ret_total)=, boolean) %then %let _seg_ret_total = 0;
+    %if %sysevalf(%superq(_seg_new_total)=, boolean) %then %let _seg_new_total = 0;
+    %if %sysevalf(%superq(_seg_cross_total)=, boolean) %then %let _seg_cross_total = 0;
+    %if %sysevalf(%superq(_seg_type_total)=, boolean) %then %let _seg_type_total = 0;
 
-    /* Merge por ID para clasificar migracion */
-    data work._seg_m_merge;
-        merge work._seg_m_pri(in=a) work._seg_m_ult(in=b);
-        by &idvar.;
-        length tipo_cliente $10;
-        if a and b then tipo_cliente = 'CRUCE';
-        else if a then tipo_cliente = 'RETIRADO';
-        else if b then tipo_cliente = 'NUEVO';
-    run;
+    proc fedsql sessref=conn;
+        create table casuser._seg_mig_ret {options replace=true} as
+        select Segmento_Train as Segmento,
+               count(*) as Cant_Retirados,
+               case when &_seg_ret_total. > 0
+                    then round((count(*) / &_seg_ret_total.) * 100, 0.01)
+                    else 0
+               end as Pct_Retirados
+        from casuser._seg_mig_base
+        where Tipo_Cliente = 'RETIRADO'
+        group by Segmento_Train;
+    quit;
 
-    /* Retirados por segmento */
-    ods select none;
-    proc freq data=work._seg_m_merge;
-        where tipo_cliente = 'RETIRADO';
-        tables seg_primer_mes / nocum nocol;
-        ods output OneWayFreqs=work._seg_m_ret;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser._seg_mig_nue {options replace=true} as
+        select Segmento_OOT as Segmento,
+               count(*) as Cant_Nuevos,
+               case when &_seg_new_total. > 0
+                    then round((count(*) / &_seg_new_total.) * 100, 0.01)
+                    else 0
+               end as Pct_Nuevos
+        from casuser._seg_mig_base
+        where Tipo_Cliente = 'NUEVO'
+        group by Segmento_OOT;
+    quit;
 
-    data work._seg_m_ret;
-        set work._seg_m_ret;
-        rename seg_primer_mes = Segmento
-            Frequency = Cant_Retirados
-            Percent = Pct_Retirados;
-        keep seg_primer_mes Frequency Percent;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser._seg_mig_resumen {options replace=true} as
+        select coalesce(a.Segmento, b.Segmento) as Segmento,
+               coalesce(a.Cant_Retirados, 0) as Cant_Retirados,
+               coalesce(a.Pct_Retirados, 0) as Pct_Retirados,
+               coalesce(b.Cant_Nuevos, 0) as Cant_Nuevos,
+               coalesce(b.Pct_Nuevos, 0) as Pct_Nuevos
+        from casuser._seg_mig_ret a
+        full join casuser._seg_mig_nue b
+            on a.Segmento = b.Segmento;
+    quit;
 
-    /* Nuevos por segmento */
-    proc freq data=work._seg_m_merge;
-        where tipo_cliente = 'NUEVO';
-        tables seg_ultimo_mes / nocum nocol;
-        ods output OneWayFreqs=work._seg_m_nue;
-    run;
-    ods select all;
+    proc fedsql sessref=conn;
+        create table casuser._seg_mig_cruce {options replace=true} as
+        select Segmento_Train as Segmento_Inicial,
+               Segmento_OOT as Segmento_Final,
+               count(*) as Frequency,
+               case when &_seg_cross_total. > 0
+                    then round((count(*) / &_seg_cross_total.) * 100, 0.01)
+                    else 0
+               end as Percent
+        from casuser._seg_mig_base
+        where Tipo_Cliente = 'CRUCE'
+        group by Segmento_Train, Segmento_OOT;
+    quit;
 
-    data work._seg_m_nue;
-        set work._seg_m_nue;
-        rename seg_ultimo_mes = Segmento
-            Frequency = Cant_Nuevos
-            Percent = Pct_Nuevos;
-        keep seg_ultimo_mes Frequency Percent;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser._seg_mig_tipos {options replace=true} as
+        select cast('CONSOLIDADO' as varchar(20)) as Tipo_Muestra,
+               Tipo_Cliente as Indicador,
+               count(*) as Frequency,
+               case when &_seg_type_total. > 0
+                    then round((count(*) / &_seg_type_total.) * 100, 0.01)
+                    else 0
+               end as PCT_Total
+        from casuser._seg_mig_base
+        group by Tipo_Cliente;
+    quit;
 
-    /* Resumen: retirados + nuevos por segmento */
-    data work._seg_mig_resumen;
-        merge work._seg_m_ret(in=a) work._seg_m_nue(in=b);
-        by Segmento;
-    run;
+    %_seg_sort_cas(table_name=_seg_mig_resumen,
+        orderby=%str({"Segmento"}));
+    %_seg_sort_cas(table_name=_seg_mig_cruce,
+        orderby=%str({"Segmento_Inicial", "Segmento_Final"}));
+    %_seg_sort_cas(table_name=_seg_mig_tipos,
+        orderby=%str({"Indicador"}));
 
-    /* Matriz de migracion cruzada (para heatmap) */
-    proc freq data=work._seg_m_merge noprint;
-        where tipo_cliente = 'CRUCE';
-        tables seg_primer_mes * seg_ultimo_mes /
-            nocol nocum nopercent out=work._seg_mig_cruce;
-    run;
-
-    /* Distribucion por tipo de cliente */
-    ods select none;
-    proc freq data=work._seg_m_merge;
-        tables tipo_cliente / nocum;
-        ods output OneWayFreqs=work._seg_m_props;
-    run;
-    ods select all;
-
-    data work._seg_mig_tipos;
-        length Indicador $40 Tipo_Muestra $20;
-        set work._seg_m_props(rename=(
-            tipo_cliente = Indicador
-            Frequency = Frequency
-            Percent = PCT_Total));
-        Tipo_Muestra = "&data_type.";
-        keep Tipo_Muestra Indicador Frequency PCT_Total;
-    run;
-
-    /* Cleanup intermedias */
-    proc datasets lib=work nolist nowarn;
-        delete _seg_m_pri _seg_m_ult _seg_m_merge
-            _seg_m_ret _seg_m_nue _seg_m_props;
+    proc datasets lib=casuser nolist nowarn;
+        delete _seg_mig_pri _seg_mig_ult _seg_mig_base
+            _seg_mig_ret _seg_mig_nue;
     quit;
 
 %mend _seg_migracion;
 
-/* =====================================================================
-%_seg_compute - Orquestador principal
+%macro _seg_compute(data=, target=, segvar=, byvar=, idvar=,
+    min_obs=1000, min_target=450, train_first_mes=, oot_last_mes=,
+    has_segm=0, has_id=0, period_var=_seg_period);
 
-Ejecuta todos los sub-computos segun has_segm flag.
-Materialidad siempre ejecuta; KS, Kruskal, migracion solo si has_segm=1.
-===================================================================== */
-%macro _seg_compute(data=, target=, segvar=, byvar=, idvar=, data_type=,
-    min_obs=1000, min_target=450, primer_mes=, ultimo_mes=, has_segm=0);
+    %put NOTE: [seg_compute] Inicio - has_segm=&has_segm. has_id=&has_id.;
 
-    %put NOTE: [seg_compute] Inicio - data_type=&data_type.
-        has_segm=&has_segm.;
-
-    /* 1) Materialidad (siempre) */
     %_seg_materialidad(data=&data., target=&target., segvar=&segvar.,
-        data_type=&data_type., min_obs=&min_obs., min_target=&min_target.,
-        has_segm=&has_segm.);
+        period_var=&period_var., min_obs=&min_obs.,
+        min_target=&min_target., has_segm=&has_segm.);
 
-    /* 2) Kruskal-Wallis (solo si hay segmentos) */
     %if &has_segm. = 1 %then %do;
         %_seg_kruskall(data=&data., segvar=&segvar., target=&target.,
-            byvar=&byvar.);
+            byvar=&byvar., period_var=&period_var.);
+        %_seg_kolmogorov(data=&data., segvar=&segvar., target=&target.);
     %end;
 
-    /* 3) KS test entre pares de segmentos */
-    %if &has_segm. = 1 %then %do;
-        %_seg_kolmogorov(data=&data., segvar=&segvar., target=&target.,
-            data_type=&data_type.);
-    %end;
-
-    /* 4) Migracion (solo si segmentos + periodos definidos) */
-    %if &has_segm. = 1
-        and %length(&primer_mes.) > 0
-        and %length(&ultimo_mes.) > 0 %then %do;
+    %if &has_segm. = 1 and &has_id. = 1
+        and %length(%superq(train_first_mes)) > 0
+        and %length(%superq(oot_last_mes)) > 0 %then %do;
         %_seg_migracion(data=&data., idvar=&idvar., segvar=&segvar.,
-            byvar=&byvar., primer_mes=&primer_mes., ultimo_mes=&ultimo_mes.,
-            data_type=&data_type.);
+            byvar=&byvar., train_first_mes=&train_first_mes.,
+            oot_last_mes=&oot_last_mes.);
     %end;
 
-    %put NOTE: [seg_compute] Fin - &data_type.;
+    %put NOTE: [seg_compute] Fin.;
 
 %mend _seg_compute;

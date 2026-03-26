@@ -7,9 +7,7 @@ Flujo:
 2) Configuracion propia del modulo (seg_mode, min_obs, min_target, etc.)
 3) Validar scope: solo UNIVERSO (segmentacion necesita datos completos)
 4) Crear CASLIBs PROC + OUT
-5) Iteracion segun ctx_split:
-   - Si ctx_split=TRAIN o OOT -> ejecuta solo ese split
-   - Si ctx_split no es individual -> ejecuta ambos splits
+5) Ejecutar una sola vez sobre _scope_input consolidado
 6) Cleanup CASLIBs
 
 NOTA IMPORTANTE:
@@ -20,8 +18,9 @@ separados por segmento - no hay nada que analizar.
 
 Segmentacion usa target -> fecha de corte es def_cld.
 
-Single-input (dual_input=0): cada split se ejecuta independientemente.
-run_module promueve base.sashdat como _active_input.
+Scope-input (scope_input=1): run_module promueve base.sashdat como
+_scope_input y el modulo deriva TRAIN/OOT internamente como periodos
+conceptuales dentro de un unico flujo temporal.
 
 Funcionalidad:
 - Materialidad global y por segmento (min obs + min target)
@@ -112,32 +111,20 @@ Cada step es independiente: carga sus propias dependencias.
         lib_caslib=OUT, global=Y, cas_sess_name=conn, term_global_sess=0,
         subdirs_flg=1);
 
-    /* ---- 3) Resolver splits ------------------------------------------ */
-    %local _sp1 _sp2;
+    /* ---- 3) Log de compatibilidad con selector split ----------------- */
+    %if %upcase(&ctx_split.) = TRAIN or %upcase(&ctx_split.) = OOT %then
+        %put NOTE: [step_segmentacion] ctx_split=&ctx_split. se conserva
+            por compatibilidad, pero el modulo usa la ventana consolidada
+            TRAIN+OOT sobre un unico _scope_input.;
+    %else %put NOTE: [step_segmentacion] Segmentacion ejecutara la ventana
+        consolidada TRAIN+OOT sobre un unico _scope_input.;
 
-    %if %upcase(&ctx_split.) = TRAIN %then %do;
-        %let _sp1 = train;
-        %let _sp2 = ;
-    %end;
-    %else %if %upcase(&ctx_split.) = OOT %then %do;
-        %let _sp1 = oot;
-        %let _sp2 = ;
-    %end;
-    %else %do;
-        %let _sp1 = train;
-        %let _sp2 = oot;
-    %end;
+    /* ---- 4) Ejecutar base consolidada (universo) --------------------- */
+    %put NOTE: [step_segmentacion] UNIVERSO consolidado: troncal=&ctx_troncal_id.
+        split_selector=&ctx_split.;
 
-    /* ---- 4) Ejecutar base (universo) del troncal por split ----------- */
-    %put NOTE: [step_segmentacion] UNIVERSO: troncal=&ctx_troncal_id.
-        split=&ctx_split.;
-
-    %if %superq(_sp1) ne %then
-        %run_module(module=segmentacion, troncal_id=&ctx_troncal_id.,
-            split=&_sp1., seg_id=, run_id=&run_id., dual_input=0);
-    %if %superq(_sp2) ne %then
-        %run_module(module=segmentacion, troncal_id=&ctx_troncal_id.,
-            split=&_sp2., seg_id=, run_id=&run_id., dual_input=0);
+    %run_module(module=segmentacion, troncal_id=&ctx_troncal_id.,
+        split=&ctx_split., seg_id=, run_id=&run_id., scope_input=1);
 
     /* ---- 5) Cleanup CASLIBs ------------------------------------------ */
     %_drop_caslib(caslib_name=OUT, cas_sess_name=conn, del_prom_tables=1);
