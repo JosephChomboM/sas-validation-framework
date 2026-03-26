@@ -454,9 +454,9 @@ Override:
 
     title "RD Mensual";
     proc report data=casuser._tgt_rd_monthly nowd missing;
-        columns Split Periodo N_Total N_Valid N_Default RD;
-        define Split / display "Dataset";
-        define Periodo / display "Periodo" format=6.;
+        columns Periodo Split N_Total N_Valid N_Default RD;
+        define Periodo / order ascending "Periodo" format=6.;
+        define Split / order "Dataset";
         define N_Total / display "N Total";
         define N_Valid / display "N Target Valido";
         define N_Default / display "N Default";
@@ -472,11 +472,36 @@ Override:
 %macro _target_report_materiality(byvar=, target=);
     %if not %sysfunc(exist(casuser._tgt_input)) %then %return;
 
-    title "Materialidad por Periodo y Target";
-    proc freqtab data=casuser._tgt_input;
+    proc freqtab data=casuser._tgt_input noprint;
         tables Split * &byvar. * &target. / norow nopercent nocum nocol;
+        output out=casuser._tgt_mat_report;
+    run;
+
+    data casuser._tgt_mat_report;
+        set casuser._tgt_mat_report(rename=(
+            &byvar.=Periodo
+            &target.=Target_Value
+        ));
+        where not missing(Split)
+          and not missing(Periodo)
+          and not missing(Target_Value);
+        N_Cuentas=coalesce(COUNT, _FREQ_, FREQUENCY, N);
+        keep Periodo Split Target_Value N_Cuentas;
+    run;
+
+    title "Materialidad por Periodo y Target";
+    proc report data=casuser._tgt_mat_report nowd missing;
+        columns Periodo Split Target_Value N_Cuentas;
+        define Periodo / order ascending "Periodo" format=6.;
+        define Split / order "Dataset";
+        define Target_Value / order "Target";
+        define N_Cuentas / display "N Cuentas";
     run;
     title;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _tgt_mat_report;
+    quit;
 %mend _target_report_materiality;
 
 %macro _target_plot_bands(data=casuser._tgt_bands, yvar=RD,
@@ -549,10 +574,10 @@ Override:
 
     title "Bandas del Target";
     proc report data=casuser._tgt_bands nowd missing;
-        columns Split Periodo N_Total N_Valid N_Default RD Lower_Band
+        columns Periodo Split N_Total N_Valid N_Default RD Lower_Band
             Upper_Band Global_Avg;
-        define Split / display "Dataset";
-        define Periodo / display "Periodo" format=6.;
+        define Periodo / order ascending "Periodo" format=6.;
+        define Split / order "Dataset";
         define N_Total / display "N Total";
         define N_Valid / display "N Target Valido";
         define N_Default / display "N Default";
@@ -581,10 +606,10 @@ Override:
 
     title "Target Ponderado por Monto - Promedio";
     proc report data=casuser._tgt_weight_avg nowd missing;
-        columns Split Periodo N_Cuentas Total_Monto RD_Pond_Prom Lower_Band
+        columns Periodo Split N_Cuentas Total_Monto RD_Pond_Prom Lower_Band
             Upper_Band Global_Avg;
-        define Split / display "Dataset";
-        define Periodo / display "Periodo" format=6.;
+        define Periodo / order ascending "Periodo" format=6.;
+        define Split / order "Dataset";
         define N_Cuentas / display "N Cuentas";
         define Total_Monto / display "Monto Total" format=comma18.2;
         define RD_Pond_Prom / display "RD Ponderado Promedio"
@@ -614,10 +639,10 @@ Override:
 
     title "Target Ponderado por Suma de Monto";
     proc report data=casuser._tgt_weight_sum nowd missing;
-        columns Split Periodo N_Cuentas Sum_Target_Pond Total_Monto Lower_Band
+        columns Periodo Split N_Cuentas Sum_Target_Pond Total_Monto Lower_Band
             Upper_Band Global_Sum;
-        define Split / display "Dataset";
-        define Periodo / display "Periodo" format=6.;
+        define Periodo / order ascending "Periodo" format=6.;
+        define Split / order "Dataset";
         define N_Cuentas / display "N Cuentas";
         define Sum_Target_Pond / display "RD Ponderado por Suma"
             format=comma18.2;
@@ -646,10 +671,10 @@ Override:
 
     title "Ratio RD Ponderado sobre Monto Total";
     proc report data=casuser._tgt_weight_ratio nowd missing;
-        columns Split Periodo N_Cuentas Sum_Target_Pond Total_Monto
+        columns Periodo Split N_Cuentas Sum_Target_Pond Total_Monto
             Ratio_RD_Monto Lower_Band Upper_Band Global_Ratio;
-        define Split / display "Dataset";
-        define Periodo / display "Periodo" format=6.;
+        define Periodo / order ascending "Periodo" format=6.;
+        define Split / order "Dataset";
         define N_Cuentas / display "N Cuentas";
         define Sum_Target_Pond / display "RD Pond. Suma" format=comma18.2;
         define Total_Monto / display "Monto Total" format=comma18.2;
