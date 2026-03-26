@@ -86,10 +86,6 @@ design.md §7.3 - Preparación idempotente:
 		set casuser.cfg_troncales;
 		call symputx(cats("_tr_id_", _n_), troncal_id);
 		call symputx(cats("_tr_byvar_", _n_), strip(byvar));
-		call symputx(cats("_tr_tmin_", _n_), train_min_mes);
-		call symputx(cats("_tr_tmax_", _n_), train_max_mes);
-		call symputx(cats("_tr_omin_", _n_), oot_min_mes);
-		call symputx(cats("_tr_omax_", _n_), oot_max_mes);
         call symputx(cats("_tr_vseg_", _n_), strip(var_seg));
         call symputx(cats("_tr_nseg_", _n_), n_segments);
         call symputx(cats("_tr_flag_", _n_), strip(flag_tcl));
@@ -102,18 +98,12 @@ design.md §7.3 - Preparación idempotente:
 
 		%let _tid=&&_tr_id_&_t.;
 		%let _byvar=&&_tr_byvar_&_t.;
-		%let _tmin=&&_tr_tmin_&_t.;
-		%let _tmax=&&_tr_tmax_&_t.;
-		%let _omin=&&_tr_omin_&_t.;
-		%let _omax=&&_tr_omax_&_t.;
 		%let _vseg=&&_tr_vseg_&_t.;
 		%let _nseg=&&_tr_nseg_&_t.;
         %let _flag_tcl=&&_tr_flag_&_t.;
 
 		%put NOTE: -----------------------------------------------------;
 		%put NOTE: [fw_prepare_processed] Troncal &_tid. (byvar=&_byvar.);
-		%put NOTE: [fw_prepare_processed] Ventanas configuradas:
-            TRAIN=&_tmin.-&_tmax. OOT=&_omin.-&_omax..;
 		%put NOTE: -----------------------------------------------------;
 
         %if %superq(_flag_tcl) ne %then %do;
@@ -210,8 +200,7 @@ design.md §7.3 - Preparación idempotente:
 	%_drop_caslib(caslib_name=PROC, cas_sess_name=conn, del_prom_tables=1);
 
 	%do _t=1 %to &_n_troncales.;
-		%symdel _tr_id_&_t. _tr_byvar_&_t. _tr_tmin_&_t. _tr_tmax_&_t.
-			_tr_omin_&_t. _tr_omax_&_t. _tr_vseg_&_t. _tr_nseg_&_t.
+		%symdel _tr_id_&_t. _tr_byvar_&_t. _tr_vseg_&_t. _tr_nseg_&_t.
             _tr_flag_&_t. / nowarn;
 	%end;
 	%symdel _n_troncales _cfg_has_flag_col _raw_has_flag / nowarn;

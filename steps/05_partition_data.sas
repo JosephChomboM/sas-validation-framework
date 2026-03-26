@@ -1,8 +1,9 @@
 /* =========================================================================
-   steps/05_partition_data.sas - Step 5: Configuración de particiones
+   steps/05_partition_data.sas - Step 5: Materialización de processed
 
    Backend del step:
-     - Ejecuta partición processed (universo + segmentos)
+     - Genera la base persistente completa por troncal/segmento en processed
+     - TRAIN/OOT se derivan dinámicamente en ejecución
    ========================================================================= */
 
 /* Dependencias (cada step es independiente) */

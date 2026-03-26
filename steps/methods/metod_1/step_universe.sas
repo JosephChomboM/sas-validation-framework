@@ -5,7 +5,8 @@ Step de módulo: Universe - Describe Universo (Método 1.1)
 Analiza la composición del universo: evolutivo de cuentas, duplicados,
 bandas ±2σ, y evolutivo de monto (si está disponible).
 
-Usa run_module con dual_input=1 (compara TRAIN vs OOT en un solo report).
+Usa run_module con scope_input=1 y el modulo deriva TRAIN/OOT desde la base
+persistente unificada en CAS.
 
 Dependencias:
 - &ctx_scope (SEGMENTO | UNIVERSO) - seteado por context_and_modules.sas
@@ -39,8 +40,8 @@ Cada step es independiente: carga sus propias dependencias.
     %end;
 
     %put NOTE: [step_universe] Iniciando - scope=&ctx_scope.;
-    %put NOTE: [step_universe] Universe usa dual_input=1 (TRAIN + OOT
-        combinados).;
+    %put NOTE: [step_universe] Universe usa scope_input=1 y deriva TRAIN/OOT
+        dentro del modulo desde la base persistente unificada.;
 
     /* ---- 1) Crear CASLIBs PROC + OUT --------------------------------- */
     %_create_caslib( cas_path=&fw_root./data/processed, caslib_name=PROC,
@@ -62,12 +63,12 @@ Cada step es independiente: carga sus propias dependencias.
         %end;
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             %run_module(module=universe, troncal_id=&ctx_troncal_id., split=,
-                seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
+                seg_id=&ctx_seg_id., run_id=&run_id., scope_input=1);
         %end;
         %else %do;
             %do _sg=1 %to &ctx_n_segments.;
                 %run_module(module=universe, troncal_id=&ctx_troncal_id.,
-                    split=, seg_id=&_sg., run_id=&run_id., dual_input=1);
+                    split=, seg_id=&_sg., run_id=&run_id., scope_input=1);
             %end;
         %end;
 
@@ -77,7 +78,7 @@ Cada step es independiente: carga sus propias dependencias.
         %put NOTE: [step_universe] UNIVERSO: troncal=&ctx_troncal_id.;
 
         %run_module(module=universe, troncal_id=&ctx_troncal_id., split=,
-            seg_id=, run_id=&run_id., dual_input=1);
+            seg_id=, run_id=&run_id., scope_input=1);
 
     %end;
     %else %do;

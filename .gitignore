@@ -6,3 +6,5 @@
 docs/
 # do not include marketplace files:
 *.md
+!docs/
+!docs/module_authoring.md

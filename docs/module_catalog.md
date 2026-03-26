@@ -9,6 +9,7 @@ No repetir aqui:
 
 Ver:
 - `docs/design.md`
+- `docs/module_authoring.md`
 - `docs/caslib_lifecycle.md`
 - `docs/cas_first_patterns.md`
 
@@ -30,13 +31,20 @@ Todo modulo debe aceptar o derivar:
 - los inputs se leen desde CASLIB `PROC`
 - `casuser` se usa para temporales e intermedias
 - `run_module.sas` promueve el input segun contexto
+- la capa fisica `data/processed` solo guarda `troncal_X/base.sashdat` y `troncal_X/segNNN.sashdat`
+- `TRAIN/OOT` ya no existen como archivos fisicos; se derivan en ejecucion
 
 ### 1.3 Modos de input
 
 | Modo | Uso | Tablas promovidas |
 | --- | --- | --- |
-| `dual_input=0` | una sola tabla | `_active_input` |
-| `dual_input=1` | comparacion train vs oot | `_train_input`, `_oot_input` |
+| `dual_input=0`, `scope_input=0` | una sola tabla / un split | `_active_input` |
+| `dual_input=1`, `scope_input=0` | comparacion train vs oot | `_train_input`, `_oot_input` |
+| `scope_input=1` | base unificada, split derivado dentro del modulo | `_scope_input` |
+
+Regla:
+- estos modos describen shapes logicos en CAS, no carpetas distintas en `processed`
+- para modulos nuevos, preferir `scope_input=1` cuando el diseno lo permita
 
 ### 1.4 Cortes temporales
 
@@ -56,7 +64,7 @@ Todo modulo debe aceptar o derivar:
 
 | Modulo | Metodo | Estado | Input |
 | --- | --- | --- | --- |
-| `universe` | M1.1 | implementado | dual |
+| `universe` | M1.1 | implementado | scope |
 | `target` | M2.1 | implementado | dual |
 | `fillrate` | M4.2 | implementado | dual |
 | `psi` | M4.2 | implementado | dual |
@@ -89,7 +97,7 @@ Todo modulo debe aceptar o derivar:
 | --- | --- |
 | Metodo | M1.1 |
 | Objetivo | comparar composicion TRAIN vs OOT |
-| Input | `dual_input=1` |
+| Input | `scope_input=1` |
 | Scope | segmento y universo |
 | Corte | `oot_max_mes` |
 | Variables clave | `byvar`, `id_var`, `monto` opcional |
@@ -98,7 +106,8 @@ Todo modulo debe aceptar o derivar:
 
 Notas:
 - calcula evolutivo de cuentas, duplicados y metricas de monto si existe `monto`
-- usa `run_module` con `_train_input` y `_oot_input`
+- usa `run_module` con `_scope_input`
+- deriva `TRAIN/OOT` dentro del propio modulo y trabaja CAS-first con una tabla unificada
 
 ### 2.2 Target
 

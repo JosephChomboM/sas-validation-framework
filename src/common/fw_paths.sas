@@ -3,7 +3,7 @@
    Evita hardcode de paths en módulos y runner.
 
    Macros públicas:
-     %fw_path_processed(outvar=, troncal_id=, split=, seg_id=)
+     %fw_path_processed(outvar=, troncal_id=, seg_id=)
      %_fw_load_scope_input(...)
      %_fw_build_split_table(...)
 
@@ -21,7 +21,7 @@
      temporales de `casuser.cfg_troncales`.
    ========================================================================= */
 
-%macro fw_path_processed(outvar=, troncal_id=, split=, seg_id=);
+%macro fw_path_processed(outvar=, troncal_id=, seg_id=);
 
   /* --- Validación mínima ------------------------------------------------ */
   %if %superq(outvar) = %then %do;
@@ -31,13 +31,6 @@
   %if %superq(troncal_id) = %then %do;
     %put ERROR: [fw_path_processed] troncal_id= es obligatorio.;
     %abort cancel;
-  %end;
-
-  /* `split` se conserva solo por compatibilidad de llamadas existentes. */
-  %if %length(%superq(split)) > 0 %then %do;
-    %if %upcase(&split.) ne TRAIN and %upcase(&split.) ne OOT %then %do;
-      %put WARNING: [fw_path_processed] split=&split. no es TRAIN/OOT. Se ignorara para resolver la ruta física.;
-    %end;
   %end;
 
   /* --- Construir ruta --------------------------------------------------- */

@@ -1,6 +1,6 @@
 # Framework SAS Viya (CAS) para Validación y Controles Automáticos
 
-Este repositorio contiene un framework modular en **SAS Viya / CAS** para preparar data (train/oot), ejecutar controles de validación (por ejemplo **Universe, Gini, PSI, Correlación**), y correr módulos de challenge como **METOD9 Challenge** con algoritmos como **Gradient Boosting** y **Random Forest**, generando artefactos (reportes, tablas, logs y modelos) de forma **estandarizada y automatizable**.
+Este repositorio contiene un framework modular en **SAS Viya / CAS** para materializar data persistente por troncal y scope, derivar `train/oot` en ejecucion, ejecutar controles de validacion (por ejemplo **Universe, Gini, PSI, Correlacion**), y correr modulos de challenge como **METOD9 Challenge** con algoritmos como **Gradient Boosting** y **Random Forest**, generando artefactos (reportes, tablas, logs y modelos) de forma **estandarizada y automatizable**.
 
 El diseño prioriza:
 - Convenciones determinísticas de rutas y nombres para facilitar loops y paralelización.
@@ -18,11 +18,11 @@ El usuario configura el framework editando los **steps** (`steps/*.sas`) y luego
 
 1. **Setup del proyecto**: definir ruta raíz.
 2. **Carga de configuración + creación de dirs del run**: leer `config.sas`, generar `run_id`, crear `outputs/runs/<run_id>/...`.
-3. **Creación de carpetas de data**: `data/raw/`, `data/processed/`, subcarpetas `troncal_X/train/oot/`.
+3. **Creación de carpetas de data**: `data/raw/`, `data/processed/`, subcarpetas `troncal_X/`.
 4. **Importación de datos desde ADLS** (opcional, una vez por proyecto): generar raw `.sashdat`.
-5. **Partición de data**: por troncal + split (`train/oot`) + scope (`universo/segmento`).
+5. **Materialización de processed**: una base persistente por troncal + scope (`universo/segmento`). Los splits `train/oot` se derivan en ejecución.
 
-> **Steps 03–05 se ejecutan una sola vez por proyecto** (o cuando se quiera regenerar data). En corridas posteriores, setear `data_prep_enabled=0` en `runner/main.sas` para saltar de Step 02 directo al contexto.
+> **Steps 03-05 se ejecutan una sola vez por proyecto** (o cuando cambie el raw, `flag_tcl` o la segmentacion). Si solo cambian las fechas de `train/oot`, basta recargar `config.sas` en Step 02 y ejecutar los modulos.
 
 6. **Contexto + módulos** (`steps/context_and_modules.sas`):
    a. **Selección de scope**: elegir UNIVERSO (troncal completa) o SEGMENTO.
@@ -49,21 +49,12 @@ project_root/
       mydataset.sashdat
     processed/
       troncal_1/
-        train/
-          base.sashdat
-          seg001.sashdat
-          seg002.sashdat
-        oot/
-          base.sashdat
-          seg001.sashdat
-          seg002.sashdat
+        base.sashdat
+        seg001.sashdat
+        seg002.sashdat
       troncal_2/
-        train/
-          base.sashdat
-          seg001.sashdat
-        oot/
-          base.sashdat
-          seg001.sashdat
+        base.sashdat
+        seg001.sashdat
 
   src/
     common/
@@ -103,9 +94,9 @@ project_root/
   steps/                             # FRONTEND - configuración previa a ejecutar controles
     01_setup_project.sas             # rutas del proyecto
     02_load_config.sas               # carga/validación de config.sas + promote config
-    03_create_folders.sas            # creación de carpetas base + troncal_X/train/oot
+    03_create_folders.sas            # creación de carpetas base + troncal_X/
     04_import_raw_data.sas           # importación ADLS (una vez por proyecto)
-    05_partition_data.sas            # particiones troncal/train/oot + universo/segmento
+    05_partition_data.sas            # materialización processed base/segmento
     context_and_modules.sas          # contexto unificado: scope + troncal + split + seg + módulos
     methods/                         # Steps de módulos organizados por método
       metod_1/                       # Método 1: universe (1.1)
@@ -164,9 +155,10 @@ Notas:
 - Step 02 crea las carpetas de output del run (`outputs/runs/<run_id>/logs|reports|images|tables|experiments|models`) en cada corrida, independientemente de `data_prep_enabled`. Las subcarpetas por método (`METOD1.1/`, `METOD4.2/`, `METOD4.3/`, `METOD9/`) se crean dinámicamente.
 - `logs/` es una salida operativa del framework: `steps/02_load_config.sas`, `steps/03_create_folders.sas`, `steps/04_import_raw_data.sas`, `steps/05_partition_data.sas` y cada `steps/methods/step_*.sas` redireccionan el log SAS a un archivo dedicado por step con `PROC PRINTTO`, y restauran el destino por defecto al finalizar.
 - En paralelo al `.log`, cada cierre de step registra una fila en la tabla de auditoría `auditoria_ejecuciones_v3` bajo `/bcp/bcp-exploratorio-adr-vime/transform_vi_monitoring/monitoring_workflow_scoring_vi`, con tiempos, usuario, contexto, `step_name`, `metod_name` y estado (`OK`, `SKIP`, `ERROR`).
-- Step 03 crea `data/raw/`, `data/processed/`, y subcarpetas `troncal_X/train/` y `troncal_X/oot/` por cada troncal. Solo se ejecuta durante data prep.
+- Step 03 crea `data/raw/`, `data/processed/`, y la carpeta `troncal_X/` por cada troncal. Solo se ejecuta durante data prep.
 - Parámetros específicos de módulos de análisis (`threshold`, `corr_mode`, etc.) **no** viven en `config.sas`; se configuran en el step del módulo correspondiente.
 - `def_cld` en `config.sas` define la fecha maxima (YYYYMM) para controles que usan target/PD/XB (ej. Gini, Bootstrap). Controles que solo analizan variables (ej. correlacion, PSI) usan `oot_max_mes`.
+- `data/processed` ya no persiste `train/oot` por separado. `run_module.sas` carga `base.sashdat` o `segNNN.sashdat` y deriva `TRAIN/OOT` en memoria usando `train_min_mes`, `train_max_mes`, `oot_min_mes` y `oot_max_mes`.
 
 ### 3.0a Ciclo de vida de CASLIBs
 
@@ -196,14 +188,14 @@ Todo bloque que usa CASLIBs sigue estrictamente: **create ? promote ? work ? dro
 - Convención estricta de naming operativo: usar solo `RAW` y `PROC` para capas de datos del framework (no usar `RAWDATA` ni `PROCESSED`).
 
 ### 3.1 Data preparada: naming determinístico
-Dentro de cada `troncal_X/{train|oot}`:
+Dentro de cada `troncal_X/`:
 - Universo (troncal completo): `base.sashdat`
 - Segmentos numéricos: `seg001.sashdat`, `seg002.sashdat`, ..., `segNNN.sashdat`
 
 Reglas:
 - Padding de 3 dígitos para segmentos: `seg%sysfunc(putn(seg_id,z3.))`.
-- El split (`train/oot`) y la troncal se expresan por carpeta, no por el nombre de archivo.
-- Se accede vía CASLIB `PROC` con la subruta relativa (ej. `troncal_1/train/base.sashdat`).
+- El split no se persiste físicamente en `processed`; se deriva en ejecución.
+- Se accede vía CASLIB `PROC` con la subruta relativa (ej. `troncal_1/base.sashdat`).
 
 ### 3.2 Artefactos de ejecución por run
 Todo output va en:
@@ -232,6 +224,15 @@ Cada módulo implementa:
 - `src/modules/<modulo>/<modulo>_run.sas`  (macro pública `%<modulo>_run(...)`)
 - `src/modules/<modulo>/<modulo>_contract.sas` (validaciones)
 - `src/modules/<modulo>/impl/*` (cómputo, reportes, plots, utilidades internas)
+
+Shapes de input soportados por `run_module.sas`:
+- `single-input`: entrega `_active_input` para un solo split
+- `dual-input`: entrega `_train_input` y `_oot_input`
+- `scope-input`: entrega `_scope_input` y el modulo deriva `TRAIN/OOT` adentro
+
+Regla vigente:
+- estos shapes son logicos en CAS; ya no existen carpetas fisicas `train/oot` en `data/processed`
+- para modulos nuevos, preferir `scope_input=1` cuando el diseno lo permita
 
 ### 3.4 Validaciones obligatorias
 Antes de ejecutar un módulo:
@@ -263,18 +264,18 @@ Los archivos `steps/*.sas` actúan como el **frontend** del framework. El usuari
 | ---- | -------------------------------------------- | ------------------------------------------------------------ |
 | 01   | `steps/01_setup_project.sas`                 | Rutas del proyecto                                           |
 | 02   | `steps/02_load_config.sas`                   | Carga `config.sas` + promote config + dirs de output del run |
-| 03   | `steps/03_create_folders.sas`                | Carpetas de data + `troncal_X/train/oot/` (solo data prep)   |
+| 03   | `steps/03_create_folders.sas`                | Carpetas de data + `troncal_X/` (solo data prep)             |
 | 04   | `steps/04_import_raw_data.sas`               | Importación ADLS (una vez por proyecto)                      |
-| 05   | `steps/05_partition_data.sas`                | Particiones por troncal/split/scope                          |
+| 05   | `steps/05_partition_data.sas`                | Materializar processed base/segmento                         |
 | -    | `steps/context_and_modules.sas`              | Contexto (scope + troncal + split + seg) + módulos           |
 | -    | `steps/methods/metod_1/step_universe.sas`    | Config + ejecución universe (1.1)                            |
 | -    | `steps/methods/metod_4/step_correlacion.sas` | Config + ejecución correlación                               |
 | -    | `steps/methods/metod_4/step_psi.sas`         | Config + ejecución PSI                                       |
 
 ### 5.2 Cómo usar
-1. Configurar rutas/config (Steps 01–02). Siempre se ejecutan.
-2. **Primera corrida**: `data_prep_enabled=1` ? ejecutar Steps 03–05 (carpetas, ADLS, partición).
-   **Corridas posteriores**: `data_prep_enabled=0` ? saltar Steps 03–05.
+1. Configurar rutas/config (Steps 01-02). Siempre se ejecutan.
+2. **Primera corrida**: `data_prep_enabled=1` -> ejecutar Steps 03-05 (carpetas, ADLS, particion).
+   **Corridas posteriores**: `data_prep_enabled=0` -> saltar Steps 03-05.
 3. **Contexto + módulos**: configurar scope, troncal, split, segmento y módulos a correr en `steps/context_and_modules.sas`.
 4. Los steps de módulos se ejecutan leyendo `ctx_scope` para iterar segmentos (SEGMENTO) o base/troncal (UNIVERSO).
 
@@ -289,6 +290,21 @@ Ver `design.md §5` para el contrato completo.
 ---
 
 ## 6) Cómo agregar un módulo nuevo
+
+Guia vigente:
+- `docs/module_authoring.md`
+
+Resumen rapido:
+- para modulos nuevos, preferir `scope_input=1` cuando el diseno permita derivar `TRAIN/OOT` dentro del modulo
+- usar `dual_input=1` solo cuando la logica compare naturalmente dos tablas
+- usar `dual_input=0` para modulos de un solo split por corrida
+- reutilizar `%fw_path_processed`, `%_fw_load_scope_input` y `%_fw_build_split_table`
+
+Referencias:
+- `src/modules/universe/` como ejemplo `scope_input` CAS-first
+- `src/modules/correlacion/` como ejemplo `single-input`
+- `src/modules/psi/` y `src/modules/target/` como ejemplos `dual-input`
+
 
 1. Crear carpeta `src/modules/<nuevo_modulo>/`.
 2. Implementar:
@@ -315,4 +331,6 @@ Ver `steps/methods/metod_4/step_correlacion.sas` y `src/modules/correlacion/` co
 ## 7) Documentación adicional
 
 - Diseño y contratos: `docs/design.md`
+- Guia de construccion de modulos: `docs/module_authoring.md`
 - Catálogo de módulos: `docs/module_catalog.md`
+- Patrones CAS-first / PROC CAS: `docs/cas_first_patterns.md`
