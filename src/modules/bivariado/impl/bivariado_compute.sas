@@ -286,7 +286,19 @@ Principios:
     data work._biv_append_cat;
         length Seccion $12 Tipo_Variable $12 Variable $64 Valor $200
             Ventana $10 Periodo 8 N 8 Pct_Cuentas 8 Defaults 8 RD 8;
-        set casuser._biv_append;
+        set casuser._biv_append(rename=(
+            Seccion=_Seccion
+            Tipo_Variable=_Tipo_Variable
+            Variable=_Variable
+            Valor=_Valor
+            Ventana=_Ventana
+        ));
+        Seccion=strip(_Seccion);
+        Tipo_Variable=strip(_Tipo_Variable);
+        Variable=strip(_Variable);
+        Valor=strip(_Valor);
+        Ventana=strip(_Ventana);
+        drop _Seccion _Tipo_Variable _Variable _Valor _Ventana;
     run;
 
     proc append base=work.&out_table. data=work._biv_append_cat force;
