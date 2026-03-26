@@ -23,6 +23,8 @@
 
 %macro fw_path_processed(outvar=, troncal_id=, seg_id=);
 
+  %local _seg_pad;
+
   /* --- Validación mínima ------------------------------------------------ */
   %if %superq(outvar) = %then %do;
     %put ERROR: [fw_path_processed] outvar= es obligatorio.;
@@ -34,7 +36,6 @@
   %end;
 
   /* --- Construir ruta --------------------------------------------------- */
-  %global &outvar.;
 
   %if %superq(seg_id) = %then %do;
     /* Universo (base completa) - sin extensión; el consumidor agrega .sashdat */
@@ -44,7 +45,6 @@
     /* Segmento con padding z3. - sin extensión */
     %let _seg_pad = %sysfunc(putn(&seg_id., z3.));
     %let &outvar. = troncal_&troncal_id./seg&_seg_pad.;
-    %symdel _seg_pad / nowarn;
   %end;
 
   %put NOTE: [fw_path_processed] &outvar. = &&&outvar.;

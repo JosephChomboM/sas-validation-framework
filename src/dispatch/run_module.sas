@@ -98,7 +98,7 @@ Convencion: el modulo debe exponer %<module>_run(...).
 %macro run_module(module=, troncal_id=, split=, seg_id=, run_id=, dual_input=0,
     scope_input=0);
 
-	/* ---- Locals (no incluir paths: son %global via fw_path_processed) --- */
+	/* ---- Locals -------------------------------------------------------- */
 	%local _scope _out_caslib _promote_ok _input_path _run_module_scope_rc;
 
 	/* Construir scope label para naming de outputs */
