@@ -83,6 +83,61 @@ Principios:
 
 %mend _biv_prepare_report_table;
 
+%macro _biv_build_var_catalog(vars_num=, vars_cat=, section=, out_table=);
+
+    data work.&out_table.;
+        length Seccion $12 Tipo_Variable $12 Variable $64 Tipo_Orden 8;
+        stop;
+    run;
+
+    %local _idx _var;
+
+    %if %length(%superq(vars_num)) > 0 %then %do;
+        %let _idx=1;
+        %let _var=%scan(%superq(vars_num), &_idx., %str( ));
+        %do %while(%length(%superq(_var)) > 0);
+            data work._biv_var_cat_row;
+                length Seccion $12 Tipo_Variable $12 Variable $64 Tipo_Orden 8;
+                Seccion="&section.";
+                Tipo_Variable="NUMERICA";
+                Variable="&_var.";
+                Tipo_Orden=1;
+            run;
+
+            proc append base=work.&out_table. data=work._biv_var_cat_row force;
+            quit;
+
+            %let _idx=%eval(&_idx. + 1);
+            %let _var=%scan(%superq(vars_num), &_idx., %str( ));
+        %end;
+    %end;
+
+    %if %length(%superq(vars_cat)) > 0 %then %do;
+        %let _idx=1;
+        %let _var=%scan(%superq(vars_cat), &_idx., %str( ));
+        %do %while(%length(%superq(_var)) > 0);
+            data work._biv_var_cat_row;
+                length Seccion $12 Tipo_Variable $12 Variable $64 Tipo_Orden 8;
+                Seccion="&section.";
+                Tipo_Variable="CATEGORICA";
+                Variable="&_var.";
+                Tipo_Orden=2;
+            run;
+
+            proc append base=work.&out_table. data=work._biv_var_cat_row force;
+            quit;
+
+            %let _idx=%eval(&_idx. + 1);
+            %let _var=%scan(%superq(vars_cat), &_idx., %str( ));
+        %end;
+    %end;
+
+    proc datasets library=work nolist nowarn;
+        delete _biv_var_cat_row;
+    quit;
+
+%mend _biv_build_var_catalog;
+
 %macro _biv_calcular_cortes(train_data=, var=, groups=);
 
     %local rnd;
@@ -370,6 +425,12 @@ Principios:
 
     %_biv_init_detail_table(table_name=_biv_main_detail);
     %_biv_init_detail_table(table_name=_biv_driver_detail);
+
+    %_biv_build_var_catalog(vars_num=&vars_num., vars_cat=&vars_cat.,
+        section=PRINCIPAL, out_table=_biv_main_catalog);
+
+    %_biv_build_var_catalog(vars_num=&dri_num., vars_cat=&dri_cat.,
+        section=DRIVER, out_table=_biv_driver_catalog);
 
     %_biv_build_detail(source_data=&source_data., train_data=&train_data.,
         target=&target., byvar=&byvar., vars_num=&vars_num.,

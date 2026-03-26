@@ -7,14 +7,14 @@ Genera:
 - un grafico temporal consolidado por variable
 ========================================================================= */
 
-%macro _biv_report_section(detail_table=, byvar=, oot_min_mes=,
+%macro _biv_report_section(detail_table=, catalog_table=, byvar=, oot_min_mes=,
     image_prefix=, section_title=);
 
     %local _nvars _idx _var _var_list _tipo_var _valor_label _xaxis_label;
 
     proc sql noprint;
         select Variable into :_var_list separated by '|'
-        from &detail_table.
+        from &catalog_table.
         group by Variable, Tipo_Orden
         order by Tipo_Orden, Variable;
     quit;
@@ -30,7 +30,7 @@ Genera:
 
         proc sql noprint;
             select distinct Tipo_Variable into :_tipo_var trimmed
-            from &detail_table.
+            from &catalog_table.
             where Variable="&_var.";
         quit;
 
@@ -105,6 +105,7 @@ Genera:
         embedded_titles="yes");
 
     %_biv_report_section(detail_table=work._biv_main_report,
+        catalog_table=work._biv_main_catalog,
         byvar=&byvar., oot_min_mes=&oot_min_mes.,
         image_prefix=&file_prefix._main, section_title=Variables Principales);
 
@@ -113,6 +114,7 @@ Genera:
             embedded_titles="yes");
 
         %_biv_report_section(detail_table=work._biv_driver_report,
+            catalog_table=work._biv_driver_catalog,
             byvar=&byvar., oot_min_mes=&oot_min_mes.,
             image_prefix=&file_prefix._drv, section_title=Drivers);
     %end;
