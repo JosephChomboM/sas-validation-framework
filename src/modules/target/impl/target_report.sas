@@ -87,7 +87,7 @@ target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
     %if not %sysfunc(exist(casuser._tgt_input)) %then %return;
 
     proc freqtab data=casuser._tgt_input noprint;
-        tables Split * &byvar. * &target. / norow nopercent nocum nocol;
+        tables &byvar. * &target. / norow nopercent nocum nocol;
         output out=casuser._tgt_mat_report;
     run;
 
@@ -96,18 +96,16 @@ target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
             &byvar.=Periodo
             &target.=Target_Value
         ));
-        where not missing(Split)
-          and not missing(Periodo)
+        where not missing(Periodo)
           and not missing(Target_Value);
         N_Cuentas=coalesce(COUNT, _FREQ_, FREQUENCY, N);
-        keep Periodo Split Target_Value N_Cuentas;
+        keep Periodo Target_Value N_Cuentas;
     run;
 
     title "Materialidad por Periodo y Target";
     proc report data=casuser._tgt_mat_report nowd missing;
-        columns Periodo Split Target_Value N_Cuentas;
+        columns Periodo Target_Value N_Cuentas;
         define Periodo / order "Periodo" format=6.;
-        define Split / order "Dataset";
         define Target_Value / order "Target";
         define N_Cuentas / display "N Cuentas";
     run;
