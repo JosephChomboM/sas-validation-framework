@@ -14,10 +14,8 @@ Genera:
 
     proc sql noprint;
         select Variable into :_var_list separated by '|'
-        from (
-            select distinct Variable, Tipo_Orden
-            from &detail_table.
-        )
+        from &detail_table.
+        group by Variable, Tipo_Orden
         order by Tipo_Orden, Variable;
     quit;
 
