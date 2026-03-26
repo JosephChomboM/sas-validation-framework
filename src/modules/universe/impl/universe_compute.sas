@@ -9,6 +9,7 @@ rows together. Differences are exposed only through a split column.
     %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
         %return;
 
+    /* Orden solo de salida para print/plots del reporte. */
     proc cas;
         session conn;
         table.partition /
@@ -29,7 +30,7 @@ rows together. Differences are exposed only through a split column.
 
 %macro _univ_describe_id(data=, split_var=_univ_split, byvar=, id_var=);
 
-    title "Evolutivo Cuentas";
+    title "Evolutivo Cuentas - &data.";
 
     proc fedsql sessref=conn;
         create table casuser._univ_evolut_cuenta {options replace=true} as
@@ -64,7 +65,7 @@ rows together. Differences are exposed only through a split column.
     %_univ_sort_cas(table_name=_univ_dup,
         orderby=%str({"&split_var.", "&byvar.", "&id_var."}));
 
-    title "Duplicados por periodo";
+    title "Duplicados - &data.";
     proc print data=casuser._univ_dup noobs;
     run;
 
@@ -93,9 +94,6 @@ rows together. Differences are exposed only through a split column.
         from casuser._univ_sindup
         group by &split_var., &byvar.;
     quit;
-
-    %_univ_sort_cas(table_name=_univ_freq_cuentas,
-        orderby=%str({"&split_var.", "&byvar."}));
 
     proc sql noprint;
         select coalesce(mean(Count), 0),
@@ -130,7 +128,12 @@ rows together. Differences are exposed only through a split column.
         from casuser._univ_freq_cuentas;
     quit;
 
-    title "Evolutivo Cuentas (+/-2 sigma TRAIN)";
+    %_univ_sort_cas(table_name=_univ_freq_cuentas,
+        orderby=%str({"&split_var.", "&byvar."}));
+    %_univ_sort_cas(table_name=_univ_freq_cuentas_plot,
+        orderby=%str({"&split_var.", "&byvar."}));
+
+    title "Evolutivo Cuentas - &data.";
     proc print data=casuser._univ_freq_cuentas noobs;
     run;
 
@@ -213,11 +216,12 @@ rows together. Differences are exposed only through a split column.
     %_univ_sort_cas(table_name=_univ_evolut_monto,
         orderby=%str({"&split_var.", "&byvar."}));
 
-    title "Evolutivo &monto_var.";
+    title "Evolutivo Monto - &monto_var.";
 
     proc print data=casuser._univ_evolut_monto noobs;
     run;
 
+    title "Evolutivo &monto_var..";
     proc sgplot data=casuser._univ_evolut_monto;
         series x=&byvar. y=Mean /
             group=&split_var.

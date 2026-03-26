@@ -36,18 +36,6 @@ and reports them together in the same tables and charts through _univ_split.
             source={caslib="casuser", name="_univ_input_stage"},
             target={caslib="casuser", name="&out_table."};
         table.dropTable / caslib="casuser" name="_univ_input_stage" quiet=true;
-        table.partition /
-            table={
-                caslib="casuser",
-                name="&out_table.",
-                orderby={"&split_var.", "&byvar."},
-                groupby={}
-            },
-            casout={
-                caslib="casuser",
-                name="&out_table.",
-                replace=true
-            };
     quit;
 
 %mend _univ_prepare_scope_data;
@@ -93,9 +81,6 @@ and reports them together in the same tables and charts through _univ_split.
     ods excel file="&report_path./&file_prefix..xlsx"
         options(sheet_name="DescribeUniverso" sheet_interval="none"
         embedded_titles="yes");
-
-    ods text="^S={font_weight=bold font_size=12pt}Describe Universo";
-    ods text="^S={font_size=10pt}La diferencia entre poblaciones se conserva en la columna _univ_split y en los grupos de los graficos.";
 
     ods graphics / imagename="&file_prefix._cuentas" imagefmt=jpeg;
     %_univ_describe_id(data=casuser._univ_input, split_var=_univ_split,
