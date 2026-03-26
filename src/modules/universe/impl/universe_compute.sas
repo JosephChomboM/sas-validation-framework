@@ -39,7 +39,7 @@ rows together. Differences are exposed only through a split column.
     quit;
 
     %_univ_sort_cas(table_name=_univ_evolut_cuenta,
-        orderby={"&split_var.", "&byvar."});
+        orderby=%str({"&split_var.", "&byvar."}));
 
     proc print data=casuser._univ_evolut_cuenta noobs;
     run;
@@ -62,7 +62,7 @@ rows together. Differences are exposed only through a split column.
     quit;
 
     %_univ_sort_cas(table_name=_univ_dup,
-        orderby={"&split_var.", "&byvar.", "&id_var."});
+        orderby=%str({"&split_var.", "&byvar.", "&id_var."}));
 
     title "Duplicados por periodo";
     proc print data=casuser._univ_dup noobs;
@@ -95,7 +95,7 @@ rows together. Differences are exposed only through a split column.
     quit;
 
     %_univ_sort_cas(table_name=_univ_freq_cuentas,
-        orderby={"&split_var.", "&byvar."});
+        orderby=%str({"&split_var.", "&byvar."}));
 
     proc sql noprint;
         select coalesce(mean(Count), 0),
@@ -174,7 +174,7 @@ rows together. Differences are exposed only through a split column.
     quit;
 
     %_univ_sort_cas(table_name=_univ_sum_monto,
-        orderby={"&split_var.", "&byvar."});
+        orderby=%str({"&split_var.", "&byvar."}));
 
     title "Suma &monto_var. por &byvar.";
 
@@ -211,7 +211,7 @@ rows together. Differences are exposed only through a split column.
     quit;
 
     %_univ_sort_cas(table_name=_univ_evolut_monto,
-        orderby={"&split_var.", "&byvar."});
+        orderby=%str({"&split_var.", "&byvar."}));
 
     title "Evolutivo &monto_var.";
 
