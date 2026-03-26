@@ -86,34 +86,11 @@ target_report.sas - Reporte consolidado TRAIN + OOT para Target (METOD2.1)
 %macro _target_report_materiality(byvar=, target=);
     %if not %sysfunc(exist(casuser._tgt_input)) %then %return;
 
-    proc freqtab data=casuser._tgt_input noprint;
-        tables &byvar. * &target. / norow nopercent nocum nocol;
-        output out=casuser._tgt_mat_report;
-    run;
-
-    data casuser._tgt_mat_report;
-        set casuser._tgt_mat_report(rename=(
-            &byvar.=Periodo
-            &target.=Target_Value
-        ));
-        where not missing(Periodo)
-          and not missing(Target_Value);
-        N_Cuentas=coalesce(COUNT, _FREQ_, FREQUENCY, N);
-        keep Periodo Target_Value N_Cuentas;
-    run;
-
     title "Materialidad por Periodo y Target";
-    proc report data=casuser._tgt_mat_report nowd missing;
-        columns Periodo Target_Value N_Cuentas;
-        define Periodo / order "Periodo" format=6.;
-        define Target_Value / order "Target";
-        define N_Cuentas / display "N Cuentas";
+    proc freqtab data=casuser._tgt_input;
+        tables &byvar. * &target. / norow nopercent nocum nocol;
     run;
     title;
-
-    proc datasets library=casuser nolist nowarn;
-        delete _tgt_mat_report;
-    quit;
 %mend _target_report_materiality;
 
 %macro _target_plot_bands(data=, yvar=, refvar=, lower=, upper=, axismin=,
