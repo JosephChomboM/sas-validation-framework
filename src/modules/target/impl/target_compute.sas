@@ -508,8 +508,10 @@ Implementacion activa:
 
 %macro _tgt_detect_freq_count(raw_table=, byvar=, target=, outvar=);
 
-    %local _memname;
+    %local _memname _byvar_uc _target_uc;
     %let _memname=%upcase(%scan(&raw_table., 2, .));
+    %let _byvar_uc=%upcase(%superq(byvar));
+    %let _target_uc=%upcase(%superq(target));
     %if %length(%superq(_memname))=0 %then
         %let _memname=%upcase(&raw_table.);
 
@@ -521,8 +523,8 @@ Implementacion activa:
           and type='num'
           and upcase(name) not in (
               'SPLIT',
-              upcase("&byvar."),
-              upcase("&target."),
+              "&_byvar_uc.",
+              "&_target_uc.",
               '_TYPE_',
               'PERCENT',
               'ROWPERCENT',
