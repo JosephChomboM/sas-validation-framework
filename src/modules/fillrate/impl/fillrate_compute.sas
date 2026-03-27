@@ -105,7 +105,7 @@ Notas:
         stop;
     run;
 
-    data &out_bytime.;
+    data work._fill_gini_bytime_all;
         set &out_bytime.(obs=0);
         stop;
     run;
@@ -213,7 +213,8 @@ Notas:
             keep Variable Var_Type Muestra &byvar. N_Gini Smdcr_Raw Gini;
         run;
 
-        proc append base=&out_bytime. data=work._fill_gini_bt_var force;
+        proc append base=work._fill_gini_bytime_all
+            data=work._fill_gini_bt_var force;
         run;
 
         proc datasets library=work nolist nowarn;
@@ -240,9 +241,13 @@ Notas:
         if _a;
     run;
 
+    data &out_bytime.;
+        set work._fill_gini_bytime_all;
+    run;
+
     proc datasets library=work nolist nowarn;
         delete _fill_gen_tot _fill_gen_n _fill_gen_base
-               _fill_gini_global _fill_stage_gini;
+               _fill_gini_global _fill_stage_gini _fill_gini_bytime_all;
     quit;
 
 %mend _fill_general_compute;
@@ -252,7 +257,7 @@ Notas:
 
     %local _cidx _cvar;
 
-    data &out.;
+    data work._fill_monthly_all;
         length Variable $64 Var_Type $8 Muestra $5 &byvar. 8
             N_Total N_Filled 8 Fillrate 8;
         format Fillrate 8.2;
@@ -298,7 +303,8 @@ Notas:
             keep Variable Var_Type Muestra &byvar. N_Total N_Filled Fillrate;
         run;
 
-        proc append base=&out. data=work._fill_mon_num_long force;
+        proc append base=work._fill_monthly_all
+            data=work._fill_mon_num_long force;
         run;
     %end;
 
@@ -350,13 +356,23 @@ Notas:
             keep Variable Var_Type Muestra &byvar. N_Total N_Filled Fillrate;
         run;
 
-        proc append base=&out. data=work._fill_mon_cat_long force;
+        proc append base=work._fill_monthly_all
+            data=work._fill_mon_cat_long force;
         run;
     %end;
 
+    proc sort data=work._fill_monthly_all;
+        by Variable Muestra &byvar.;
+    run;
+
+    data &out.;
+        set work._fill_monthly_all;
+    run;
+
     proc datasets library=work nolist nowarn;
         delete _fill_mon_tot _fill_mon_num _fill_mon_num_long
-               _fill_mon_cat_stage _fill_mon_cat _fill_mon_cat_long;
+               _fill_mon_cat_stage _fill_mon_cat _fill_mon_cat_long
+               _fill_monthly_all;
     quit;
 
 %mend _fill_monthly_compute;
