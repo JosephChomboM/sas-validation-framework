@@ -294,9 +294,11 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
                 on c.Periodo=f.&byvar.;
         quit;
 
-        data casuser._gini_var_row;
-            set casuser._gini_var_row;
-            length Evaluacion $15;
+        data casuser._gini_var_row_norm;
+            length Variable $64 Split $5 Evaluacion $15;
+            set casuser._gini_var_row(rename=(Variable=_var_raw Split=_split_raw));
+            Variable=substr(strip(_var_raw), 1, 64);
+            Split=substr(strip(_split_raw), 1, 5);
             if N_Gini < &min_n_valid. then do;
                 Smdcr_Raw=.;
                 Gini=.;
@@ -307,17 +309,19 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             else if Gini >= &var_low. then Evaluacion='ACEPTABLE';
             else Evaluacion='BAJO';
             format Gini Smdcr_Raw 8.4;
+            drop _var_raw _split_raw;
         run;
 
         proc cas;
             session conn;
             table.append /
-                source={caslib='casuser', name='_gini_var_row'},
+                source={caslib='casuser', name='_gini_var_row_norm'},
                 target={caslib="&_out_lib.", name="&_out_name."};
         quit;
 
         proc datasets library=casuser nolist nowarn;
-            delete _gini_var_cnt _gini_var_ng _gini_var_ftb _gini_var_row;
+            delete _gini_var_cnt _gini_var_ng _gini_var_ftb _gini_var_row
+                _gini_var_row_norm;
         quit;
 
         %let _i=%eval(&_i. + 1);
