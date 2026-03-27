@@ -3,9 +3,9 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
 ========================================================================= */
 
 %macro _gini_model_general_split(data=, split=, target=, score=,
-    with_missing=1, model_low=, model_high=, out=work._gini_model_split);
+    with_missing=1, model_low=, model_high=, out=casuser._gini_model_split);
 
-    %local _gini_n _smdcr;
+    %local _gini_n _smdcr _gini_ft_exists;
 
     proc sql noprint;
         create table &out. as
@@ -23,11 +23,20 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
     %let _smdcr=.;
 
     %_gini_freqtab_general(data=&data., target=&target., score=&score.,
-        with_missing=&with_missing., out=work._gini_model_ft);
+        with_missing=&with_missing., out=casuser._gini_model_ft);
 
-    %if %sysfunc(exist(work._gini_model_ft)) %then %do;
+    %let _gini_ft_exists=0;
+    proc sql noprint;
+        select count(*) into :_gini_ft_exists trimmed
+        from dictionary.tables
+        where upcase(libname)='CASUSER'
+          and upcase(memname)='_GINI_MODEL_FT';
+    quit;
+
+    %if &_gini_ft_exists. > 0 %then %do;
         proc sql noprint;
-            select max(_SMDCR_) into :_smdcr trimmed from work._gini_model_ft;
+            select max(_SMDCR_) into :_smdcr trimmed
+            from casuser._gini_model_ft;
         quit;
     %end;
 
@@ -49,25 +58,39 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
         format Gini Smdcr_Raw SE IC_95_Lower IC_95_Upper 8.4;
     run;
 
-    proc datasets library=work nolist nowarn;
+    proc datasets library=casuser nolist nowarn;
         delete _gini_model_ft;
     quit;
 
 %mend _gini_model_general_split;
 
-%macro _gini_model_general(train_data=, oot_data=, target=, score=,
+%macro _gini_model_general(data=, split_var=Split, target=, score=,
     with_missing=1, model_low=, model_high=, out=casuser._gini_model_general);
 
-    %_gini_model_general_split(data=&train_data., split=TRAIN, target=&target.,
-        score=&score., with_missing=&with_missing., model_low=&model_low.,
-        model_high=&model_high., out=work._gini_model_train);
+    %_gini_model_general_split(
+        data=&data.(where=(upcase(strip(&split_var.))='TRAIN')),
+        split=TRAIN,
+        target=&target.,
+        score=&score.,
+        with_missing=&with_missing.,
+        model_low=&model_low.,
+        model_high=&model_high.,
+        out=casuser._gini_model_train
+    );
 
-    %_gini_model_general_split(data=&oot_data., split=OOT, target=&target.,
-        score=&score., with_missing=&with_missing., model_low=&model_low.,
-        model_high=&model_high., out=work._gini_model_oot);
+    %_gini_model_general_split(
+        data=&data.(where=(upcase(strip(&split_var.))='OOT')),
+        split=OOT,
+        target=&target.,
+        score=&score.,
+        with_missing=&with_missing.,
+        model_low=&model_low.,
+        model_high=&model_high.,
+        out=casuser._gini_model_oot
+    );
 
     data &out.;
-        set work._gini_model_train work._gini_model_oot;
+        set casuser._gini_model_train casuser._gini_model_oot;
     run;
 
     %local _gini_train;
@@ -85,25 +108,27 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
         format Degradacion percent8.2;
     run;
 
-    proc datasets library=work nolist nowarn;
+    proc datasets library=casuser nolist nowarn;
         delete _gini_model_train _gini_model_oot;
     quit;
 
 %mend _gini_model_general;
 
 %macro _gini_model_monthly_split(data=, split=, target=, score=, byvar=,
-    with_missing=1, model_low=, model_high=, out=work._gini_model_month_split);
+    with_missing=1, model_low=, model_high=,
+    out=casuser._gini_model_month_split);
 
-    data work._gini_model_src;
-        set &data.;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser._gini_model_src {options replace=true} as
+        select *
+        from &data.;
+    quit;
 
-    proc sort data=work._gini_model_src;
-        by &byvar.;
-    run;
+    %_gini_sort_cas(table_name=_gini_model_src,
+        orderby=%str({"&byvar."}));
 
     proc sql noprint;
-        create table work._gini_model_cnt as
+        create table casuser._gini_model_cnt as
         select "&split." as Split length=5,
             &byvar. as Periodo,
             count(*) as N_Total,
@@ -111,40 +136,40 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             sum(1-&target.) as N_No_Default,
             calculated N_Default / calculated N_Total as Tasa_Default
                 format=percent8.2
-        from work._gini_model_src
+        from casuser._gini_model_src
         group by &byvar.;
     quit;
 
     %if &with_missing.=1 %then %do;
         proc sql noprint;
-            create table work._gini_model_ng as
+            create table casuser._gini_model_ng as
             select &byvar. as Periodo,
                 count(*) as N_Gini
-            from work._gini_model_src
+            from casuser._gini_model_src
             where not missing(&target.)
             group by &byvar.;
         quit;
 
-        proc freqtab data=work._gini_model_src noprint missing;
+        proc freqtab data=casuser._gini_model_src noprint missing;
             by &byvar.;
             tables &target. * &score. / measures;
-            output out=work._gini_model_ftb smdcr;
+            output out=casuser._gini_model_ftb smdcr;
         run;
     %end;
     %else %do;
         proc sql noprint;
-            create table work._gini_model_ng as
+            create table casuser._gini_model_ng as
             select &byvar. as Periodo,
                 count(*) as N_Gini
-            from work._gini_model_src
+            from casuser._gini_model_src
             where not missing(&target.) and not missing(&score.)
             group by &byvar.;
         quit;
 
-        proc freqtab data=work._gini_model_src noprint;
+        proc freqtab data=casuser._gini_model_src noprint;
             by &byvar.;
             tables &target. * &score. / measures;
-            output out=work._gini_model_ftb smdcr;
+            output out=casuser._gini_model_ftb smdcr;
         run;
     %end;
 
@@ -159,10 +184,10 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             n.N_Gini,
             f._SMDCR_ as Smdcr_Raw format=8.4,
             abs(f._SMDCR_) as Gini format=8.4
-        from work._gini_model_cnt c
-        left join work._gini_model_ng n
+        from casuser._gini_model_cnt c
+        left join casuser._gini_model_ng n
             on c.Periodo=n.Periodo
-        left join work._gini_model_ftb f
+        left join casuser._gini_model_ftb f
             on c.Periodo=f.&byvar.;
     quit;
 
@@ -175,50 +200,62 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
         else Evaluacion="BAJO";
     run;
 
-    proc datasets library=work nolist nowarn;
+    proc datasets library=casuser nolist nowarn;
         delete _gini_model_src _gini_model_cnt _gini_model_ng _gini_model_ftb;
     quit;
 
 %mend _gini_model_monthly_split;
 
-%macro _gini_model_monthly(train_data=, oot_data=, target=, score=, byvar=,
+%macro _gini_model_monthly(data=, split_var=Split, target=, score=, byvar=,
     with_missing=1, model_low=, model_high=, trend_delta=0.03,
     out=casuser._gini_model_monthly);
 
-    %_gini_model_monthly_split(data=&train_data., split=TRAIN, target=&target.,
-        score=&score., byvar=&byvar., with_missing=&with_missing.,
-        model_low=&model_low., model_high=&model_high.,
-        out=work._gini_model_train_m);
+    %_gini_model_monthly_split(
+        data=&data.(where=(upcase(strip(&split_var.))='TRAIN')),
+        split=TRAIN,
+        target=&target.,
+        score=&score.,
+        byvar=&byvar.,
+        with_missing=&with_missing.,
+        model_low=&model_low.,
+        model_high=&model_high.,
+        out=casuser._gini_model_train_m
+    );
 
-    %_gini_model_monthly_split(data=&oot_data., split=OOT, target=&target.,
-        score=&score., byvar=&byvar., with_missing=&with_missing.,
-        model_low=&model_low., model_high=&model_high.,
-        out=work._gini_model_oot_m);
+    %_gini_model_monthly_split(
+        data=&data.(where=(upcase(strip(&split_var.))='OOT')),
+        split=OOT,
+        target=&target.,
+        score=&score.,
+        byvar=&byvar.,
+        with_missing=&with_missing.,
+        model_low=&model_low.,
+        model_high=&model_high.,
+        out=casuser._gini_model_oot_m
+    );
 
-    data work._gini_model_monthly_all;
-        set work._gini_model_train_m work._gini_model_oot_m;
+    data casuser._gini_model_monthly_all;
+        set casuser._gini_model_train_m casuser._gini_model_oot_m;
     run;
 
     proc sql noprint;
-        create table work._gini_model_fl as
+        create table casuser._gini_model_fl as
         select Split, min(Periodo) as First_Period, max(Periodo) as Last_Period
-        from work._gini_model_monthly_all
+        from casuser._gini_model_monthly_all
         group by Split;
 
-        create table work._gini_model_trend as
+        create table casuser._gini_model_trend as
         select a.Split,
             f.Gini as Gini_First format=8.4,
             l.Gini as Gini_Last format=8.4,
             (l.Gini - f.Gini) as Delta_Gini format=8.4
-        from work._gini_model_fl a
-        left join work._gini_model_monthly_all f
+        from casuser._gini_model_fl a
+        left join casuser._gini_model_monthly_all f
             on a.Split=f.Split and a.First_Period=f.Periodo
-        left join work._gini_model_monthly_all l
+        left join casuser._gini_model_monthly_all l
             on a.Split=l.Split and a.Last_Period=l.Periodo;
-    quit;
 
-    proc sql noprint;
-        create table work._gini_model_monthly_out as
+        create table casuser._gini_model_monthly_out as
         select a.*,
             t.Gini_First,
             t.Gini_Last,
@@ -230,16 +267,16 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
                 when t.Delta_Gini > &trend_delta. then "MEJORANDO"
                 else "ESTABLE"
             end as Tendencia length=15
-        from work._gini_model_monthly_all a
-        left join work._gini_model_trend t
+        from casuser._gini_model_monthly_all a
+        left join casuser._gini_model_trend t
             on a.Split=t.Split;
     quit;
 
     data &out.;
-        set work._gini_model_monthly_out;
+        set casuser._gini_model_monthly_out;
     run;
 
-    proc datasets library=work nolist nowarn;
+    proc datasets library=casuser nolist nowarn;
         delete _gini_model_train_m _gini_model_oot_m _gini_model_monthly_all
             _gini_model_fl _gini_model_trend _gini_model_monthly_out;
     quit;

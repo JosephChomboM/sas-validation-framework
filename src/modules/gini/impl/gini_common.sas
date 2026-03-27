@@ -13,7 +13,30 @@ gini_common.sas - Utilidades reutilizables para Gini con PROC FREQTAB
     %let &outvar=&_exists.;
 %mend _gini_var_exists;
 
-%macro _gini_partition_vars(train_data=, oot_data=, vars_num=,
+%macro _gini_sort_cas(table_name=, orderby=, groupby={});
+
+    %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
+        %return;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={
+                caslib="casuser",
+                name="&table_name.",
+                orderby=&orderby.,
+                groupby=&groupby.
+            },
+            casout={
+                caslib="casuser",
+                name="&table_name.",
+                replace=true
+            };
+    quit;
+
+%mend _gini_sort_cas;
+
+%macro _gini_partition_vars(data=, train_data=, oot_data=, vars_num=,
     out_train=_gini_vars_train, out_oot=_gini_vars_oot,
     out_shared=_gini_vars_shared);
 
@@ -26,32 +49,52 @@ gini_common.sas - Utilidades reutilizables para Gini con PROC FREQTAB
     %let _i=1;
     %let _var=%scan(&vars_num., &_i., %str( ));
 
-    %do %while(%length(&_var.) > 0);
-        %_gini_var_exists(data=&train_data., var=&_var., outvar=_exists_train);
-        %_gini_var_exists(data=&oot_data., var=&_var., outvar=_exists_oot);
+    %if %length(%superq(data)) > 0 %then %do;
+        %do %while(%length(&_var.) > 0);
+            %_gini_var_exists(data=&data., var=&_var., outvar=_exists_train);
 
-        %if &_exists_train.=1 %then %let _vars_train=&_vars_train. &_var.;
-        %if &_exists_oot.=1 %then %let _vars_oot=&_vars_oot. &_var.;
-        %if &_exists_train.=1 and &_exists_oot.=1 %then
-            %let _vars_shared=&_vars_shared. &_var.;
+            %if &_exists_train.=1 %then %do;
+                %let _vars_train=&_vars_train. &_var.;
+                %let _vars_oot=&_vars_oot. &_var.;
+                %let _vars_shared=&_vars_shared. &_var.;
+            %end;
+            %else %do;
+                %put WARNING: [gini_variables] Variable &_var. no existe en
+                    &data. y sera omitida.;
+            %end;
 
-        %if &_exists_train.=0 and &_exists_oot.=0 %then %do;
-            %put WARNING: [gini_variables] Variable &_var. no existe en TRAIN
-                ni en OOT y sera omitida.;
+            %let _i=%eval(&_i. + 1);
+            %let _var=%scan(&vars_num., &_i., %str( ));
         %end;
-        %else %if &_exists_train.=0 %then %do;
-            %put WARNING: [gini_variables] Variable &_var. no existe en TRAIN.;
-            %put WARNING: [gini_variables] Variable &_var. se calculara solo
-                en OOT.;
-        %end;
-        %else %if &_exists_oot.=0 %then %do;
-            %put WARNING: [gini_variables] Variable &_var. no existe en OOT.;
-            %put WARNING: [gini_variables] Variable &_var. se calculara solo
-                en TRAIN.;
-        %end;
+    %end;
+    %else %do;
+        %do %while(%length(&_var.) > 0);
+            %_gini_var_exists(data=&train_data., var=&_var., outvar=_exists_train);
+            %_gini_var_exists(data=&oot_data., var=&_var., outvar=_exists_oot);
 
-        %let _i=%eval(&_i. + 1);
-        %let _var=%scan(&vars_num., &_i., %str( ));
+            %if &_exists_train.=1 %then %let _vars_train=&_vars_train. &_var.;
+            %if &_exists_oot.=1 %then %let _vars_oot=&_vars_oot. &_var.;
+            %if &_exists_train.=1 and &_exists_oot.=1 %then
+                %let _vars_shared=&_vars_shared. &_var.;
+
+            %if &_exists_train.=0 and &_exists_oot.=0 %then %do;
+                %put WARNING: [gini_variables] Variable &_var. no existe en TRAIN
+                    ni en OOT y sera omitida.;
+            %end;
+            %else %if &_exists_train.=0 %then %do;
+                %put WARNING: [gini_variables] Variable &_var. no existe en TRAIN.;
+                %put WARNING: [gini_variables] Variable &_var. se calculara solo
+                    en OOT.;
+            %end;
+            %else %if &_exists_oot.=0 %then %do;
+                %put WARNING: [gini_variables] Variable &_var. no existe en OOT.;
+                %put WARNING: [gini_variables] Variable &_var. se calculara solo
+                    en TRAIN.;
+            %end;
+
+            %let _i=%eval(&_i. + 1);
+            %let _var=%scan(&vars_num., &_i., %str( ));
+        %end;
     %end;
 
     %let &out_train=%sysfunc(compbl(&_vars_train.));
@@ -61,7 +104,7 @@ gini_common.sas - Utilidades reutilizables para Gini con PROC FREQTAB
 %mend _gini_partition_vars;
 
 %macro _gini_freqtab_general(data=, target=, score=, with_missing=1,
-    out=work._gini_freqtab);
+    out=casuser._gini_freqtab);
     %if &with_missing.=1 %then %do;
         proc freqtab data=&data. noprint missing;
             tables &target. * &score. / measures;
