@@ -2,8 +2,8 @@
 gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 ========================================================================= */
 
-%macro _gini_variables_general_split(data=, split=, target=, vars_num=,
-    with_missing=1, min_n_valid=30, var_low=, var_high=,
+%macro _gini_variables_general_split(data=, split=, split_var=Split, target=,
+    vars_num=, with_missing=1, min_n_valid=30, var_low=, var_high=,
     out=casuser._gini_vars_split);
 
     data &out.;
@@ -15,6 +15,13 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 
     %if %length(%superq(vars_num))=0 %then %return;
 
+    proc fedsql sessref=conn;
+        create table casuser._gini_var_input {options replace=true} as
+        select *
+        from &data.
+        where &split_var.='&split.';
+    quit;
+
     %local _i _var _n_total _n_valid _n_default _n_gini _smdcr _gini_ft_exists;
     %let _i=1;
     %let _var=%scan(&vars_num., &_i., %str( ));
@@ -25,16 +32,16 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
                 sum(case when not missing(&_var.) then 1 else 0 end),
                 sum(&target.)
             into :_n_total trimmed, :_n_valid trimmed, :_n_default trimmed
-            from &data.;
+            from casuser._gini_var_input;
         quit;
 
-        %_gini_count_rows(data=&data., target=&target., score=&_var.,
-            with_missing=&with_missing., outvar=_n_gini);
+        %_gini_count_rows(data=casuser._gini_var_input, target=&target.,
+            score=&_var., with_missing=&with_missing., outvar=_n_gini);
 
         %let _smdcr=.;
         %if %sysfunc(inputn(&_n_gini., best32.)) >= &min_n_valid. %then %do;
-            %_gini_freqtab_general(data=&data., target=&target.,
-                score=&_var., with_missing=&with_missing.,
+            %_gini_freqtab_general(data=casuser._gini_var_input,
+                target=&target., score=&_var., with_missing=&with_missing.,
                 out=casuser._gini_var_ft);
 
             %let _gini_ft_exists=0;
@@ -65,11 +72,11 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             if N_Total > 0 then Pct_Valid=N_Valid / N_Total;
             Smdcr_Raw=input(symget('_smdcr'), best32.);
             Gini=abs(Smdcr_Raw);
-            if N_Gini < &min_n_valid. then Evaluacion="MIN DATOS";
-            else if missing(Gini) then Evaluacion="SIN DATOS";
-            else if Gini >= &var_high. then Evaluacion="SATISFACTORIO";
-            else if Gini >= &var_low. then Evaluacion="ACEPTABLE";
-            else Evaluacion="BAJO";
+            if N_Gini < &min_n_valid. then Evaluacion='MIN DATOS';
+            else if missing(Gini) then Evaluacion='SIN DATOS';
+            else if Gini >= &var_high. then Evaluacion='SATISFACTORIO';
+            else if Gini >= &var_low. then Evaluacion='ACEPTABLE';
+            else Evaluacion='BAJO';
             format Pct_Valid percent8.2 Gini Smdcr_Raw 8.4;
         run;
 
@@ -107,7 +114,7 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
     run;
 
     proc datasets library=casuser nolist nowarn;
-        delete _gini_vars_ranked;
+        delete _gini_var_input _gini_vars_ranked;
     quit;
 
 %mend _gini_variables_general_split;
@@ -132,29 +139,15 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         %return;
     %end;
 
-    %_gini_variables_general_split(
-        data=&data.(where=(upcase(strip(&split_var.))='TRAIN')),
-        split=TRAIN,
-        target=&target.,
-        vars_num=&vars_num_train.,
-        with_missing=&with_missing.,
-        min_n_valid=&min_n_valid.,
-        var_low=&var_low.,
-        var_high=&var_high.,
-        out=casuser._gini_vars_train
-    );
+    %_gini_variables_general_split(data=&data., split=TRAIN,
+        split_var=&split_var., target=&target., vars_num=&vars_num_train.,
+        with_missing=&with_missing., min_n_valid=&min_n_valid.,
+        var_low=&var_low., var_high=&var_high., out=casuser._gini_vars_train);
 
-    %_gini_variables_general_split(
-        data=&data.(where=(upcase(strip(&split_var.))='OOT')),
-        split=OOT,
-        target=&target.,
-        vars_num=&vars_num_oot.,
-        with_missing=&with_missing.,
-        min_n_valid=&min_n_valid.,
-        var_low=&var_low.,
-        var_high=&var_high.,
-        out=casuser._gini_vars_oot
-    );
+    %_gini_variables_general_split(data=&data., split=OOT,
+        split_var=&split_var., target=&target., vars_num=&vars_num_oot.,
+        with_missing=&with_missing., min_n_valid=&min_n_valid.,
+        var_low=&var_low., var_high=&var_high., out=casuser._gini_vars_oot);
 
     data &out.;
         set casuser._gini_vars_train casuser._gini_vars_oot;
@@ -169,30 +162,36 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 %macro _gini_variables_compare(data=, delta_warn=0.05,
     out=casuser._gini_vars_compare);
 
-    proc sql noprint;
-        create table &out. as
-        select coalesce(t.Variable, o.Variable) as Variable length=64,
-            t.Gini as Gini_Train format=8.4,
+    proc fedsql sessref=conn;
+        create table &out. {options replace=true} as
+        select coalesce(t.Variable, o.Variable) as Variable,
+            t.Gini as Gini_Train,
             t.Ranking as Rank_Train,
-            o.Gini as Gini_OOT format=8.4,
+            o.Gini as Gini_OOT,
             o.Ranking as Rank_OOT,
-            (t.Gini - o.Gini) as Delta_Gini format=8.4,
+            (t.Gini - o.Gini) as Delta_Gini,
             abs(t.Ranking - o.Ranking) as Delta_Rank,
             case
-                when t.Gini is missing or o.Gini is missing then "SIN DATOS"
-                when calculated Delta_Gini > &delta_warn. then "DEGRADACION"
-                when calculated Delta_Gini < -&delta_warn. then "MEJORA"
-                else "ESTABLE"
-            end as Estabilidad length=15
+                when t.Gini is null or o.Gini is null then 'SIN DATOS'
+                when (t.Gini - o.Gini) > &delta_warn. then 'DEGRADACION'
+                when (t.Gini - o.Gini) < -&delta_warn. then 'MEJORA'
+                else 'ESTABLE'
+            end as Estabilidad
         from (select * from &data. where Split='TRAIN') t
         full join (select * from &data. where Split='OOT') o
             on t.Variable=o.Variable;
     quit;
 
+    data &out.;
+        set &out.;
+        length Variable $64 Estabilidad $15;
+        format Gini_Train Gini_OOT Delta_Gini 8.4;
+    run;
+
 %mend _gini_variables_compare;
 
-%macro _gini_variables_monthly_split(data=, split=, target=, vars_num=,
-    byvar=, with_missing=1, min_n_valid=30, var_low=, var_high=,
+%macro _gini_variables_monthly_split(data=, split=, split_var=Split, target=,
+    vars_num=, byvar=, with_missing=1, min_n_valid=30, var_low=, var_high=,
     out=casuser._gini_vars_month_split);
 
     data &out.;
@@ -207,7 +206,8 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
     proc fedsql sessref=conn;
         create table casuser._gini_var_src {options replace=true} as
         select *
-        from &data.;
+        from &data.
+        where &split_var.='&split.';
     quit;
 
     %_gini_sort_cas(table_name=_gini_var_src,
@@ -218,26 +218,25 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
     %let _var=%scan(&vars_num., &_i., %str( ));
 
     %do %while(%length(&_var.) > 0);
-        proc sql noprint;
-            create table casuser._gini_var_cnt as
-            select "%upcase(&_var.)" as Variable length=64,
-                "&split." as Split length=5,
+        proc fedsql sessref=conn;
+            create table casuser._gini_var_cnt {options replace=true} as
+            select '%upcase(&_var.)' as Variable,
+                '&split.' as Split,
                 &byvar. as Periodo,
                 count(*) as N_Total,
-                sum(case when not missing(&_var.) then 1 else 0 end)
-                    as N_Valid,
+                sum(case when &_var. is not null then 1 else 0 end) as N_Valid,
                 sum(&target.) as N_Default
             from casuser._gini_var_src
             group by &byvar.;
         quit;
 
         %if &with_missing.=1 %then %do;
-            proc sql noprint;
-                create table casuser._gini_var_ng as
+            proc fedsql sessref=conn;
+                create table casuser._gini_var_ng {options replace=true} as
                 select &byvar. as Periodo,
                     count(*) as N_Gini
                 from casuser._gini_var_src
-                where not missing(&target.)
+                where &target. is not null
                 group by &byvar.;
             quit;
 
@@ -248,12 +247,12 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             run;
         %end;
         %else %do;
-            proc sql noprint;
-                create table casuser._gini_var_ng as
+            proc fedsql sessref=conn;
+                create table casuser._gini_var_ng {options replace=true} as
                 select &byvar. as Periodo,
                     count(*) as N_Gini
                 from casuser._gini_var_src
-                where not missing(&target.) and not missing(&_var.)
+                where &target. is not null and &_var. is not null
                 group by &byvar.;
             quit;
 
@@ -264,8 +263,8 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             run;
         %end;
 
-        proc sql noprint;
-            create table casuser._gini_var_row as
+        proc fedsql sessref=conn;
+            create table casuser._gini_var_row {options replace=true} as
             select c.Variable,
                 c.Split,
                 c.Periodo,
@@ -273,8 +272,8 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
                 c.N_Valid,
                 c.N_Default,
                 n.N_Gini,
-                f._SMDCR_ as Smdcr_Raw format=8.4,
-                abs(f._SMDCR_) as Gini format=8.4
+                f._SMDCR_ as Smdcr_Raw,
+                abs(f._SMDCR_) as Gini
             from casuser._gini_var_cnt c
             left join casuser._gini_var_ng n
                 on c.Periodo=n.Periodo
@@ -288,12 +287,12 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             if N_Gini < &min_n_valid. then do;
                 Smdcr_Raw=.;
                 Gini=.;
-                Evaluacion="MIN DATOS";
+                Evaluacion='MIN DATOS';
             end;
-            else if missing(Gini) then Evaluacion="SIN DATOS";
-            else if Gini >= &var_high. then Evaluacion="SATISFACTORIO";
-            else if Gini >= &var_low. then Evaluacion="ACEPTABLE";
-            else Evaluacion="BAJO";
+            else if missing(Gini) then Evaluacion='SIN DATOS';
+            else if Gini >= &var_high. then Evaluacion='SATISFACTORIO';
+            else if Gini >= &var_low. then Evaluacion='ACEPTABLE';
+            else Evaluacion='BAJO';
             format Gini Smdcr_Raw 8.4;
         run;
 
@@ -334,31 +333,17 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         %return;
     %end;
 
-    %_gini_variables_monthly_split(
-        data=&data.(where=(upcase(strip(&split_var.))='TRAIN')),
-        split=TRAIN,
-        target=&target.,
-        vars_num=&vars_num_train.,
-        byvar=&byvar.,
-        with_missing=&with_missing.,
-        min_n_valid=&min_n_valid.,
-        var_low=&var_low.,
-        var_high=&var_high.,
-        out=casuser._gini_vars_trn_m
-    );
+    %_gini_variables_monthly_split(data=&data., split=TRAIN,
+        split_var=&split_var., target=&target., vars_num=&vars_num_train.,
+        byvar=&byvar., with_missing=&with_missing.,
+        min_n_valid=&min_n_valid., var_low=&var_low., var_high=&var_high.,
+        out=casuser._gini_vars_trn_m);
 
-    %_gini_variables_monthly_split(
-        data=&data.(where=(upcase(strip(&split_var.))='OOT')),
-        split=OOT,
-        target=&target.,
-        vars_num=&vars_num_oot.,
-        byvar=&byvar.,
-        with_missing=&with_missing.,
-        min_n_valid=&min_n_valid.,
-        var_low=&var_low.,
-        var_high=&var_high.,
-        out=casuser._gini_vars_oot_m
-    );
+    %_gini_variables_monthly_split(data=&data., split=OOT,
+        split_var=&split_var., target=&target., vars_num=&vars_num_oot.,
+        byvar=&byvar., with_missing=&with_missing.,
+        min_n_valid=&min_n_valid., var_low=&var_low., var_high=&var_high.,
+        out=casuser._gini_vars_oot_m);
 
     data &out.;
         set casuser._gini_vars_trn_m casuser._gini_vars_oot_m;
@@ -373,46 +358,46 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 %macro _gini_variables_summary(data=, var_low=, var_high=, trend_delta=0.03,
     out=casuser._gini_vars_summary);
 
-    proc sql noprint;
-        create table casuser._gini_vars_base as
+    proc fedsql sessref=conn;
+        create table casuser._gini_vars_base {options replace=true} as
         select Variable,
             Split,
             count(*) as N_Periodos,
             min(Periodo) as First_Period,
             max(Periodo) as Last_Period,
-            mean(Gini) as Gini_Promedio format=8.4,
-            min(Gini) as Gini_Min format=8.4,
-            max(Gini) as Gini_Max format=8.4,
-            std(Gini) as Gini_Std format=8.4
+            avg(Gini) as Gini_Promedio,
+            min(Gini) as Gini_Min,
+            max(Gini) as Gini_Max,
+            stddev(Gini) as Gini_Std
         from &data.
-        where Gini is not missing
+        where Gini is not null
         group by Variable, Split;
 
-        create table casuser._gini_vars_summary_tmp as
+        create table casuser._gini_vars_summary_tmp {options replace=true} as
         select a.Variable,
             a.Split,
             a.N_Periodos,
             a.First_Period,
             a.Last_Period,
-            f.Gini as Gini_First format=8.4,
-            l.Gini as Gini_Last format=8.4,
+            f.Gini as Gini_First,
+            l.Gini as Gini_Last,
             a.Gini_Promedio,
             a.Gini_Min,
             a.Gini_Max,
             a.Gini_Std,
-            (l.Gini - f.Gini) as Delta_Gini format=8.4,
+            (l.Gini - f.Gini) as Delta_Gini,
             case
-                when f.Gini is missing or l.Gini is missing then "SIN DATOS"
-                when calculated Delta_Gini < -&trend_delta. then "EMPEORANDO"
-                when calculated Delta_Gini > &trend_delta. then "MEJORANDO"
-                else "ESTABLE"
-            end as Tendencia length=15,
+                when f.Gini is null or l.Gini is null then 'SIN DATOS'
+                when (l.Gini - f.Gini) < -&trend_delta. then 'EMPEORANDO'
+                when (l.Gini - f.Gini) > &trend_delta. then 'MEJORANDO'
+                else 'ESTABLE'
+            end as Tendencia,
             case
-                when a.Gini_Promedio is missing then "SIN DATOS"
-                when a.Gini_Promedio >= &var_high. then "SATISFACTORIO"
-                when a.Gini_Promedio >= &var_low. then "ACEPTABLE"
-                else "BAJO"
-            end as Evaluacion length=15
+                when a.Gini_Promedio is null then 'SIN DATOS'
+                when a.Gini_Promedio >= &var_high. then 'SATISFACTORIO'
+                when a.Gini_Promedio >= &var_low. then 'ACEPTABLE'
+                else 'BAJO'
+            end as Evaluacion
         from casuser._gini_vars_base a
         left join &data. f
             on a.Variable=f.Variable and a.Split=f.Split and
@@ -424,6 +409,9 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 
     data &out.;
         set casuser._gini_vars_summary_tmp;
+        length Variable $64 Split $5 Tendencia $15 Evaluacion $15;
+        format Gini_First Gini_Last Gini_Promedio Gini_Min Gini_Max Gini_Std
+            Delta_Gini 8.4;
     run;
 
     proc datasets library=casuser nolist nowarn;

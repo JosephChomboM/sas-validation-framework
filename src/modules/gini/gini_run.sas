@@ -32,7 +32,7 @@ Implementacion CAS-first:
 
     proc fedsql sessref=conn;
         create table casuser.&out_table. {options replace=true} as
-        select 'TRAIN' as &split_var. length 5,
+        select 'TRAIN' as &split_var. ,
             a.*
         from &input_caslib..&input_table. a
         where a.&byvar. >= &train_min_mes.
@@ -43,7 +43,7 @@ Implementacion CAS-first:
 
     proc fedsql sessref=conn;
         create table casuser._gini_input_stage {options replace=true} as
-        select 'OOT' as &split_var. length 5,
+        select 'OOT' as &split_var. ,
             a.*
         from &input_caslib..&input_table. a
         where a.&byvar. >= &oot_min_mes.
@@ -73,7 +73,7 @@ Implementacion CAS-first:
 
     proc fedsql sessref=conn;
         create table casuser.&out_table. {options replace=true} as
-        select 'TRAIN' as &split_var. length 5,
+        select 'TRAIN' as &split_var. ,
             a.*
         from &input_caslib..&train_table. a
         where a.&byvar. <= &def_cld.
@@ -82,7 +82,7 @@ Implementacion CAS-first:
 
     proc fedsql sessref=conn;
         create table casuser._gini_input_stage {options replace=true} as
-        select 'OOT' as &split_var. length 5,
+        select 'OOT' as &split_var. ,
             a.*
         from &input_caslib..&oot_table. a
         where a.&byvar. <= &def_cld.
