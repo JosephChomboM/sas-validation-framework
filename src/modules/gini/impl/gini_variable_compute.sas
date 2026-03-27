@@ -15,12 +15,10 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 
     %if %length(%superq(vars_num))=0 %then %return;
 
-    proc fedsql sessref=conn;
-        create table casuser._gini_var_input {options replace=true} as
-        select *
-        from &data.
-        where &split_var.='&split.';
-    quit;
+    data casuser._gini_var_input;
+        set &data.;
+        where upcase(strip(&split_var.))=upcase("&split.");
+    run;
 
     %local _i _var _n_total _n_valid _n_default _n_gini _smdcr _gini_ft_exists;
     %let _i=1;
@@ -203,12 +201,10 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
 
     %if %length(%superq(vars_num))=0 %then %return;
 
-    proc fedsql sessref=conn;
-        create table casuser._gini_var_src {options replace=true} as
-        select *
-        from &data.
-        where &split_var.='&split.';
-    quit;
+    data casuser._gini_var_src;
+        set &data.;
+        where upcase(strip(&split_var.))=upcase("&split.");
+    run;
 
     %_gini_sort_cas(table_name=_gini_var_src,
         orderby=%str({"&byvar."}));

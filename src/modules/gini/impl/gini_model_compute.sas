@@ -8,12 +8,10 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
 
     %local _gini_n _smdcr _gini_ft_exists;
 
-    proc fedsql sessref=conn;
-        create table casuser._gini_model_src {options replace=true} as
-        select *
-        from &data.
-        where &split_var.='&split.';
-    quit;
+    data casuser._gini_model_src;
+        set &data.;
+        where upcase(strip(&split_var.))=upcase("&split.");
+    run;
 
     proc fedsql sessref=conn;
         create table &out. {options replace=true} as
@@ -126,12 +124,10 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
     score=, byvar=, with_missing=1, model_low=, model_high=,
     out=casuser._gini_model_month_split);
 
-    proc fedsql sessref=conn;
-        create table casuser._gini_model_src {options replace=true} as
-        select *
-        from &data.
-        where &split_var.='&split.';
-    quit;
+    data casuser._gini_model_src;
+        set &data.;
+        where upcase(strip(&split_var.))=upcase("&split.");
+    run;
 
     %_gini_sort_cas(table_name=_gini_model_src,
         orderby=%str({"&byvar."}));
