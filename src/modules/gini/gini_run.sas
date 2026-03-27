@@ -22,7 +22,7 @@ Implementacion CAS-first:
 
 %macro _gini_prepare_input_scope(input_caslib=, input_table=, byvar=, target=,
     def_cld=, train_min_mes=, train_max_mes=, oot_min_mes=, oot_max_mes=,
-    out_table=_gini_input, split_var=_fw_split_gini);
+    out_table=_gini_input, split_var=_fw_gini_split_flag_01);
 
     proc cas;
         session conn;
@@ -32,7 +32,7 @@ Implementacion CAS-first:
 
     proc fedsql sessref=conn;
         create table casuser.&out_table. {options replace=true} as
-        select 'TRAIN' as &split_var. ,
+        select cast('TRAIN' as varchar(5)) as &split_var. ,
             a.*
         from &input_caslib..&input_table. a
         where a.&byvar. >= &train_min_mes.
@@ -43,7 +43,7 @@ Implementacion CAS-first:
 
     proc fedsql sessref=conn;
         create table casuser._gini_input_stage {options replace=true} as
-        select 'OOT' as &split_var. ,
+        select cast('OOT' as varchar(5)) as &split_var. ,
             a.*
         from &input_caslib..&input_table. a
         where a.&byvar. >= &oot_min_mes.
@@ -64,7 +64,7 @@ Implementacion CAS-first:
 
 %macro _gini_prepare_input_legacy(input_caslib=, train_table=, oot_table=,
     byvar=, target=, def_cld=, out_table=_gini_input,
-    split_var=_fw_split_gini);
+    split_var=_fw_gini_split_flag_01);
 
     proc cas;
         session conn;
@@ -74,7 +74,7 @@ Implementacion CAS-first:
 
     proc fedsql sessref=conn;
         create table casuser.&out_table. {options replace=true} as
-        select 'TRAIN' as &split_var. ,
+        select cast('TRAIN' as varchar(5)) as &split_var. ,
             a.*
         from &input_caslib..&train_table. a
         where a.&byvar. <= &def_cld.
@@ -83,7 +83,7 @@ Implementacion CAS-first:
 
     proc fedsql sessref=conn;
         create table casuser._gini_input_stage {options replace=true} as
-        select 'OOT' as &split_var. ,
+        select cast('OOT' as varchar(5)) as &split_var. ,
             a.*
         from &input_caslib..&oot_table. a
         where a.&byvar. <= &def_cld.
@@ -350,7 +350,7 @@ Implementacion CAS-first:
             target=&_gini_target., def_cld=&_gini_def_cld.,
             train_min_mes=&_gini_train_min., train_max_mes=&_gini_train_max.,
             oot_min_mes=&_gini_oot_min., oot_max_mes=&_gini_oot_max.,
-            out_table=_gini_input, split_var=_fw_split_gini);
+            out_table=_gini_input, split_var=_fw_gini_split_flag_01);
     %end;
     %else %if &_gini_has_train_table. > 0 and &_gini_has_oot_table. > 0 %then
         %do;
@@ -362,7 +362,7 @@ Implementacion CAS-first:
             train_table=&train_table., oot_table=&oot_table.,
             byvar=&_gini_byvar., target=&_gini_target.,
             def_cld=&_gini_def_cld., out_table=_gini_input,
-            split_var=_fw_split_gini);
+            split_var=_fw_gini_split_flag_01);
     %end;
     %else %do;
         %put ERROR: [gini_run] No se encontro input valido. Esperado
@@ -371,23 +371,17 @@ Implementacion CAS-first:
         %return;
     %end;
 
-    data casuser._gini_input;
-        set casuser._gini_input;
-        length _fw_split_gini $5;
-        _fw_split_gini=upcase(strip(_fw_split_gini));
-    run;
-
     proc sql;
         title "[gini_run] Conteo por split derivado";
-        select _fw_split_gini as Split, count(*) as N
+        select _fw_gini_split_flag_01 as Split, count(*) as N
         from casuser._gini_input
-        group by _fw_split_gini;
+        group by _fw_gini_split_flag_01;
         title;
     quit;
 
     %gini_contract(input_caslib=casuser, input_table=_gini_input,
         target=&_gini_target., score=&_gini_score., byvar=&_gini_byvar.,
-        def_cld=&_gini_def_cld., split_var=_fw_split_gini);
+        def_cld=&_gini_def_cld., split_var=_fw_gini_split_flag_01);
 
     %if &_gini_rc. ne 0 %then %do;
         %put ERROR: [gini_run] Contract fallido - modulo abortado.;
@@ -398,19 +392,21 @@ Implementacion CAS-first:
         out_train=_gini_vars_train, out_oot=_gini_vars_oot,
         out_shared=_gini_vars_shared);
 
-    %_gini_model_general(data=casuser._gini_input, split_var=_fw_split_gini,
+    %_gini_model_general(data=casuser._gini_input,
+        split_var=_fw_gini_split_flag_01,
         target=&_gini_target., score=&_gini_score.,
         with_missing=&gini_with_missing., model_low=&_gini_model_low.,
         model_high=&_gini_model_high., out=casuser._gini_model_general);
 
-    %_gini_model_monthly(data=casuser._gini_input, split_var=_fw_split_gini,
+    %_gini_model_monthly(data=casuser._gini_input,
+        split_var=_fw_gini_split_flag_01,
         target=&_gini_target., score=&_gini_score., byvar=&_gini_byvar.,
         with_missing=&gini_with_missing., model_low=&_gini_model_low.,
         model_high=&_gini_model_high., trend_delta=&gini_trend_delta.,
         out=casuser._gini_model_monthly);
 
     %_gini_variables_general(data=casuser._gini_input,
-        split_var=_fw_split_gini,
+        split_var=_fw_gini_split_flag_01,
         target=&_gini_target., vars_num_train=&_gini_vars_train.,
         vars_num_oot=&_gini_vars_oot., with_missing=&gini_with_missing.,
         min_n_valid=&gini_min_n_valid., var_low=&_gini_var_low.,
@@ -420,7 +416,7 @@ Implementacion CAS-first:
         delta_warn=&gini_delta_warn., out=casuser._gini_vars_compare);
 
     %_gini_variables_monthly(data=casuser._gini_input,
-        split_var=_fw_split_gini,
+        split_var=_fw_gini_split_flag_01,
         target=&_gini_target., vars_num_train=&_gini_vars_train.,
         vars_num_oot=&_gini_vars_oot., byvar=&_gini_byvar.,
         with_missing=&gini_with_missing., min_n_valid=&gini_min_n_valid.,
