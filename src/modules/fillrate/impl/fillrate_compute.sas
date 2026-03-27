@@ -14,10 +14,11 @@ Notas:
 ========================================================================= */
 
 %macro _fill_prepare_stage(data=, vars_num=, vars_cat=, byvar=, target=,
-    out=work._fill_stage);
+    out=casuser._fill_stage);
 
     data &out.;
         set &data.(keep=Muestra &byvar. &target. &vars_num. &vars_cat.);
+        _fill_one=1;
 
         %if %length(%superq(vars_num)) > 0 %then %do;
             array _fill_num {*} &vars_num.;
@@ -34,7 +35,7 @@ Notas:
 %mend _fill_prepare_stage;
 
 %macro _fill_general_compute(data=, vars_num=, target=, byvar=,
-    out=work._fill_general, out_bytime=work._fill_gini_bytime);
+    out=casuser._fill_general, out_bytime=casuser._fill_gini_bytime);
 
     data &out.;
         length Variable $64 Var_Type $8 Muestra $5 N_Total N_Filled N_Gini 8
@@ -52,30 +53,31 @@ Notas:
 
     %if %length(%superq(vars_num))=0 %then %return;
 
-    proc sort data=&data. out=work._fill_stage_gini;
+    proc sort data=&data. out=casuser._fill_stage_gini;
         by Muestra &byvar.;
     run;
 
-    proc summary data=work._fill_stage_gini nway;
+    proc summary data=casuser._fill_stage_gini nway;
         class Muestra;
-        output out=work._fill_gen_tot(drop=_type_ _freq_) n=N_Total;
+        var _fill_one;
+        output out=casuser._fill_gen_tot(drop=_type_ _freq_) n=N_Total;
     run;
 
-    proc summary data=work._fill_stage_gini nway;
+    proc summary data=casuser._fill_stage_gini nway;
         class Muestra;
         var &vars_num.;
-        output out=work._fill_gen_n(drop=_type_ _freq_) n=;
+        output out=casuser._fill_gen_n(drop=_type_ _freq_) n=;
     run;
 
-    proc sort data=work._fill_gen_tot;
+    proc sort data=casuser._fill_gen_tot;
         by Muestra;
     run;
-    proc sort data=work._fill_gen_n;
+    proc sort data=casuser._fill_gen_n;
         by Muestra;
     run;
 
-    data work._fill_gen_base;
-        merge work._fill_gen_tot(in=_a) work._fill_gen_n(in=_b);
+    data casuser._fill_gen_base;
+        merge casuser._fill_gen_tot(in=_a) casuser._fill_gen_n(in=_b);
         by Muestra;
         if not (_a and _b) then delete;
 
@@ -111,7 +113,7 @@ Notas:
     %do %while(%length(%superq(_v)) > 0);
         %put NOTE: [fillrate] Gini global/temporal para &_v.;
 
-        proc freqtab data=work._fill_stage_gini noprint;
+        proc freqtab data=casuser._fill_stage_gini noprint;
             by Muestra;
             tables &target. * &_v. / measures;
             output out=work._fill_gini_tmp smdcr;
@@ -121,7 +123,7 @@ Notas:
             create table work._fill_ngini_tmp as
             select upcase(Muestra) as Muestra length=5,
                    count(*) as N_Gini
-            from work._fill_stage_gini
+            from casuser._fill_stage_gini
             where not missing(&target.)
               and not missing(&_v.)
             group by Muestra;
@@ -159,7 +161,7 @@ Notas:
         proc append base=work._fill_gini_global data=work._fill_gini_var force;
         run;
 
-        proc freqtab data=work._fill_stage_gini noprint;
+        proc freqtab data=casuser._fill_stage_gini noprint;
             by Muestra &byvar.;
             tables &target. * &_v. / measures;
             output out=work._fill_gini_bt_tmp smdcr;
@@ -170,7 +172,7 @@ Notas:
             select upcase(Muestra) as Muestra length=5,
                    &byvar.,
                    count(*) as N_Gini
-            from work._fill_stage_gini
+            from casuser._fill_stage_gini
             where not missing(&target.)
               and not missing(&_v.)
             group by upcase(Muestra), &byvar.;
@@ -219,37 +221,41 @@ Notas:
         %let _v=%scan(%superq(vars_num), &_i., %str( ));
     %end;
 
-    proc sql noprint;
-        create table &out. as
-        select a.Variable,
-               a.Var_Type,
-               upcase(a.Muestra) as Muestra length=5,
-               a.N_Total,
-               a.N_Filled,
-               a.Fillrate,
-               b.N_Gini,
-               b.Smdcr_Raw,
-               b.Gini
-        from work._fill_gen_base a
-        left join work._fill_gini_global b
-          on upcase(a.Muestra)=upcase(b.Muestra)
-         and upcase(a.Variable)=upcase(b.Variable)
-        order by a.Variable, calculated Muestra;
-    quit;
+    proc sort data=casuser._fill_gen_base;
+        by Variable Muestra;
+    run;
+
+    proc sort data=work._fill_gini_global;
+        by Variable Muestra;
+    run;
+
+    data &out.;
+        merge casuser._fill_gen_base(in=_a)
+              work._fill_gini_global(in=_b);
+        by Variable Muestra;
+        if _a;
+    run;
+
+    proc sort data=&out.;
+        by Variable Muestra;
+    run;
 
     proc sort data=&out_bytime.;
         by Variable Muestra &byvar.;
     run;
 
+    proc datasets library=casuser nolist nowarn;
+        delete _fill_gen_tot _fill_gen_n _fill_gen_base _fill_stage_gini;
+    quit;
+
     proc datasets library=work nolist nowarn;
-        delete _fill_gen_tot _fill_gen_n _fill_gen_base _fill_gini_global
-               _fill_stage_gini;
+        delete _fill_gini_global;
     quit;
 
 %mend _fill_general_compute;
 
 %macro _fill_monthly_compute(data=, byvar=, vars_num=, vars_cat=,
-    out=work._fill_monthly);
+    out=casuser._fill_monthly);
 
     %local _cidx _cvar;
 
@@ -262,25 +268,26 @@ Notas:
 
     proc summary data=&data. nway;
         class Muestra &byvar.;
-        output out=work._fill_mon_tot(drop=_type_ _freq_) n=N_Total;
+        var _fill_one;
+        output out=casuser._fill_mon_tot(drop=_type_ _freq_) n=N_Total;
     run;
 
     %if %length(%superq(vars_num)) > 0 %then %do;
         proc summary data=&data. nway;
             class Muestra &byvar.;
             var &vars_num.;
-            output out=work._fill_mon_num(drop=_type_ _freq_) n=;
+            output out=casuser._fill_mon_num(drop=_type_ _freq_) n=;
         run;
 
-        proc sort data=work._fill_mon_tot;
+        proc sort data=casuser._fill_mon_tot;
             by Muestra &byvar.;
         run;
-        proc sort data=work._fill_mon_num;
+        proc sort data=casuser._fill_mon_num;
             by Muestra &byvar.;
         run;
 
-        data work._fill_mon_num_long;
-            merge work._fill_mon_tot(in=_a) work._fill_mon_num(in=_b);
+        data casuser._fill_mon_num_long;
+            merge casuser._fill_mon_tot(in=_a) casuser._fill_mon_num(in=_b);
             by Muestra &byvar.;
             if not (_a and _b) then delete;
 
@@ -298,13 +305,13 @@ Notas:
             keep Variable Var_Type Muestra &byvar. N_Total N_Filled Fillrate;
         run;
 
-        proc append base=&out. data=work._fill_mon_num_long force;
+        proc append base=&out. data=casuser._fill_mon_num_long force;
         run;
     %end;
 
     %if %length(%superq(vars_cat)) > 0 %then %do;
 
-        data work._fill_mon_cat_stage;
+        data casuser._fill_mon_cat_stage;
             set &data.(keep=Muestra &byvar. &vars_cat.);
             %let _cidx=1;
             %let _cvar=%scan(%superq(vars_cat), &_cidx., %str( ));
@@ -315,21 +322,21 @@ Notas:
             %end;
         run;
 
-        proc summary data=work._fill_mon_cat_stage nway;
+        proc summary data=casuser._fill_mon_cat_stage nway;
             class Muestra &byvar.;
             var _fill_cind_:;
-            output out=work._fill_mon_cat(drop=_type_ _freq_) sum=;
+            output out=casuser._fill_mon_cat(drop=_type_ _freq_) sum=;
         run;
 
-        proc sort data=work._fill_mon_cat;
+        proc sort data=casuser._fill_mon_cat;
             by Muestra &byvar.;
         run;
-        proc sort data=work._fill_mon_tot;
+        proc sort data=casuser._fill_mon_tot;
             by Muestra &byvar.;
         run;
 
-        data work._fill_mon_cat_long;
-            merge work._fill_mon_tot(in=_a) work._fill_mon_cat(in=_b);
+        data casuser._fill_mon_cat_long;
+            merge casuser._fill_mon_tot(in=_a) casuser._fill_mon_cat(in=_b);
             by Muestra &byvar.;
             if not (_a and _b) then delete;
 
@@ -350,13 +357,18 @@ Notas:
             keep Variable Var_Type Muestra &byvar. N_Total N_Filled Fillrate;
         run;
 
-        proc append base=&out. data=work._fill_mon_cat_long force;
+        proc append base=&out. data=casuser._fill_mon_cat_long force;
         run;
     %end;
 
     proc sort data=&out.;
         by Variable Muestra &byvar.;
     run;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _fill_mon_tot _fill_mon_num _fill_mon_num_long
+               _fill_mon_cat_stage _fill_mon_cat _fill_mon_cat_long;
+    quit;
 
     proc datasets library=work nolist nowarn;
         delete _fill_mon_tot _fill_mon_num _fill_mon_num_long

@@ -38,25 +38,27 @@ Entrada esperada:
     quit;
 
     %_fill_prepare_stage(data=casuser._fill_gini_base, vars_num=&vars_num.,
-        vars_cat=, byvar=&byvar., target=&target., out=work._fill_gini_stage);
+        vars_cat=, byvar=&byvar., target=&target.,
+        out=casuser._fill_gini_stage);
 
     %_fill_prepare_stage(data=casuser._fill_full_base, vars_num=&vars_num.,
         vars_cat=&vars_cat., byvar=&byvar., target=&target.,
-        out=work._fill_full_stage);
+        out=casuser._fill_full_stage);
 
     %if %length(%superq(vars_num)) > 0 %then %do;
-        %_fill_general_compute(data=work._fill_gini_stage,
+        %_fill_general_compute(data=casuser._fill_gini_stage,
             vars_num=&vars_num., target=&target., byvar=&byvar.,
-            out=work._fill_general_all, out_bytime=work._fill_gini_bytime_all);
+            out=casuser._fill_general_all,
+            out_bytime=casuser._fill_gini_bytime_all);
     %end;
     %else %do;
-        data work._fill_general_all;
+        data casuser._fill_general_all;
             length Variable $64 Var_Type $8 Muestra $5 N_Total N_Filled
                 N_Gini 8 Fillrate Gini Smdcr_Raw 8;
             format Fillrate 8.2 Gini 8.4 Smdcr_Raw 8.4;
             stop;
         run;
-        data work._fill_gini_bytime_all;
+        data casuser._fill_gini_bytime_all;
             length Variable $64 Var_Type $8 Muestra $5 &byvar. 8
                 N_Gini Smdcr_Raw Gini 8;
             format Gini 8.4 Smdcr_Raw 8.4;
@@ -64,12 +66,9 @@ Entrada esperada:
         run;
     %end;
 
-    %_fill_monthly_compute(data=work._fill_full_stage, byvar=&byvar.,
-        vars_num=&vars_num., vars_cat=&vars_cat., out=work._fill_monthly_all);
-
-    data casuser._fill_general_all;
-        set work._fill_general_all;
-    run;
+    %_fill_monthly_compute(data=casuser._fill_full_stage, byvar=&byvar.,
+        vars_num=&vars_num., vars_cat=&vars_cat.,
+        out=casuser._fill_monthly_all);
 
     proc cas;
         session conn;
@@ -79,10 +78,6 @@ Entrada esperada:
             casout={caslib="casuser", name="_fill_general_all", replace=true};
     quit;
 
-    data casuser._fill_monthly_all;
-        set work._fill_monthly_all;
-    run;
-
     proc cas;
         session conn;
         table.partition /
@@ -90,10 +85,6 @@ Entrada esperada:
                 groupby={"Variable"}, orderby={"&byvar.", "Muestra"}},
             casout={caslib="casuser", name="_fill_monthly_all", replace=true};
     quit;
-
-    data casuser._fill_gini_bytime_all;
-        set work._fill_gini_bytime_all;
-    run;
 
     proc cas;
         session conn;
@@ -105,9 +96,10 @@ Entrada esperada:
     quit;
 
     proc sql noprint;
-        select count(*) into :_has_general trimmed from work._fill_general_all;
-        select count(*) into :_has_gini_bytime trimmed from
-            work._fill_gini_bytime_all;
+        select count(*) into :_has_general trimmed
+        from casuser._fill_general_all;
+        select count(*) into :_has_gini_bytime trimmed
+        from casuser._fill_gini_bytime_all;
     quit;
 
     %if &_has_general. > 0 %then %let _start_sheet=Fillrate_Gini;
