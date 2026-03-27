@@ -61,6 +61,8 @@ Default requerido: 1 */
 
     %put NOTE: [step_gini] Iniciando - scope=&ctx_scope. mode=&gini_mode.
         score_source=&gini_score_source. with_missing=&gini_with_missing.;
+    %put NOTE: [step_gini] Gini usa scope_input=1 y deriva TRAIN/OOT dentro
+        del modulo desde la base persistente unificada.;
 
     %_create_caslib(cas_path=&fw_root./data/processed, caslib_name=PROC,
         lib_caslib=PROC, global=Y, cas_sess_name=conn, term_global_sess=0,
@@ -79,19 +81,19 @@ Default requerido: 1 */
         %end;
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             %run_module(module=gini, troncal_id=&ctx_troncal_id., split=,
-                seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
+                seg_id=&ctx_seg_id., run_id=&run_id., scope_input=1);
         %end;
         %else %do;
             %do _sg=1 %to &ctx_n_segments.;
                 %run_module(module=gini, troncal_id=&ctx_troncal_id., split=,
-                    seg_id=&_sg., run_id=&run_id., dual_input=1);
+                    seg_id=&_sg., run_id=&run_id., scope_input=1);
             %end;
         %end;
     %end;
     %else %if %upcase(&ctx_scope.)=UNIVERSO %then %do;
         %put NOTE: [step_gini] UNIVERSO: troncal=&ctx_troncal_id.;
         %run_module(module=gini, troncal_id=&ctx_troncal_id., split=, seg_id=,
-            run_id=&run_id., dual_input=1);
+            run_id=&run_id., scope_input=1);
     %end;
     %else %do;
         %put ERROR: [step_gini] ctx_scope=&ctx_scope. no reconocido. Debe ser
