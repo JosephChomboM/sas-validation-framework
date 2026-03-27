@@ -9,18 +9,24 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
     %local _gini_n _smdcr _gini_ft_exists;
 
     proc fedsql sessref=conn;
+        create table casuser._gini_model_src {options replace=true} as
+        select *
+        from &data.
+        where &split_var.='&split.';
+    quit;
+
+    proc fedsql sessref=conn;
         create table &out. {options replace=true} as
         select '&split.' as Split,
             count(*) as N_Total,
             sum(&target.) as N_Default,
             sum(1-&target.) as N_No_Default,
             (sum(&target.) / count(*)) as Tasa_Default
-        from &data.
-        where &split_var.='&split.';
+        from casuser._gini_model_src;
     quit;
 
     %_gini_count_rows(
-        data=&data.(where=(upcase(strip(&split_var.))='&split.')),
+        data=casuser._gini_model_src,
         target=&target.,
         score=&score.,
         with_missing=&with_missing.,
@@ -29,7 +35,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
     %let _smdcr=.;
 
     %_gini_freqtab_general(
-        data=&data.(where=(upcase(strip(&split_var.))='&split.')),
+        data=casuser._gini_model_src,
         target=&target.,
         score=&score.,
         with_missing=&with_missing.,
@@ -71,7 +77,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
     run;
 
     proc datasets library=casuser nolist nowarn;
-        delete _gini_model_ft;
+        delete _gini_model_src _gini_model_ft;
     quit;
 
 %mend _gini_model_general_split;
