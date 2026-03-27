@@ -104,7 +104,7 @@ precision_report.sas - Reportes HTML + Excel + JPEG para Precision
     oot_min_mes=, oot_max_mes=, ponderado=1, report_path=, images_path=,
     file_prefix=);
 
-    %local _keep_vars _has_weight _has_seg;
+    %local _keep_vars _keep_vars_sql _has_weight _has_seg;
     %let _has_weight=0;
     %let _has_seg=0;
 
@@ -112,6 +112,7 @@ precision_report.sas - Reportes HTML + Excel + JPEG para Precision
     %if %length(%superq(monto_var)) > 0 %then %let _keep_vars=&_keep_vars. &monto_var.;
     %if %length(%superq(segvar)) > 0 %then %let _keep_vars=&_keep_vars. &segvar.;
     %let _keep_vars=%sysfunc(compbl(&_keep_vars.));
+    %let _keep_vars_sql=%sysfunc(tranwrd(&_keep_vars.,%str( ),%str(, )));
 
     %if %length(%superq(monto_var)) > 0 and &ponderado.=1 %then %let _has_weight=1;
     %if %length(%superq(segvar)) > 0 %then %let _has_seg=1;
@@ -123,13 +124,13 @@ precision_report.sas - Reportes HTML + Excel + JPEG para Precision
 
     proc fedsql sessref=conn;
         create table casuser._prec_input {options replace=true} as
-        select 'TRAIN' as Muestra, &_keep_vars.
+        select 'TRAIN' as Muestra, &_keep_vars_sql.
         from &input_caslib..&input_table.
         where &byvar. >= &train_min_mes.
           and &byvar. <= &train_max_mes.
           and &byvar. <= &def_cld.
         union all
-        select 'OOT' as Muestra, &_keep_vars.
+        select 'OOT' as Muestra, &_keep_vars_sql.
         from &input_caslib..&input_table.
         where &byvar. >= &oot_min_mes.
           and &byvar. <= &oot_max_mes.

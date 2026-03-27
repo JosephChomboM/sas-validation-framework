@@ -1,78 +1,109 @@
 /* =========================================================================
-missings_report.sas - Generacion de reportes HTML + Excel + JPEG
-para Missings/Dummies
+missings_report.sas - Generacion de reportes HTML + Excel para Missings
 
 Genera:
-<report_path>/<prefix>_train.html  - HTML con tablas TRAIN (inline)
-<report_path>/<prefix>_oot.html    - HTML con tablas OOT (inline)
-<report_path>/<prefix>.xlsx        - Excel multi-hoja (TRAIN + OOT)
-<images_path>/<prefix>_*.jpeg      - Graficos como JPEG independientes
+<report_path>/<prefix>.html   - HTML consolidado TRAIN/OOT
+<report_path>/<prefix>.xlsx   - Excel consolidado (Resumen + Detalle)
 
 Tablas temporales se crean en casuser (CAS) via PROC FEDSQL.
-Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
 ========================================================================= */
-%macro _missings_report( input_caslib=, train_table=, oot_table=, vars_num=,
-    vars_cat=, threshold=, report_path=, images_path=, file_prefix=);
+
+%macro _miss_prepare_scope_data(input_caslib=, input_table=, byvar=,
+    train_min_mes=, train_max_mes=, oot_min_mes=, oot_max_mes=,
+    out_table=_miss_input, split_var=_miss_split);
+
+    proc cas;
+        session conn;
+        table.dropTable / caslib="casuser" name="&out_table." quiet=true;
+        table.dropTable / caslib="casuser" name="_miss_input_stage" quiet=true;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser.&out_table. {options replace=true} as
+        select 'TRAIN' as &split_var., a.*
+        from &input_caslib..&input_table. a
+        where a.&byvar. >= &train_min_mes.
+          and a.&byvar. <= &train_max_mes.;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._miss_input_stage {options replace=true} as
+        select 'OOT' as &split_var., a.*
+        from &input_caslib..&input_table. a
+        where a.&byvar. >= &oot_min_mes.
+          and a.&byvar. <= &oot_max_mes.;
+    quit;
+
+    proc cas;
+        session conn;
+        table.append /
+            source={caslib="casuser", name="_miss_input_stage"},
+            target={caslib="casuser", name="&out_table."};
+        table.dropTable / caslib="casuser" name="_miss_input_stage" quiet=true;
+    quit;
+
+%mend _miss_prepare_scope_data;
+
+%macro _missings_report(input_caslib=, input_table=, byvar=, train_min_mes=,
+    train_max_mes=, oot_min_mes=, oot_max_mes=, vars_num=, vars_cat=,
+    threshold=, report_path=, file_prefix=);
+
+    %local _dir_rc;
 
     %put NOTE: [missings_report] Generando reportes...;
+    %put NOTE: [missings_report] input=&input_caslib..&input_table.;
+    %put NOTE: [missings_report] byvar=&byvar.;
     %put NOTE: [missings_report] report_path=&report_path.;
-    %put NOTE: [missings_report] images_path=&images_path.;
     %put NOTE: [missings_report] file_prefix=&file_prefix.;
     %put NOTE: [missings_report] threshold=&threshold.;
 
-    /* ---- Copiar tablas CAS a casuser (FEDSQL para CAS-to-CAS) --------- */
-    proc fedsql sessref=conn;
-        create table casuser._miss_train {options replace=true} as select * from
-            &input_caslib..&train_table.;
-    quit;
+    /* Para AUTO, asegurar subcarpeta METOD4.2 bajo reports */
+    %if %index(%upcase(&report_path.), METOD4.2) > 0 %then %do;
+        %let _dir_rc=%sysfunc(dcreate(METOD4.2, &report_path./../));
+    %end;
 
-    proc fedsql sessref=conn;
-        create table casuser._miss_oot {options replace=true} as select * from
-            &input_caslib..&oot_table.;
-    quit;
+    %_miss_prepare_scope_data(input_caslib=&input_caslib.,
+        input_table=&input_table., byvar=&byvar.,
+        train_min_mes=&train_min_mes., train_max_mes=&train_max_mes.,
+        oot_min_mes=&oot_min_mes., oot_max_mes=&oot_max_mes.,
+        out_table=_miss_input, split_var=_miss_split);
 
-    /* ---- Crear directorios si no existen ------------------------------- */
-    %local _dir_rc;
-    %let _dir_rc=%sysfunc(dcreate(METOD4.2, &report_path./../));
-    %let _dir_rc=%sysfunc(dcreate(., &report_path.));
-    %let _dir_rc=%sysfunc(dcreate(METOD4.2, &images_path./../));
-    %let _dir_rc=%sysfunc(dcreate(., &images_path.));
+    %_miss_compute(data=casuser._miss_input, split_var=_miss_split,
+        vars_num=&vars_num., vars_cat=&vars_cat., detail_table=_miss_detail,
+        summary_table=_miss_summary);
 
-    /* ==================================================================
-    TRAIN: HTML + primera hoja Excel
-    ================================================================== */
+    /* Sort solo al final (presentacion) */
+    %_miss_sort_cas(table_name=_miss_summary,
+        orderby=%str({"split", "variable"}));
+    %_miss_sort_cas(table_name=_miss_detail,
+        orderby=%str({"split", "variable", "type", "dummy_value"}));
+
+    proc format;
+        value MissSignif low-<&threshold.='white' &threshold.-high='red';
+    run;
+
     ods graphics on;
-    ods listing gpath="&images_path.";
 
-    ods html5 file="&report_path./&file_prefix._train.html"
+    ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
     ods excel file="&report_path./&file_prefix..xlsx"
-        options(sheet_name="TRAIN_Missings" sheet_interval="none"
+        options(sheet_name="Resumen" sheet_interval="none"
         embedded_titles="yes");
-    ods graphics / imagename="&file_prefix._trn_miss" imagefmt=jpeg;
 
-    title "TRAIN: Analisis de Missings";
+    title "Analisis de Missings - Resumen por Variable";
+    proc print data=casuser._miss_summary noobs
+        style(column)={backgroundcolor=MissSignif.};
+        var split variable type nmiss pct_miss;
+        format pct_miss percent8.2;
+    run;
 
-    %_miss_compute(data=casuser._miss_train, vars_num=&vars_num.,
-        vars_cat=&vars_cat., threshold=&threshold.);
-
-    title;
-    ods html5 close;
-    ods graphics / reset=all;
-
-    /* ==================================================================
-    OOT: HTML + segunda hoja Excel
-    ================================================================== */
-    ods html5 file="&report_path./&file_prefix._oot.html"
-        options(bitmap_mode="inline");
-    ods excel options(sheet_name="OOT_Missings" sheet_interval="now"
+    ods excel options(sheet_name="Detalle" sheet_interval="now"
         embedded_titles="yes");
-    ods graphics / imagename="&file_prefix._oot_miss" imagefmt=jpeg;
-
-    title "OOT: Analisis de Missings";
-
-    %_miss_compute(data=casuser._miss_oot, vars_num=&vars_num.,
-        vars_cat=&vars_cat., threshold=&threshold.);
+    title "Analisis de Missings - Detalle por Dummy";
+    proc print data=casuser._miss_detail noobs;
+        var split variable type dummy_value nmiss pct_miss;
+        format pct_miss percent8.2;
+    run;
 
     title;
     ods excel close;
@@ -80,15 +111,14 @@ Formato de imagen: JPEG. HTML usa bitmap_mode=inline.
     ods graphics / reset=all;
     ods graphics off;
 
-    /* ---- Cleanup tablas temporales CAS --------------------------------- */
+    /* Cleanup tablas temporales CAS ------------------------------------- */
     proc datasets library=casuser nolist nowarn;
-        delete _miss_train _miss_oot;
+        delete _miss_input _miss_input_stage _miss_stage _miss_detail
+            _miss_summary;
     quit;
 
-    %put NOTE: [missings_report] HTML TRAIN=>
-        &report_path./&file_prefix._train.html;
-    %put NOTE: [missings_report] HTML OOT=>
-        &report_path./&file_prefix._oot.html;
+    %put NOTE: [missings_report] HTML=>
+        &report_path./&file_prefix..html;
     %put NOTE: [missings_report] Excel=> &report_path./&file_prefix..xlsx;
 
 %mend _missings_report;

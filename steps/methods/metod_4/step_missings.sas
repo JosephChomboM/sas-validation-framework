@@ -7,14 +7,15 @@ Flujo:
 2) Configuracion propia del modulo (miss_mode, threshold, variables)
 3) Crear CASLIBs PROC + OUT
 4) Iteracion segun ctx_scope:
-- SEGMENTO -> itera segmentos via run_module(dual_input=1)
-- UNIVERSO -> ejecuta base via run_module(dual_input=1)
+- SEGMENTO -> itera segmentos via run_module(scope_input=1)
+- UNIVERSO -> ejecuta base via run_module(scope_input=1)
 5) Cleanup CASLIBs
 
 NOTA IMPORTANTE:
-Missings compara TRAIN vs OOT -> usa run_module con dual_input=1.
-run_module en modo B promueve ambas tablas (_train_input, _oot_input),
-ejecuta %missings_run, y dropea ambas tablas promovidas.
+Missings ahora trabaja CAS-first con una sola tabla de scope (_scope_input).
+TRAIN/OOT se derivan dentro del modulo segun ventanas de cfg_troncales.
+run_module en modo scope_input=1 promueve _scope_input, ejecuta
+%missings_run, y luego dropea la tabla promovida.
 
 Dependencias:
 - &ctx_scope (SEGMENTO | UNIVERSO) - seteado por context_and_modules.sas
@@ -34,7 +35,7 @@ Cada step es independiente: carga sus propias dependencias.
 /* miss_mode:
 AUTO   -> usa variables de cfg_segmentos/cfg_troncales
 (var_num_list, var_cat_list).
-Outputs van a reports/ + images/ (validacion estandar).
+Outputs van a reports/ (validacion estandar consolidada).
 CUSTOM -> usa miss_custom_vars_num/cat.
 Outputs van a experiments/ (analisis exploratorio).           */
 %let miss_mode=AUTO;
@@ -87,13 +88,13 @@ Outputs van a experiments/ (analisis exploratorio).           */
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             /* Segmento especifico */
             %run_module(module=missings, troncal_id=&ctx_troncal_id., split=,
-                seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
+                seg_id=&ctx_seg_id., run_id=&run_id., scope_input=1);
         %end;
         %else %do;
             /* Todos los segmentos */
             %do _sg=1 %to &ctx_n_segments.;
                 %run_module(module=missings, troncal_id=&ctx_troncal_id.,
-                    split=, seg_id=&_sg., run_id=&run_id., dual_input=1);
+                    split=, seg_id=&_sg., run_id=&run_id., scope_input=1);
             %end;
         %end;
 
@@ -103,7 +104,7 @@ Outputs van a experiments/ (analisis exploratorio).           */
         %put NOTE: [step_missings] UNIVERSO: troncal=&ctx_troncal_id.;
 
         %run_module(module=missings, troncal_id=&ctx_troncal_id., split=,
-            seg_id=, run_id=&run_id., dual_input=1);
+            seg_id=, run_id=&run_id., scope_input=1);
 
     %end; /* fin UNIVERSO */
     %else %do;

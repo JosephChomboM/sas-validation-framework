@@ -1,167 +1,198 @@
 /* =========================================================================
-missings_compute.sas - Computo de analisis de missings/dummies
-
-Contiene macros de computo que detectan valores dummy y missing por
-variable, con semaforo por umbral. Llamadas desde missings_report.sas
-dentro del contexto ODS.
+missings_compute.sas - Computo CAS-first de analisis de missings/dummies
 
 Macros:
-%_miss_calc_var  - Calcula missings/dummies para una variable
-%_miss_compute   - Orquestador: itera variables num + cat, acumula report
+%_miss_sort_cas      - ordena en CAS (table.partition) para presentacion
+%_miss_compute       - genera tablas CAS de detalle y resumen
 
-Valores dummy (numericos):
-., 1111111111, -1111111111, 2222222222, -2222222222, 3333333333,
--3333333333, 4444444444, 5555555555, 6666666666, 7777777777, -999999999
+Salida de %_miss_compute:
+- casuser.<detail_table> : split, variable, type, dummy_value, nmiss, pct_miss
+- casuser.<summary_table>: split, variable, type, nmiss, pct_miss
 
-Valores missing (categoricos):
-'', 'MISSING', ' ', '.'
-
-Usa work como staging (INSERT INTO no soportado en CAS).
-Formato de imagen: JPEG.
+Regla de sort:
+- No ordenar durante agregaciones
+- Ordenar solo al final para legibilidad del reporte
 ========================================================================= */
 
-/* =====================================================================
-%_miss_calc_var - Calcula missings/dummies para una variable
-Para numericas (is_numeric=1): cuenta valores en DUMMY_LIST.
-Para categoricas (is_numeric=0): cuenta blancos/MISSING.
-Resultado en work._miss_tmp (una fila por valor dummy encontrado).
-===================================================================== */
-%macro _miss_calc_var(data=, var=, is_numeric=1);
+%macro _miss_sort_cas(table_name=, orderby=, groupby={});
 
-    %local _total;
+    %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
+        %return;
 
-    /* Obtener total de observaciones */
-    proc sql noprint;
-        select count(*) into :_total trimmed from &data.;
+    proc cas;
+        session conn;
+        table.partition /
+            table={
+                caslib="casuser",
+                name="&table_name.",
+                orderby=&orderby.,
+                groupby=&groupby.
+            },
+            casout={
+                caslib="casuser",
+                name="&table_name.",
+                replace=true
+            };
     quit;
 
-    %if &is_numeric.=1 %then %do;
-        /* Numerica: buscar valores dummy */
-        proc sql noprint;
-            create table work._miss_tmp as select &var. format=best16.0, "num"
-                as type length 10, &_total. as total, count(*) as nmiss,
-                count(*) / &_total. as pct_miss format=percent8.2 from &data.
-                where &var. in (., 1111111111, -1111111111, 2222222222,
-                -2222222222, 3333333333, -3333333333, 4444444444, 5555555555,
-                6666666666, 7777777777, -999999999) group by &var.;
-        quit;
-    %end;
-    %else %do;
-        /* Categorica: buscar blancos y MISSING */
-        proc sql noprint;
-            create table work._miss_tmp as select &var., "categ" as type length
-                10, &_total. as total, count(*) as nmiss, count(*) / &_total. as
-                pct_miss format=percent8.2 from &data. where cats(&var.)="" or
-                cats(&var.)="MISSING" or cats(&var.)=" " or cats(&var.)="."
-                group by &var.;
-        quit;
-    %end;
+%mend _miss_sort_cas;
 
-    /* Detalle por valor dummy (si hay datos) */
-    %local _has_rows;
+%macro _miss_append_stage(target_table=, stage_table=);
 
-    proc sql noprint;
-        select count(*) into :_has_rows trimmed from work._miss_tmp;
+    proc cas;
+        session conn;
+        table.append /
+            source={caslib="casuser", name="&stage_table."},
+            target={caslib="casuser", name="&target_table."};
+        table.dropTable / caslib="casuser" name="&stage_table." quiet=true;
     quit;
 
-    %if &_has_rows. > 0 %then %do;
-        proc print data=work._miss_tmp noobs;
-        run;
-    %end;
+%mend _miss_append_stage;
 
-    /* Resumir: una fila por variable */
-    proc sql noprint;
-        create table work._miss_var_summary as select "&var." as Variable length
-            40, max(type) as type length 10, sum(pct_miss) as total_pct_miss
-            format=8.4 from work._miss_tmp;
+%macro _miss_numeric_stage(data=, split_var=, var=, stage_table=_miss_stage);
+
+    proc fedsql sessref=conn;
+        create table casuser.&stage_table. {options replace=true} as
+        select a.&split_var. as split,
+               "&var." as variable,
+               'num' as type,
+               case
+                   when a.&var. is null then '.'
+                   else cast(a.&var. as varchar(64))
+               end as dummy_value,
+               count(*) as nmiss,
+               count(*) / t.total_n as pct_miss
+        from &data. a
+        inner join (
+            select &split_var., count(*) as total_n
+            from &data.
+            group by &split_var.
+        ) t
+            on a.&split_var.=t.&split_var.
+        where a.&var. is null
+           or a.&var. in (
+                1111111111, -1111111111,
+                2222222222, -2222222222,
+                3333333333, -3333333333,
+                4444444444, 5555555555,
+                6666666666, 7777777777,
+                -999999999
+           )
+        group by a.&split_var.,
+                 case
+                     when a.&var. is null then '.'
+                     else cast(a.&var. as varchar(64))
+                 end,
+                 t.total_n;
     quit;
 
-    proc datasets library=work nolist nowarn;
-        delete _miss_tmp;
+%mend _miss_numeric_stage;
+
+%macro _miss_categ_stage(data=, split_var=, var=, stage_table=_miss_stage);
+
+    proc fedsql sessref=conn;
+        create table casuser.&stage_table. {options replace=true} as
+        select a.&split_var. as split,
+               "&var." as variable,
+               'categ' as type,
+               case
+                   when a.&var. is null then '<NULL>'
+                   when trim(a.&var.)='' then '<BLANK>'
+                   when upcase(trim(a.&var.))='MISSING' then 'MISSING'
+                   when trim(a.&var.)='.' then '.'
+                   else trim(a.&var.)
+               end as dummy_value,
+               count(*) as nmiss,
+               count(*) / t.total_n as pct_miss
+        from &data. a
+        inner join (
+            select &split_var., count(*) as total_n
+            from &data.
+            group by &split_var.
+        ) t
+            on a.&split_var.=t.&split_var.
+        where a.&var. is null
+           or trim(a.&var.)=''
+           or upcase(trim(a.&var.))='MISSING'
+           or trim(a.&var.)='.'
+        group by a.&split_var.,
+                 case
+                     when a.&var. is null then '<NULL>'
+                     when trim(a.&var.)='' then '<BLANK>'
+                     when upcase(trim(a.&var.))='MISSING' then 'MISSING'
+                     when trim(a.&var.)='.' then '.'
+                     else trim(a.&var.)
+                 end,
+                 t.total_n;
     quit;
 
-%mend _miss_calc_var;
+%mend _miss_categ_stage;
 
-/* =====================================================================
-%_miss_compute - Orquestador: itera variables num + cat
-Acumula resultados en work._miss_report via INSERT INTO.
-Genera tabla resumen con semaforo por umbral.
-===================================================================== */
-%macro _miss_compute(data=, vars_num=, vars_cat=, threshold=0.1);
+%macro _miss_compute(data=, split_var=_miss_split, vars_num=, vars_cat=,
+    detail_table=_miss_detail, summary_table=_miss_summary);
 
-    %local c v z v_cat;
+    %local c z v v_cat;
 
-    /* Crear formato semaforo */
-    proc format;
-        value MissSignif -0.0-<&threshold.="white" &threshold.-<1="red";
-    run;
+    proc cas;
+        session conn;
+        table.dropTable / caslib="casuser" name="&detail_table." quiet=true;
+        table.dropTable / caslib="casuser" name="&summary_table." quiet=true;
+        table.dropTable / caslib="casuser" name="_miss_stage" quiet=true;
+    quit;
 
-    /* Crear tabla acumuladora */
-    data work._miss_report;
-        length Variable $ 40 type $ 10 total_pct_miss 8;
-        format total_pct_miss 8.4;
-        stop;
-    run;
-
-    title "Missing summarize (variable/cases)";
+    proc fedsql sessref=conn;
+        create table casuser.&detail_table. {options replace=true} as
+        select cast('' as varchar(8)) as split,
+               cast('' as varchar(128)) as variable,
+               cast('' as varchar(16)) as type,
+               cast('' as varchar(128)) as dummy_value,
+               cast(0 as double) as nmiss,
+               cast(0 as double) as pct_miss
+        from &data.
+        where 1=0;
+    quit;
 
     /* Procesar variables numericas */
-    %if %length(&vars_num.) > 0 %then %do;
+    %if %length(%superq(vars_num)) > 0 %then %do;
         %let c=1;
-        %let v=%scan(&vars_num., &c., %str( ));
-        %do %while(%length(&v.) > 0);
+        %let v=%scan(%superq(vars_num), &c., %str( ));
+        %do %while(%length(%superq(v)) > 0);
             %put NOTE: [missings] Procesando variable numerica: &v.;
-            %_miss_calc_var(data=&data., var=&v., is_numeric=1);
-
-            proc sql noprint;
-                insert into work._miss_report select Variable, type,
-                    total_pct_miss from work._miss_var_summary;
-            quit;
-
-            proc datasets library=work nolist nowarn;
-                delete _miss_var_summary;
-            quit;
+            %_miss_numeric_stage(data=&data., split_var=&split_var., var=&v.,
+                stage_table=_miss_stage);
+            %_miss_append_stage(target_table=&detail_table.,
+                stage_table=_miss_stage);
 
             %let c=%eval(&c. + 1);
-            %let v=%scan(&vars_num., &c., %str( ));
+            %let v=%scan(%superq(vars_num), &c., %str( ));
         %end;
     %end;
 
     /* Procesar variables categoricas */
-    %if %length(&vars_cat.) > 0 %then %do;
+    %if %length(%superq(vars_cat)) > 0 %then %do;
         %let z=1;
-        %let v_cat=%scan(&vars_cat., &z., %str( ));
-        %do %while(%length(&v_cat.) > 0);
+        %let v_cat=%scan(%superq(vars_cat), &z., %str( ));
+        %do %while(%length(%superq(v_cat)) > 0);
             %put NOTE: [missings] Procesando variable categorica: &v_cat.;
-            %_miss_calc_var(data=&data., var=&v_cat., is_numeric=0);
-
-            proc sql noprint;
-                insert into work._miss_report select Variable, type,
-                    total_pct_miss from work._miss_var_summary;
-            quit;
-
-            proc datasets library=work nolist nowarn;
-                delete _miss_var_summary;
-            quit;
+            %_miss_categ_stage(data=&data., split_var=&split_var.,
+                var=&v_cat., stage_table=_miss_stage);
+            %_miss_append_stage(target_table=&detail_table.,
+                stage_table=_miss_stage);
 
             %let z=%eval(&z. + 1);
-            %let v_cat=%scan(&vars_cat., &z., %str( ));
+            %let v_cat=%scan(%superq(vars_cat), &z., %str( ));
         %end;
     %end;
 
-    title;
-
-    /* Tabla resumen con semaforo */
-    title "Missing summarize (variables)";
-
-    proc print data=work._miss_report noobs
-        style(column)={backgroundcolor=MissSignif.};
-    run;
-    title;
-
-    /* Cleanup */
-    proc datasets library=work nolist nowarn;
-        delete _miss_report;
+    proc fedsql sessref=conn;
+        create table casuser.&summary_table. {options replace=true} as
+        select split,
+               variable,
+               max(type) as type,
+               sum(nmiss) as nmiss,
+               sum(pct_miss) as pct_miss
+        from casuser.&detail_table.
+        group by split, variable;
     quit;
 
 %mend _miss_compute;
