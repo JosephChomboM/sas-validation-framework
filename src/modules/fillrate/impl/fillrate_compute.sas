@@ -53,17 +53,17 @@ Notas:
 
     %if %length(%superq(vars_num))=0 %then %return;
 
-    proc sort data=&data. out=casuser._fill_stage_gini;
+    proc sort data=&data.;
         by Muestra &byvar.;
     run;
 
-    proc summary data=casuser._fill_stage_gini nway;
+    proc summary data=&data. nway;
         class Muestra;
         var _fill_one;
         output out=casuser._fill_gen_tot(drop=_type_ _freq_) n=N_Total;
     run;
 
-    proc summary data=casuser._fill_stage_gini nway;
+    proc summary data=&data. nway;
         class Muestra;
         var &vars_num.;
         output out=casuser._fill_gen_n(drop=_type_ _freq_) n=;
@@ -113,7 +113,7 @@ Notas:
     %do %while(%length(%superq(_v)) > 0);
         %put NOTE: [fillrate] Gini global/temporal para &_v.;
 
-        proc freqtab data=casuser._fill_stage_gini noprint;
+        proc freqtab data=&data. noprint;
             by Muestra;
             tables &target. * &_v. / measures;
             output out=work._fill_gini_tmp smdcr;
@@ -123,7 +123,7 @@ Notas:
             create table work._fill_ngini_tmp as
             select upcase(Muestra) as Muestra length=5,
                    count(*) as N_Gini
-            from casuser._fill_stage_gini
+            from &data.
             where not missing(&target.)
               and not missing(&_v.)
             group by Muestra;
@@ -161,7 +161,7 @@ Notas:
         proc append base=work._fill_gini_global data=work._fill_gini_var force;
         run;
 
-        proc freqtab data=casuser._fill_stage_gini noprint;
+        proc freqtab data=&data. noprint;
             by Muestra &byvar.;
             tables &target. * &_v. / measures;
             output out=work._fill_gini_bt_tmp smdcr;
@@ -172,7 +172,7 @@ Notas:
             select upcase(Muestra) as Muestra length=5,
                    &byvar.,
                    count(*) as N_Gini
-            from casuser._fill_stage_gini
+            from &data.
             where not missing(&target.)
               and not missing(&_v.)
             group by upcase(Muestra), &byvar.;
@@ -245,7 +245,7 @@ Notas:
     run;
 
     proc datasets library=casuser nolist nowarn;
-        delete _fill_gen_tot _fill_gen_n _fill_gen_base _fill_stage_gini;
+        delete _fill_gen_tot _fill_gen_n _fill_gen_base;
     quit;
 
     proc datasets library=work nolist nowarn;
