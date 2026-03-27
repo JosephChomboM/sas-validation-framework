@@ -371,14 +371,6 @@ Implementacion CAS-first:
         %return;
     %end;
 
-    proc sql;
-        title "[gini_run] Conteo por split derivado";
-        select _fw_gini_split_flag_01 as Split, count(*) as N
-        from casuser._gini_input
-        group by _fw_gini_split_flag_01;
-        title;
-    quit;
-
     %gini_contract(input_caslib=casuser, input_table=_gini_input,
         target=&_gini_target., score=&_gini_score., byvar=&_gini_byvar.,
         def_cld=&_gini_def_cld., split_var=_fw_gini_split_flag_01);
@@ -388,25 +380,36 @@ Implementacion CAS-first:
         %return;
     %end;
 
-    %_gini_partition_vars(data=casuser._gini_input, vars_num=&_gini_vars_num.,
+    data casuser._gini_train;
+        set casuser._gini_input;
+        where _fw_gini_split_flag_01="TRAIN";
+    run;
+
+    data casuser._gini_oot;
+        set casuser._gini_input;
+        where _fw_gini_split_flag_01="OOT";
+    run;
+
+    %_gini_partition_vars(train_data=casuser._gini_train,
+        oot_data=casuser._gini_oot, vars_num=&_gini_vars_num.,
         out_train=_gini_vars_train, out_oot=_gini_vars_oot,
         out_shared=_gini_vars_shared);
 
-    %_gini_model_general(data=casuser._gini_input,
-        split_var=_fw_gini_split_flag_01,
+    %_gini_model_general(train_data=casuser._gini_train,
+        oot_data=casuser._gini_oot,
         target=&_gini_target., score=&_gini_score.,
         with_missing=&gini_with_missing., model_low=&_gini_model_low.,
         model_high=&_gini_model_high., out=casuser._gini_model_general);
 
-    %_gini_model_monthly(data=casuser._gini_input,
-        split_var=_fw_gini_split_flag_01,
+    %_gini_model_monthly(train_data=casuser._gini_train,
+        oot_data=casuser._gini_oot,
         target=&_gini_target., score=&_gini_score., byvar=&_gini_byvar.,
         with_missing=&gini_with_missing., model_low=&_gini_model_low.,
         model_high=&_gini_model_high., trend_delta=&gini_trend_delta.,
         out=casuser._gini_model_monthly);
 
-    %_gini_variables_general(data=casuser._gini_input,
-        split_var=_fw_gini_split_flag_01,
+    %_gini_variables_general(train_data=casuser._gini_train,
+        oot_data=casuser._gini_oot,
         target=&_gini_target., vars_num_train=&_gini_vars_train.,
         vars_num_oot=&_gini_vars_oot., with_missing=&gini_with_missing.,
         min_n_valid=&gini_min_n_valid., var_low=&_gini_var_low.,
@@ -415,8 +418,8 @@ Implementacion CAS-first:
     %_gini_variables_compare(data=casuser._gini_vars_general,
         delta_warn=&gini_delta_warn., out=casuser._gini_vars_compare);
 
-    %_gini_variables_monthly(data=casuser._gini_input,
-        split_var=_fw_gini_split_flag_01,
+    %_gini_variables_monthly(train_data=casuser._gini_train,
+        oot_data=casuser._gini_oot,
         target=&_gini_target., vars_num_train=&_gini_vars_train.,
         vars_num_oot=&_gini_vars_oot., byvar=&_gini_byvar.,
         with_missing=&gini_with_missing., min_n_valid=&gini_min_n_valid.,
