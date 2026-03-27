@@ -4,8 +4,7 @@ fillrate_run.sas - Macro publica del modulo Fillrate vs Gini (Metodo 4.2)
 API:
 %fillrate_run(
 input_caslib  = PROC,
-train_table   = _train_input,
-oot_table     = _oot_input,
+input_table   = _scope_input,
 output_caslib = OUT,
 troncal_id    = <id>,
 scope         = base | segNNN,
@@ -14,14 +13,15 @@ run_id        = <run_id>
 
 Flujo interno:
 1) Resolver variables desde cfg_troncales/cfg_segmentos
-   (byvar, target, vars num/cat, def_cld)
+   (byvar, target, vars num/cat, def_cld y ventanas TRAIN/OOT)
 2) Ejecutar contract (validaciones)
-3) Generar reportes HTML + Excel + JPEG
-4) Persistir tablas resumen como .sas7bdat
-5) Cleanup
+3) Derivar tabla canonica con Muestra=TRAIN/OOT desde _scope_input
+4) Generar reportes HTML + Excel + JPEG
+5) Persistir tablas resumen como .sas7bdat
+6) Cleanup
 
 NOTA:
-- Fillrate compara TRAIN vs OOT y por eso usa dual_input=1.
+- Fillrate deriva TRAIN/OOT internamente desde input consolidado.
 - El Gini se calcula con PROC FREQTAB usando _SMDCR_ y SIN option MISSING.
 - def_cld define la fecha maxima para el analisis (default cerrado).
 
@@ -31,8 +31,8 @@ Compatibilidad: segmento y universo.
 %include "&fw_root./src/modules/fillrate/impl/fillrate_compute.sas";
 %include "&fw_root./src/modules/fillrate/impl/fillrate_report.sas";
 
-%macro fillrate_run(input_caslib=PROC, train_table=_train_input,
-    oot_table=_oot_input, output_caslib=OUT, troncal_id=, scope=, run_id=);
+%macro fillrate_run(input_caslib=PROC, input_table=_scope_input,
+    output_caslib=OUT, troncal_id=, scope=, run_id=);
 
     %global _fill_rc;
     %let _fill_rc=0;
@@ -40,13 +40,13 @@ Compatibilidad: segmento y universo.
     %local _fill_vars_num _fill_vars_cat _fill_byvar _fill_target
         _fill_def_cld _fill_oot_max_mes _fill_is_custom _scope_abbr
         _report_path _images_path _tables_path _file_prefix _tbl_prefix
-        _seg_num _dir_rc;
+        _seg_num _dir_rc _fill_train_min_mes _fill_train_max_mes
+        _fill_oot_min_mes;
 
     %put NOTE:======================================================;
     %put NOTE: [fillrate_run] INICIO;
     %put NOTE: troncal=&troncal_id. scope=&scope.;
-    %put NOTE: train=&input_caslib..&train_table.;
-    %put NOTE: oot=&input_caslib..&oot_table.;
+    %put NOTE: input=&input_caslib..&input_table.;
     %put NOTE: mode=&fill_mode.;
     %put NOTE:======================================================;
 
@@ -57,6 +57,9 @@ Compatibilidad: segmento y universo.
     %let _fill_def_cld=;
     %let _fill_oot_max_mes=;
     %let _fill_is_custom=0;
+    %let _fill_train_min_mes=;
+    %let _fill_train_max_mes=;
+    %let _fill_oot_min_mes=;
 
     /* Resolver campos estructurales desde config */
     proc sql noprint;
@@ -66,6 +69,12 @@ Compatibilidad: segmento y universo.
             casuser.cfg_troncales where troncal_id=&troncal_id.;
         select strip(put(def_cld, best.)) into :_fill_def_cld trimmed from
             casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(train_min_mes, best.)) into :_fill_train_min_mes
+            trimmed from casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(train_max_mes, best.)) into :_fill_train_max_mes
+            trimmed from casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(oot_min_mes, best.)) into :_fill_oot_min_mes trimmed
+            from casuser.cfg_troncales where troncal_id=&troncal_id.;
         select strip(put(oot_max_mes, best.)) into :_fill_oot_max_mes trimmed
             from casuser.cfg_troncales where troncal_id=&troncal_id.;
     quit;
@@ -129,6 +138,9 @@ Compatibilidad: segmento y universo.
     %put NOTE: [fillrate_run] byvar=&_fill_byvar.;
     %put NOTE: [fillrate_run] target=&_fill_target.;
     %put NOTE: [fillrate_run] def_cld=&_fill_def_cld.;
+    %put NOTE: [fillrate_run] train_min_mes=&_fill_train_min_mes.;
+    %put NOTE: [fillrate_run] train_max_mes=&_fill_train_max_mes.;
+    %put NOTE: [fillrate_run] oot_min_mes=&_fill_oot_min_mes.;
     %put NOTE: [fillrate_run] oot_max_mes=&_fill_oot_max_mes.;
 
     %if %substr(&scope., 1, 3)=seg %then %let _scope_abbr=&scope.;
@@ -157,18 +169,39 @@ Compatibilidad: segmento y universo.
         %put NOTE: [fillrate_run] Output -> reports/images/tables METOD4.2.;
     %end;
 
-    %fillrate_contract(input_caslib=&input_caslib., train_table=&train_table.,
-        oot_table=&oot_table., vars_num=&_fill_vars_num.,
+    %fillrate_contract(input_caslib=&input_caslib., input_table=&input_table.,
+        vars_num=&_fill_vars_num.,
         vars_cat=&_fill_vars_cat., byvar=&_fill_byvar.,
-        target=&_fill_target., def_cld=&_fill_def_cld.);
+        target=&_fill_target., def_cld=&_fill_def_cld.,
+        train_min_mes=&_fill_train_min_mes.,
+        train_max_mes=&_fill_train_max_mes., oot_min_mes=&_fill_oot_min_mes.,
+        oot_max_mes=&_fill_oot_max_mes.);
 
     %if &_fill_rc. ne 0 %then %do;
         %put ERROR: [fillrate_run] Contract fallido - modulo abortado.;
         %return;
     %end;
 
-    %_fillrate_report(input_caslib=&input_caslib., train_table=&train_table.,
-        oot_table=&oot_table., byvar=&_fill_byvar., target=&_fill_target.,
+    proc cas;
+        session conn;
+        table.dropTable / caslib='casuser' name='_fill_input' quiet=true;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._fill_input {options replace=true} as
+        select 'TRAIN' as Muestra, *
+        from &input_caslib..&input_table.
+        where &_fill_byvar. >= &_fill_train_min_mes.
+          and &_fill_byvar. <= &_fill_train_max_mes.
+        union all
+        select 'OOT' as Muestra, *
+        from &input_caslib..&input_table.
+        where &_fill_byvar. >= &_fill_oot_min_mes.
+          and &_fill_byvar. <= &_fill_oot_max_mes.;
+    quit;
+
+    %_fillrate_report(input_caslib=casuser, input_table=_fill_input,
+        byvar=&_fill_byvar., target=&_fill_target.,
         def_cld=&_fill_def_cld., oot_max_mes=&_fill_oot_max_mes.,
         vars_num=&_fill_vars_num.,
         vars_cat=&_fill_vars_cat., report_path=&_report_path.,

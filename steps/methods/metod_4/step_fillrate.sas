@@ -6,11 +6,11 @@ Flujo:
 1) Check flag run_fillrate
 2) Configuracion propia del modulo (AUTO/CUSTOM)
 3) Crear CASLIBs PROC + OUT
-4) Iteracion segun ctx_scope con run_module(dual_input=1)
+4) Iteracion segun ctx_scope con run_module(scope_input=1)
 5) Cleanup CASLIBs
 
 NOTA IMPORTANTE:
-- Fillrate compara TRAIN vs OOT.
+- Fillrate usa un unico _scope_input y deriva TRAIN/OOT internamente.
 - El Gini se calcula con PROC FREQTAB sin MISSING y usando _SMDCR_.
 - byvar siempre se resuelve desde config.sas.
 ========================================================================= */
@@ -67,19 +67,19 @@ CUSTOM -> toma por defecto las variables de config.sas y permite override
         %end;
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             %run_module(module=fillrate, troncal_id=&ctx_troncal_id., split=,
-                seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
+                seg_id=&ctx_seg_id., run_id=&run_id., scope_input=1);
         %end;
         %else %do;
             %do _sg=1 %to &ctx_n_segments.;
                 %run_module(module=fillrate, troncal_id=&ctx_troncal_id.,
-                    split=, seg_id=&_sg., run_id=&run_id., dual_input=1);
+                    split=, seg_id=&_sg., run_id=&run_id., scope_input=1);
             %end;
         %end;
     %end;
     %else %if %upcase(&ctx_scope.)=UNIVERSO %then %do;
         %put NOTE: [step_fillrate] UNIVERSO: troncal=&ctx_troncal_id.;
         %run_module(module=fillrate, troncal_id=&ctx_troncal_id., split=,
-            seg_id=, run_id=&run_id., dual_input=1);
+            seg_id=, run_id=&run_id., scope_input=1);
     %end;
     %else %do;
         %put ERROR: [step_fillrate] ctx_scope=&ctx_scope. no reconocido. Debe

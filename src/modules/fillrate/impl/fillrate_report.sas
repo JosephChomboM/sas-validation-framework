@@ -9,8 +9,11 @@ Genera:
 Tambien deja en casuser:
 - _fill_general_all
 - _fill_monthly_all
+
+Entrada esperada:
+- input_table consolidada con columna Muestra (TRAIN/OOT)
 ========================================================================= */
-%macro _fillrate_report(input_caslib=, train_table=, oot_table=, byvar=,
+%macro _fillrate_report(input_caslib=, input_table=, byvar=,
     target=, def_cld=, oot_max_mes=, vars_num=, vars_cat=, report_path=,
     images_path=, file_prefix=);
 
@@ -23,26 +26,30 @@ Tambien deja en casuser:
 
     proc fedsql sessref=conn;
         create table casuser._fill_train_gini {options replace=true} as
-            select * from &input_caslib..&train_table.
-            where &byvar. <= &def_cld.;
+            select * from &input_caslib..&input_table.
+            where upcase(Muestra)='TRAIN'
+              and &byvar. <= &def_cld.;
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._fill_oot_gini {options replace=true} as
-            select * from &input_caslib..&oot_table.
-            where &byvar. <= &def_cld.;
+            select * from &input_caslib..&input_table.
+            where upcase(Muestra)='OOT'
+              and &byvar. <= &def_cld.;
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._fill_train_full {options replace=true} as
-            select * from &input_caslib..&train_table.
-            where &byvar. <= &oot_max_mes.;
+            select * from &input_caslib..&input_table.
+            where upcase(Muestra)='TRAIN'
+              and &byvar. <= &oot_max_mes.;
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._fill_oot_full {options replace=true} as
-            select * from &input_caslib..&oot_table.
-            where &byvar. <= &oot_max_mes.;
+            select * from &input_caslib..&input_table.
+            where upcase(Muestra)='OOT'
+              and &byvar. <= &oot_max_mes.;
     quit;
 
     %if %length(%superq(vars_num)) > 0 %then %do;
