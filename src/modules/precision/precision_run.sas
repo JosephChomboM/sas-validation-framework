@@ -4,8 +4,7 @@ precision_run.sas - Macro publica del modulo Precision (METOD6)
 API:
 %precision_run(
     input_caslib  = PROC,
-    train_table   = _train_input,
-    oot_table     = _oot_input,
+    input_table   = _scope_input,
     output_caslib = OUT,
     troncal_id    = <id>,
     scope         = base | segNNN,
@@ -21,8 +20,8 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
 %include "&fw_root./src/modules/precision/impl/precision_compute.sas";
 %include "&fw_root./src/modules/precision/impl/precision_report.sas";
 
-%macro precision_run(input_caslib=PROC, train_table=_train_input,
-    oot_table=_oot_input, output_caslib=OUT, troncal_id=, scope=, run_id=);
+%macro precision_run(input_caslib=PROC, input_table=_scope_input,
+    output_caslib=OUT, troncal_id=, scope=, run_id=);
 
     %global _prec_rc;
     %let _prec_rc=0;
@@ -30,14 +29,14 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
     %local _prec_target _prec_score _prec_pd _prec_xb _prec_monto _prec_byvar
         _prec_def_cld _prec_segvar _prec_score_mode _prec_scope_abbr
         _prec_report_path _prec_images_path _prec_file_prefix
-        _prec_is_custom _prec_seg_num _prec_dir_rc _prec_has_trn
-        _prec_has_oot;
+        _prec_is_custom _prec_seg_num _prec_dir_rc _prec_has_col
+        _prec_train_min_mes _prec_train_max_mes _prec_oot_min_mes
+        _prec_oot_max_mes;
 
     %put NOTE:======================================================;
     %put NOTE: [precision_run] INICIO;
     %put NOTE: troncal=&troncal_id. scope=&scope.;
-    %put NOTE: train=&input_caslib..&train_table.;
-    %put NOTE: oot=&input_caslib..&oot_table.;
+    %put NOTE: input=&input_caslib..&input_table.;
     %put NOTE:======================================================;
 
     %let _prec_target= ;
@@ -49,6 +48,10 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
     %let _prec_def_cld= ;
     %let _prec_segvar= ;
     %let _prec_is_custom=0;
+    %let _prec_train_min_mes= ;
+    %let _prec_train_max_mes= ;
+    %let _prec_oot_min_mes= ;
+    %let _prec_oot_max_mes= ;
 
     proc sql noprint;
         select strip(target) into :_prec_target trimmed
@@ -62,6 +65,14 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
         select strip(byvar) into :_prec_byvar trimmed
         from casuser.cfg_troncales where troncal_id=&troncal_id.;
         select strip(put(def_cld, best.)) into :_prec_def_cld trimmed
+        from casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(train_min_mes, best.)) into :_prec_train_min_mes
+        trimmed from casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(train_max_mes, best.)) into :_prec_train_max_mes
+        trimmed from casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(oot_min_mes, best.)) into :_prec_oot_min_mes trimmed
+        from casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(oot_max_mes, best.)) into :_prec_oot_max_mes trimmed
         from casuser.cfg_troncales where troncal_id=&troncal_id.;
         select strip(var_seg) into :_prec_segvar trimmed
         from casuser.cfg_troncales where troncal_id=&troncal_id.;
@@ -109,6 +120,8 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
     %put NOTE: [precision_run] pd=&_prec_pd. xb=&_prec_xb.;
     %put NOTE: [precision_run] monto=&_prec_monto. segvar=&_prec_segvar.;
     %put NOTE: [precision_run] byvar=&_prec_byvar. def_cld=&_prec_def_cld.;
+    %put NOTE: [precision_run] train=&_prec_train_min_mes.-&_prec_train_max_mes.
+        oot=&_prec_oot_min_mes.-&_prec_oot_max_mes.;
 
     %if %substr(&scope., 1, 3)=seg %then %let _prec_scope_abbr=&scope.;
     %else %let _prec_scope_abbr=base;
@@ -128,9 +141,12 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
         %put NOTE: [precision_run] Output -> reports/METOD6 + images/METOD6.;
     %end;
 
-    %precision_contract(input_caslib=&input_caslib., train_table=&train_table.,
-        oot_table=&oot_table., target=&_prec_target., score_var=&_prec_score.,
-        byvar=&_prec_byvar., def_cld=&_prec_def_cld., monto_var=&_prec_monto.,
+    %precision_contract(input_caslib=&input_caslib.,
+        input_table=&input_table., target=&_prec_target.,
+        score_var=&_prec_score., byvar=&_prec_byvar.,
+        def_cld=&_prec_def_cld., train_min_mes=&_prec_train_min_mes.,
+        train_max_mes=&_prec_train_max_mes., oot_min_mes=&_prec_oot_min_mes.,
+        oot_max_mes=&_prec_oot_max_mes., monto_var=&_prec_monto.,
         segvar=&_prec_segvar.);
 
     %if &_prec_rc. ne 0 %then %do;
@@ -138,55 +154,46 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
         %return;
     %end;
 
-    /* ---- Normalizar opcionales: si no estan en ambos splits, se omiten */
+    /* ---- Normalizar opcionales: si no existen en input, se omiten */
     %if %length(%superq(_prec_monto)) > 0 %then %do;
-        %let _prec_has_trn=0;
-        %let _prec_has_oot=0;
+        %let _prec_has_col=0;
         proc sql noprint;
-            select count(*) into :_prec_has_trn trimmed
+            select count(*) into :_prec_has_col trimmed
             from dictionary.columns
             where upcase(libname)=upcase("&input_caslib.")
-              and upcase(memname)=upcase("&train_table.")
-              and upcase(name)=upcase("&_prec_monto.");
-            select count(*) into :_prec_has_oot trimmed
-            from dictionary.columns
-            where upcase(libname)=upcase("&input_caslib.")
-              and upcase(memname)=upcase("&oot_table.")
+              and upcase(memname)=upcase("&input_table.")
               and upcase(name)=upcase("&_prec_monto.");
         quit;
-        %if &_prec_has_trn.=0 or &_prec_has_oot.=0 %then %do;
-            %put WARNING: [precision_run] monto=&_prec_monto. no disponible en
-                ambos splits. Se omite precision ponderada.;
+        %if &_prec_has_col.=0 %then %do;
+            %put WARNING: [precision_run] monto=&_prec_monto. no disponible
+                en input. Se omite precision ponderada.;
             %let _prec_monto=;
         %end;
     %end;
 
     %if %length(%superq(_prec_segvar)) > 0 %then %do;
-        %let _prec_has_trn=0;
-        %let _prec_has_oot=0;
+        %let _prec_has_col=0;
         proc sql noprint;
-            select count(*) into :_prec_has_trn trimmed
+            select count(*) into :_prec_has_col trimmed
             from dictionary.columns
             where upcase(libname)=upcase("&input_caslib.")
-              and upcase(memname)=upcase("&train_table.")
-              and upcase(name)=upcase("&_prec_segvar.");
-            select count(*) into :_prec_has_oot trimmed
-            from dictionary.columns
-            where upcase(libname)=upcase("&input_caslib.")
-              and upcase(memname)=upcase("&oot_table.")
+              and upcase(memname)=upcase("&input_table.")
               and upcase(name)=upcase("&_prec_segvar.");
         quit;
-        %if &_prec_has_trn.=0 or &_prec_has_oot.=0 %then %do;
+        %if &_prec_has_col.=0 %then %do;
             %put WARNING: [precision_run] segvar=&_prec_segvar. no disponible
-                en ambos splits. Se omite precision segmentada.;
+                en input. Se omite precision segmentada.;
             %let _prec_segvar=;
         %end;
     %end;
 
-    %_precision_report(input_caslib=&input_caslib., train_table=&train_table.,
-        oot_table=&oot_table., target=&_prec_target., score_var=&_prec_score.,
-        monto_var=&_prec_monto., segvar=&_prec_segvar., byvar=&_prec_byvar.,
-        def_cld=&_prec_def_cld., ponderado=&prec_use_weighted.,
+    %_precision_report(input_caslib=&input_caslib.,
+        input_table=&input_table., target=&_prec_target.,
+        score_var=&_prec_score., monto_var=&_prec_monto.,
+        segvar=&_prec_segvar., byvar=&_prec_byvar., def_cld=&_prec_def_cld.,
+        train_min_mes=&_prec_train_min_mes.,
+        train_max_mes=&_prec_train_max_mes., oot_min_mes=&_prec_oot_min_mes.,
+        oot_max_mes=&_prec_oot_max_mes., ponderado=&prec_use_weighted.,
         report_path=&_prec_report_path., images_path=&_prec_images_path.,
         file_prefix=&_prec_file_prefix.);
 
