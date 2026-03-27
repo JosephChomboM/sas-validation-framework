@@ -20,9 +20,16 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         where upcase(strip(&split_var.))=upcase("&split.");
     run;
 
-    %local _i _var _n_total _n_valid _n_default _n_gini _smdcr _gini_ft_exists;
+    %local _i _var _n_total _n_valid _n_default _n_gini _smdcr _gini_ft_exists
+        _out_lib _out_name;
     %let _i=1;
     %let _var=%scan(&vars_num., &_i., %str( ));
+    %let _out_lib=%scan(&out., 1, .);
+    %let _out_name=%scan(&out., 2, .);
+    %if %length(%superq(_out_name))=0 %then %do;
+        %let _out_name=&_out_lib.;
+        %let _out_lib=casuser;
+    %end;
 
     %do %while(%length(&_var.) > 0);
         proc sql noprint;
@@ -78,8 +85,12 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             format Pct_Valid percent8.2 Gini Smdcr_Raw 8.4;
         run;
 
-        proc append base=&out. data=casuser._gini_var_row force;
-        run;
+        proc cas;
+            session conn;
+            table.append /
+                source={caslib='casuser', name='_gini_var_row'},
+                target={caslib="&_out_lib.", name="&_out_name."};
+        quit;
 
         proc datasets library=casuser nolist nowarn;
             delete _gini_var_ft _gini_var_row;
@@ -209,9 +220,15 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
     %_gini_sort_cas(table_name=_gini_var_src,
         orderby=%str({"&byvar."}));
 
-    %local _i _var;
+    %local _i _var _out_lib _out_name;
     %let _i=1;
     %let _var=%scan(&vars_num., &_i., %str( ));
+    %let _out_lib=%scan(&out., 1, .);
+    %let _out_name=%scan(&out., 2, .);
+    %if %length(%superq(_out_name))=0 %then %do;
+        %let _out_name=&_out_lib.;
+        %let _out_lib=casuser;
+    %end;
 
     %do %while(%length(&_var.) > 0);
         proc fedsql sessref=conn;
@@ -292,8 +309,12 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             format Gini Smdcr_Raw 8.4;
         run;
 
-        proc append base=&out. data=casuser._gini_var_row force;
-        run;
+        proc cas;
+            session conn;
+            table.append /
+                source={caslib='casuser', name='_gini_var_row'},
+                target={caslib="&_out_lib.", name="&_out_name."};
+        quit;
 
         proc datasets library=casuser nolist nowarn;
             delete _gini_var_cnt _gini_var_ng _gini_var_ftb _gini_var_row;
