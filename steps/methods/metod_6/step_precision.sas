@@ -8,7 +8,7 @@ Compara promedio observado (target) vs score del modelo (PD/XB), con:
 - precision ponderada por monto opcional
 - filtro por default cerrado (def_cld)
 
-Usa run_module con dual_input=1 (TRAIN + OOT).
+Usa run_module con scope_input=1 (dataset unificado por scope).
 ========================================================================= */
 /* ---- Dependencias ----------------------------------------------------- */
 %include "&fw_root./src/common/common_public.sas";
@@ -75,12 +75,12 @@ CUSTOM -> permite overridear score, target, monto, segvar y def_cld.
         %end;
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             %run_module(module=precision, troncal_id=&ctx_troncal_id., split=,
-                seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
+                seg_id=&ctx_seg_id., run_id=&run_id., scope_input=1);
         %end;
         %else %do;
             %do _sg=1 %to &ctx_n_segments.;
                 %run_module(module=precision, troncal_id=&ctx_troncal_id.,
-                    split=, seg_id=&_sg., run_id=&run_id., dual_input=1);
+                    split=, seg_id=&_sg., run_id=&run_id., scope_input=1);
             %end;
         %end;
 
@@ -88,7 +88,7 @@ CUSTOM -> permite overridear score, target, monto, segvar y def_cld.
     %else %if %upcase(&ctx_scope.)=UNIVERSO %then %do;
 
         %run_module(module=precision, troncal_id=&ctx_troncal_id., split=,
-            seg_id=, run_id=&run_id., dual_input=1);
+            seg_id=, run_id=&run_id., scope_input=1);
 
     %end;
     %else %do;
