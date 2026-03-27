@@ -9,6 +9,7 @@ Genera:
 Tambien deja en casuser:
 - _fill_general_all
 - _fill_monthly_all
+- _fill_gini_bytime_all
 
 Entrada esperada:
 - input_table consolidada con columna Muestra (TRAIN/OOT)
@@ -17,7 +18,7 @@ Entrada esperada:
     target=, def_cld=, oot_max_mes=, vars_num=, vars_cat=, report_path=,
     images_path=, file_prefix=);
 
-    %local _has_general _start_sheet;
+    %local _has_general _has_gini_bytime _start_sheet;
 
     %put NOTE: [fillrate_report] Generando reportes...;
     %put NOTE: [fillrate_report] byvar=&byvar. target=&target.
@@ -25,62 +26,49 @@ Entrada esperada:
     %put NOTE: [fillrate_report] oot_max_mes=&oot_max_mes.;
 
     proc fedsql sessref=conn;
-        create table casuser._fill_train_gini {options replace=true} as
+        create table casuser._fill_gini_base {options replace=true} as
             select * from &input_caslib..&input_table.
-            where upcase(Muestra)='TRAIN'
-              and &byvar. <= &def_cld.;
+            where &byvar. <= &def_cld.;
     quit;
 
     proc fedsql sessref=conn;
-        create table casuser._fill_oot_gini {options replace=true} as
+        create table casuser._fill_full_base {options replace=true} as
             select * from &input_caslib..&input_table.
-            where upcase(Muestra)='OOT'
-              and &byvar. <= &def_cld.;
+            where &byvar. <= &oot_max_mes.;
     quit;
 
-    proc fedsql sessref=conn;
-        create table casuser._fill_train_full {options replace=true} as
-            select * from &input_caslib..&input_table.
-            where upcase(Muestra)='TRAIN'
-              and &byvar. <= &oot_max_mes.;
-    quit;
+    %_fill_prepare_stage(data=casuser._fill_gini_base, vars_num=&vars_num.,
+        vars_cat=, byvar=&byvar., target=&target., out=work._fill_gini_stage);
 
-    proc fedsql sessref=conn;
-        create table casuser._fill_oot_full {options replace=true} as
-            select * from &input_caslib..&input_table.
-            where upcase(Muestra)='OOT'
-              and &byvar. <= &oot_max_mes.;
-    quit;
+    %_fill_prepare_stage(data=casuser._fill_full_base, vars_num=&vars_num.,
+        vars_cat=&vars_cat., byvar=&byvar., target=&target.,
+        out=work._fill_full_stage);
 
     %if %length(%superq(vars_num)) > 0 %then %do;
-        %_fill_general_compute(data=casuser._fill_train_gini, vars_num=&vars_num.,
-            target=&target., out=work._fill_general_train);
-        %_fill_general_compute(data=casuser._fill_oot_gini, vars_num=&vars_num.,
-            target=&target., out=work._fill_general_oot);
+        %_fill_general_compute(data=work._fill_gini_stage,
+            vars_num=&vars_num., target=&target., byvar=&byvar.,
+            out=work._fill_general_all, out_bytime=work._fill_gini_bytime_all);
     %end;
     %else %do;
-        data work._fill_general_train;
-            length Variable $64 Var_Type $8 N_Total N_Filled N_Gini 8 Fillrate
-                Gini Smdcr_Raw 8;
+        data work._fill_general_all;
+            length Variable $64 Var_Type $8 Muestra $5 N_Total N_Filled
+                N_Gini 8 Fillrate Gini Smdcr_Raw 8;
             format Fillrate 8.2 Gini 8.4 Smdcr_Raw 8.4;
             stop;
         run;
-        data work._fill_general_oot;
-            set work._fill_general_train(obs=0);
+        data work._fill_gini_bytime_all;
+            length Variable $64 Var_Type $8 Muestra $5 &byvar. 8
+                N_Gini Smdcr_Raw Gini 8;
+            format Gini 8.4 Smdcr_Raw 8.4;
             stop;
         run;
     %end;
 
-    %_fill_monthly_compute(data=casuser._fill_train_full, byvar=&byvar.,
-        vars_num=&vars_num., vars_cat=&vars_cat., out=work._fill_monthly_train);
-    %_fill_monthly_compute(data=casuser._fill_oot_full, byvar=&byvar.,
-        vars_num=&vars_num., vars_cat=&vars_cat., out=work._fill_monthly_oot);
+    %_fill_monthly_compute(data=work._fill_full_stage, byvar=&byvar.,
+        vars_num=&vars_num., vars_cat=&vars_cat., out=work._fill_monthly_all);
 
     data casuser._fill_general_all;
-        length Muestra $5;
-        set work._fill_general_train(in=_trn) work._fill_general_oot(in=_oot);
-        if _trn then Muestra="TRAIN";
-        else if _oot then Muestra="OOT";
+        set work._fill_general_all;
     run;
 
     proc cas;
@@ -92,10 +80,7 @@ Entrada esperada:
     quit;
 
     data casuser._fill_monthly_all;
-        length Muestra $5;
-        set work._fill_monthly_train(in=_trn) work._fill_monthly_oot(in=_oot);
-        if _trn then Muestra="TRAIN";
-        else if _oot then Muestra="OOT";
+        set work._fill_monthly_all;
     run;
 
     proc cas;
@@ -106,9 +91,23 @@ Entrada esperada:
             casout={caslib="casuser", name="_fill_monthly_all", replace=true};
     quit;
 
+    data casuser._fill_gini_bytime_all;
+        set work._fill_gini_bytime_all;
+    run;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={caslib="casuser", name="_fill_gini_bytime_all",
+                groupby={"Variable"}, orderby={"&byvar.", "Muestra"}},
+            casout={caslib="casuser", name="_fill_gini_bytime_all",
+                replace=true};
+    quit;
+
     proc sql noprint;
-        select count(*) into :_has_general trimmed from
-            work._fill_general_train;
+        select count(*) into :_has_general trimmed from work._fill_general_all;
+        select count(*) into :_has_gini_bytime trimmed from
+            work._fill_gini_bytime_all;
     quit;
 
     %if &_has_general. > 0 %then %let _start_sheet=Fillrate_Gini;
@@ -153,6 +152,22 @@ Entrada esperada:
     %_fill_plot_monthly(data=casuser._fill_monthly_all, byvar=&byvar.,
         image_stub=&file_prefix._fill);
     title;
+
+    %if &_has_gini_bytime. > 0 %then %do;
+        ods excel options(sheet_name="Gini_Temporal" sheet_interval="now"
+            embedded_titles="yes");
+        title "Gini temporal por periodo";
+        proc print data=casuser._fill_gini_bytime_all noobs label;
+            label Variable="Variable"
+                Muestra="Muestra"
+                Var_Type="Tipo"
+                &byvar.="Periodo"
+                N_Gini="N Gini"
+                Smdcr_Raw="_SMDCR_"
+                Gini="Gini";
+        run;
+        title;
+    %end;
 
     ods excel close;
     ods html5 close;
