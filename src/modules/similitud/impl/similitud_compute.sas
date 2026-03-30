@@ -141,7 +141,7 @@ Principios:
 
     proc fedsql sessref=conn;
         create table casuser._simil_num_src_&rnd. {options replace=true} as
-        select upcase(strip(&split_var.)) as Split length 5,
+        select cast(upcase(strip(&split_var.)) as varchar(5)) as Split,
                &byvar. as Periodo,
                case
                    when &var. in (., 1111111111, -1111111111, 2222222222,
