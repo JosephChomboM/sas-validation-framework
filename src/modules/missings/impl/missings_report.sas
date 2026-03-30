@@ -53,13 +53,13 @@ No persiste tablas en tables/.
             select count(*)
             into :_has_rows trimmed
             from &detail_data.
-            where Variable='&_var.';
+            where cats(Variable)="%superq(_var)";
         quit;
 
         %if %sysevalf(%superq(_has_rows)=, boolean) %then %let _has_rows=0;
 
         %if &_has_rows. > 0 %then %do;
-            proc print data=&detail_data.(where=(Variable='&_var.')) label noobs;
+            proc print data=&detail_data.(where=(cats(Variable)="%superq(_var)")) label noobs;
                 var Dummy_Value Type Total_N NMiss Pct_Miss;
                 label Dummy_Value="&_var."
                       Total_N='Total';
