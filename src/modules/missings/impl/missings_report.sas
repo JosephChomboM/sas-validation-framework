@@ -73,8 +73,25 @@ No persiste tablas en tables/.
 
 %mend _miss_render_variable_reports;
 
+%macro _miss_render_summary(summary_data=, threshold=);
+
+    proc report data=&summary_data. nowd missing;
+        columns Variable Type Total_Pct_Missing;
+        define Variable / display;
+        define Type / display;
+        define Total_Pct_Missing / display format=percent8.2;
+
+        compute Total_Pct_Missing;
+            if Total_Pct_Missing >= &threshold. then
+                call define(_col_, 'style', 'style={background=red}');
+            else call define(_col_, 'style', 'style={background=white}');
+        endcomp;
+    run;
+
+%mend _miss_render_summary;
+
 %macro _miss_render_split(detail_data=, summary_data=, split_label=, vars_num=,
-    vars_cat=);
+    vars_cat=, threshold=);
 
     title "&split_label.: Analisis de Missings";
     title2 "Missing summarize (variable/cases)";
@@ -82,11 +99,7 @@ No persiste tablas en tables/.
     %_miss_render_variable_reports(detail_data=&detail_data., vars=&vars_cat.);
 
     title2 "Missing summarize (variables)";
-    proc print data=&summary_data. noobs
-        style(column)={backgroundcolor=MissSignif.};
-        var Variable Type Total_Pct_Missing;
-        format Total_Pct_Missing percent8.2;
-    run;
+    %_miss_render_summary(summary_data=&summary_data., threshold=&threshold.);
 
     title;
     title2;
@@ -153,18 +166,14 @@ No persiste tablas en tables/.
     %_miss_sort_cas(table_name=_miss_oot_summary_rpt,
         orderby=%str({"Variable"}));
 
-    proc format;
-        value MissSignif low-<&threshold.='white' &threshold.-high='red';
-    run;
-
     ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
     %_miss_render_split(detail_data=casuser._miss_train_detail_rpt,
         summary_data=casuser._miss_train_summary_rpt, split_label=TRAIN,
-        vars_num=&vars_num., vars_cat=&vars_cat.);
+        vars_num=&vars_num., vars_cat=&vars_cat., threshold=&threshold.);
     %_miss_render_split(detail_data=casuser._miss_oot_detail_rpt,
         summary_data=casuser._miss_oot_summary_rpt, split_label=OOT,
-        vars_num=&vars_num., vars_cat=&vars_cat.);
+        vars_num=&vars_num., vars_cat=&vars_cat., threshold=&threshold.);
     ods html5 close;
 
     ods excel file="&report_path./&file_prefix..xlsx"
@@ -172,13 +181,13 @@ No persiste tablas en tables/.
         embedded_titles="yes");
     %_miss_render_split(detail_data=casuser._miss_train_detail_rpt,
         summary_data=casuser._miss_train_summary_rpt, split_label=TRAIN,
-        vars_num=&vars_num., vars_cat=&vars_cat.);
+        vars_num=&vars_num., vars_cat=&vars_cat., threshold=&threshold.);
 
     ods excel options(sheet_name="OOT_Missings" sheet_interval="now"
         embedded_titles="yes");
     %_miss_render_split(detail_data=casuser._miss_oot_detail_rpt,
         summary_data=casuser._miss_oot_summary_rpt, split_label=OOT,
-        vars_num=&vars_num., vars_cat=&vars_cat.);
+        vars_num=&vars_num., vars_cat=&vars_cat., threshold=&threshold.);
 
     ods excel close;
 

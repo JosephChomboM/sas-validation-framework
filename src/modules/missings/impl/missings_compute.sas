@@ -35,6 +35,36 @@ Salida:
 
 %mend _miss_sort_cas;
 
+%macro _miss_var_catalog(vars_num=, vars_cat=, out_table=_miss_var_catalog);
+
+    data casuser.&out_table.;
+        length Variable $128 Type $16;
+
+        %local _i _var;
+
+        %let _i=1;
+        %let _var=%scan(%superq(vars_num), &_i., %str( ));
+        %do %while(%length(%superq(_var)) > 0);
+            Variable="&_var.";
+            Type="num";
+            output;
+            %let _i=%eval(&_i. + 1);
+            %let _var=%scan(%superq(vars_num), &_i., %str( ));
+        %end;
+
+        %let _i=1;
+        %let _var=%scan(%superq(vars_cat), &_i., %str( ));
+        %do %while(%length(%superq(_var)) > 0);
+            Variable="&_var.";
+            Type="categ";
+            output;
+            %let _i=%eval(&_i. + 1);
+            %let _var=%scan(%superq(vars_cat), &_i., %str( ));
+        %end;
+    run;
+
+%mend _miss_var_catalog;
+
 %macro _miss_detail_union_sql(data=, split_var=, vars_num=, vars_cat=,
     outvar=_miss_union_sql);
 
@@ -108,6 +138,9 @@ Salida:
             &split_totals_table. _miss_detail_raw _miss_summary_stage;
     quit;
 
+    %_miss_var_catalog(vars_num=&vars_num., vars_cat=&vars_cat.,
+        out_table=&var_catalog_table.);
+
     proc fedsql sessref=conn;
         create table casuser.&split_totals_table. {options replace=true} as
         select &split_var. as Split,
@@ -154,12 +187,21 @@ Salida:
 
     proc fedsql sessref=conn;
         create table casuser.&summary_table. {options replace=true} as
-        select Split,
-               Variable,
-               max(Type) as Type,
-               sum(Pct_Miss) as Pct_Miss
-        from casuser.&detail_table.
-        group by Split, Variable;
+        select s.Split,
+               v.Variable,
+               v.Type,
+               coalesce(d.Pct_Miss, 0) as Pct_Miss
+        from casuser.&split_totals_table. s
+        cross join casuser.&var_catalog_table. v
+        left join (
+            select Split,
+                   Variable,
+                   sum(Pct_Miss) as Pct_Miss
+            from casuser.&detail_table.
+            group by Split, Variable
+        ) d
+            on s.Split=d.Split
+           and v.Variable=d.Variable;
     quit;
 
 %mend _miss_compute;
