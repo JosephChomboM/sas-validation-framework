@@ -92,29 +92,40 @@ Nota:
         run;
 
         proc sql noprint;
-            create table work._simil_cuts_&rnd. as
+            create table work._simil_cuts_raw_&rnd. as
             select "&var." as VARIABLE length=32,
                    RANGO,
                    RANGO_INI,
                    LAGMAXVAL as INICIO,
                    MAXVAL as FIN,
                    FLAG_INI,
-                   FLAG_FIN,
-                   case
-                       when RANGO = 0 then "00. Missing"
-                       when FLAG_INI = 1 then
-                           cat(put(RANGO, Z2.), ". <-Inf; ",
-                               strip(put(MAXVAL, best20.)), "]")
-                       when FLAG_FIN = 1 then
-                           cat(put(RANGO, Z2.), ". <",
-                               strip(put(LAGMAXVAL, best20.)), "; +Inf>")
-                       else
-                           cat(put(RANGO, Z2.), ". <",
-                               strip(put(LAGMAXVAL, best20.)), "; ",
-                               strip(put(MAXVAL, best20.)), "]")
-                   end as ETIQUETA length=200
+                   FLAG_FIN
             from work._simil_rk_&rnd._4;
         quit;
+
+        data work._simil_cuts_&rnd.;
+            length ETIQUETA $200 _INICIO_TXT _FIN_TXT $32;
+            set work._simil_cuts_raw_&rnd.;
+
+            _INICIO_TXT=strip(put(INICIO, 32.12));
+            _FIN_TXT=strip(put(FIN, 32.12));
+
+            _INICIO_TXT=prxchange('s/(\.\d*?[1-9])0+$/$1/', -1, _INICIO_TXT);
+            _INICIO_TXT=prxchange('s/\.0+$//', -1, _INICIO_TXT);
+            _FIN_TXT=prxchange('s/(\.\d*?[1-9])0+$/$1/', -1, _FIN_TXT);
+            _FIN_TXT=prxchange('s/\.0+$//', -1, _FIN_TXT);
+
+            if RANGO = 0 then
+                ETIQUETA="00. Missing";
+            else if FLAG_INI = 1 then
+                ETIQUETA=cat(put(RANGO, Z2.), ". <-Inf; ", _FIN_TXT, "]");
+            else if FLAG_FIN = 1 then
+                ETIQUETA=cat(put(RANGO, Z2.), ". <", _INICIO_TXT, "; +Inf>");
+            else
+                ETIQUETA=cat(put(RANGO, Z2.), ". <", _INICIO_TXT, "; ", _FIN_TXT, "]");
+
+            drop _INICIO_TXT _FIN_TXT;
+        run;
     %end;
     %else %do;
         data work._simil_cuts_&rnd.;
@@ -129,7 +140,7 @@ Nota:
     run;
 
     proc datasets library=work nolist nowarn;
-        delete _simil_rk_&rnd.: _simil_cuts_&rnd.;
+        delete _simil_rk_&rnd.: _simil_cuts_raw_&rnd. _simil_cuts_&rnd.;
     quit;
 
 %mend _simil_build_num_cuts;
