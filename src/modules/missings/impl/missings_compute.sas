@@ -92,10 +92,10 @@ Modelo:
                    when &var. is null then '.'
                    else cast(&var. as varchar(256))
                end as Dummy_Value,
-               &total. as Total,
-               count(*) as NMiss,
-               count(*) / &total. as Pct_Miss,
-               &ord. as Var_Ord
+               cast(&total. as double) as Total,
+               cast(count(*) as double) as NMiss,
+               cast(count(*) / &total. as double) as Pct_Miss,
+               cast(&ord. as double) as Var_Ord
         from &data.
         where &var. is null
            or &var. in (
@@ -121,8 +121,8 @@ Modelo:
             create table casuser._miss_sum_stage {options replace=true} as
             select cast('&var.' as varchar(128)) as Variable,
                    cast('num' as varchar(16)) as Type,
-                   sum(Pct_Miss) as Total_Pct_Missing,
-                   &ord. as Var_Ord
+                   cast(sum(Pct_Miss) as double) as Total_Pct_Missing,
+                   cast(&ord. as double) as Var_Ord
             from casuser._miss_det_stage;
         quit;
 
@@ -152,10 +152,10 @@ Modelo:
                    when trim(cast(&var. as varchar(256)))='.' then '.'
                    else trim(cast(&var. as varchar(256)))
                end as Dummy_Value,
-               &total. as Total,
-               count(*) as NMiss,
-               count(*) / &total. as Pct_Miss,
-               &ord. as Var_Ord
+               cast(&total. as double) as Total,
+               cast(count(*) as double) as NMiss,
+               cast(count(*) / &total. as double) as Pct_Miss,
+               cast(&ord. as double) as Var_Ord
         from &data.
         where &var. is null
            or trim(cast(&var. as varchar(256)))=''
@@ -180,8 +180,8 @@ Modelo:
             create table casuser._miss_sum_stage {options replace=true} as
             select cast('&var.' as varchar(128)) as Variable,
                    cast('categ' as varchar(16)) as Type,
-                   sum(Pct_Miss) as Total_Pct_Missing,
-                   &ord. as Var_Ord
+                   cast(sum(Pct_Miss) as double) as Total_Pct_Missing,
+                   cast(&ord. as double) as Var_Ord
             from casuser._miss_det_stage;
         quit;
 
