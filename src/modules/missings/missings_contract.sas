@@ -1,57 +1,60 @@
 /* =========================================================================
 missings_contract.sas - Validaciones pre-ejecucion del modulo Missings
 
-Modos soportados:
-- DERIVED    : tabla unificada + byvar + ventanas cfg_troncales
-- PRELABELED : tabla ya normalizada con columna Split (compat legacy)
+Valida:
+1) Existe input
+2) Hay al menos una lista de variables
+3) Existen byvar / split segun modo
+4) Existen variables solicitadas
+5) Hay cobertura TRAIN y OOT
 
-Setea macro variable &_miss_rc (declarada %global por missings_run):
-0 = OK, 1 = fallo
+Setea &_miss_rc:
+0 = OK
+1 = fallo
 ========================================================================= */
+%macro _miss_contract_validate_vars(input_caslib=, input_table=, vars=);
+
+    %local _i _var _has_col;
+
+    %let _i=1;
+    %let _var=%scan(%superq(vars), &_i., %str( ));
+    %do %while(%length(%superq(_var)) > 0);
+        %let _has_col=0;
+        proc sql noprint;
+            select count(*) into :_has_col trimmed
+            from dictionary.columns
+            where upcase(libname)=upcase("&input_caslib.")
+              and upcase(memname)=upcase("&input_table.")
+              and upcase(name)=upcase("&_var.");
+        quit;
+
+        %if &_has_col.=0 %then %do;
+            %put ERROR: [missings_contract] Variable &_var. no encontrada en
+                &input_caslib..&input_table..;
+            %let _miss_rc=1;
+            %return;
+        %end;
+
+        %let _i=%eval(&_i. + 1);
+        %let _var=%scan(%superq(vars), &_i., %str( ));
+    %end;
+
+%mend _miss_contract_validate_vars;
+
 %macro missings_contract(input_caslib=, input_table=, split_mode=DERIVED,
     split_var=Split, byvar=, train_min_mes=, train_max_mes=, oot_min_mes=,
     oot_max_mes=, vars_num=, vars_cat=);
 
+    %global _miss_rc;
     %let _miss_rc=0;
 
-    %local _miss_table_exists _miss_has_col _miss_nobs_scope _miss_nobs_trn
-        _miss_nobs_oot _miss_missing_cols _miss_split_col;
+    %local _miss_table_exists _miss_nobs_scope _miss_nobs_train
+        _miss_nobs_oot _miss_has_col;
 
-    %macro _miss_validate_var_list(list=, list_name=);
-        %local _i _v _has_col;
-
-        %let _i=1;
-        %let _v=%scan(%superq(list), &_i., %str( ));
-        %do %while(%length(%superq(_v)) > 0);
-            %let _has_col=0;
-            proc sql noprint;
-                select count(*) into :_has_col trimmed
-                from dictionary.columns
-                where upcase(libname)=upcase("&input_caslib.")
-                  and upcase(memname)=upcase("&input_table.")
-                  and upcase(name)=upcase("&_v.");
-            quit;
-
-            %if &_has_col.=0 %then %do;
-                %let _miss_missing_cols=&_miss_missing_cols. &_v.;
-                %put ERROR: [missings_contract] &_v. no existe en
-                    &input_caslib..&input_table. (lista=&list_name.).;
-            %end;
-
-            %let _i=%eval(&_i. + 1);
-            %let _v=%scan(%superq(list), &_i., %str( ));
-        %end;
-    %mend _miss_validate_var_list;
-
-    %if %length(%superq(vars_num))=0 and %length(%superq(vars_cat))=0 %then %do;
-        %put ERROR: [missings_contract] No se proporcionaron variables numericas
-            ni categoricas.;
-        %let _miss_rc=1;
-        %return;
-    %end;
-
-    %if %length(%superq(input_table))=0 %then %do;
-        %put ERROR: [missings_contract] input_table no definida.;
+    %if %length(%superq(vars_num))=0 and %length(%superq(vars_cat))=0 %then
+        %do;
+        %put ERROR: [missings_contract] No se proporcionaron variables
+            numericas ni categoricas.;
         %let _miss_rc=1;
         %return;
     %end;
@@ -70,35 +73,26 @@ Setea macro variable &_miss_rc (declarada %global por missings_run):
         %return;
     %end;
 
-    %let _miss_nobs_scope=0;
     proc sql noprint;
         select count(*) into :_miss_nobs_scope trimmed
         from &input_caslib..&input_table.;
     quit;
 
+    %if %sysevalf(%superq(_miss_nobs_scope)=, boolean) %then
+        %let _miss_nobs_scope=0;
+
     %if &_miss_nobs_scope.=0 %then %do;
-        %put ERROR: [missings_contract] &input_caslib..&input_table. tiene 0 obs.;
-        %let _miss_rc=1;
-        %return;
-    %end;
-
-    %let _miss_missing_cols=;
-
-    %if %length(%superq(vars_num)) > 0 %then
-        %_miss_validate_var_list(list=&vars_num., list_name=NUM);
-
-    %if %length(%superq(vars_cat)) > 0 %then
-        %_miss_validate_var_list(list=&vars_cat., list_name=CAT);
-
-    %if %length(%superq(_miss_missing_cols)) > 0 %then %do;
-        %put ERROR: [missings_contract] Variables faltantes:&_miss_missing_cols.;
+        %put ERROR: [missings_contract] &input_caslib..&input_table. tiene 0
+            observaciones.;
         %let _miss_rc=1;
         %return;
     %end;
 
     %if %upcase(&split_mode.)=DERIVED %then %do;
+
         %if %length(%superq(byvar))=0 %then %do;
-            %put ERROR: [missings_contract] byvar no definida para split_mode=DERIVED.;
+            %put ERROR: [missings_contract] byvar no definida para split
+                derivado.;
             %let _miss_rc=1;
             %return;
         %end;
@@ -128,56 +122,32 @@ Setea macro variable &_miss_rc (declarada %global por missings_run):
             %return;
         %end;
 
-        proc fedsql sessref=conn;
-            create table casuser._miss_contract_counts {options replace=true} as
-            select count(*) as N_Scope,
-                   sum(case
-                           when &byvar. >= &train_min_mes.
-                            and &byvar. <= &train_max_mes.
-                           then 1
-                           else 0
-                       end) as N_Train,
-                   sum(case
-                           when &byvar. >= &oot_min_mes.
-                            and &byvar. <= &oot_max_mes.
-                           then 1
-                           else 0
-                       end) as N_OOT
-            from &input_caslib..&input_table.;
-        quit;
     %end;
     %else %if %upcase(&split_mode.)=PRELABELED %then %do;
+
         %if %length(%superq(split_var))=0 %then %do;
-            %put ERROR: [missings_contract] split_var no definida para split_mode=PRELABELED.;
+            %put ERROR: [missings_contract] split_var no definida para input
+                pre-etiquetado.;
             %let _miss_rc=1;
             %return;
         %end;
 
-        %let _miss_split_col=0;
+        %let _miss_has_col=0;
         proc sql noprint;
-            select count(*) into :_miss_split_col trimmed
+            select count(*) into :_miss_has_col trimmed
             from dictionary.columns
             where upcase(libname)=upcase("&input_caslib.")
               and upcase(memname)=upcase("&input_table.")
               and upcase(name)=upcase("&split_var.");
         quit;
 
-        %if &_miss_split_col.=0 %then %do;
+        %if &_miss_has_col.=0 %then %do;
             %put ERROR: [missings_contract] split_var=&split_var. no encontrada
                 en &input_caslib..&input_table..;
             %let _miss_rc=1;
             %return;
         %end;
 
-        proc fedsql sessref=conn;
-            create table casuser._miss_contract_counts {options replace=true} as
-            select count(*) as N_Scope,
-                   sum(case when upcase(&split_var.)='TRAIN' then 1 else 0 end)
-                       as N_Train,
-                   sum(case when upcase(&split_var.)='OOT' then 1 else 0 end)
-                       as N_OOT
-            from &input_caslib..&input_table.;
-        quit;
     %end;
     %else %do;
         %put ERROR: [missings_contract] split_mode=&split_mode. no reconocido.;
@@ -185,10 +155,51 @@ Setea macro variable &_miss_rc (declarada %global por missings_run):
         %return;
     %end;
 
+    %_miss_contract_validate_vars(input_caslib=&input_caslib.,
+        input_table=&input_table., vars=&vars_num.);
+    %if &_miss_rc. ne 0 %then %return;
+
+    %_miss_contract_validate_vars(input_caslib=&input_caslib.,
+        input_table=&input_table., vars=&vars_cat.);
+    %if &_miss_rc. ne 0 %then %return;
+
+    %if %upcase(&split_mode.)=DERIVED %then %do;
+        proc fedsql sessref=conn;
+            create table casuser._miss_contract_counts {options replace=true} as
+            select count(*) as N_Scope,
+                   sum(case
+                           when &byvar. >= &train_min_mes.
+                            and &byvar. <= &train_max_mes.
+                           then 1 else 0
+                       end) as N_Train,
+                   sum(case
+                           when &byvar. >= &oot_min_mes.
+                            and &byvar. <= &oot_max_mes.
+                           then 1 else 0
+                       end) as N_OOT
+            from &input_caslib..&input_table.;
+        quit;
+    %end;
+    %else %do;
+        proc fedsql sessref=conn;
+            create table casuser._miss_contract_counts {options replace=true} as
+            select count(*) as N_Scope,
+                   sum(case
+                           when upcase(&split_var.)='TRAIN'
+                           then 1 else 0
+                       end) as N_Train,
+                   sum(case
+                           when upcase(&split_var.)='OOT'
+                           then 1 else 0
+                       end) as N_OOT
+            from &input_caslib..&input_table.;
+        quit;
+    %end;
+
     data _null_;
         set casuser._miss_contract_counts;
         call symputx('_miss_nobs_scope', N_Scope);
-        call symputx('_miss_nobs_trn', N_Train);
+        call symputx('_miss_nobs_train', N_Train);
         call symputx('_miss_nobs_oot', N_OOT);
     run;
 
@@ -196,28 +207,24 @@ Setea macro variable &_miss_rc (declarada %global por missings_run):
         delete _miss_contract_counts;
     quit;
 
-    %if %sysevalf(%superq(_miss_nobs_trn)=, boolean) %then %let _miss_nobs_trn=0;
-    %if %sysevalf(%superq(_miss_nobs_oot)=, boolean) %then %let _miss_nobs_oot=0;
+    %if %sysevalf(%superq(_miss_nobs_train)=, boolean) %then
+        %let _miss_nobs_train=0;
+    %if %sysevalf(%superq(_miss_nobs_oot)=, boolean) %then
+        %let _miss_nobs_oot=0;
 
-    %if &_miss_nobs_trn.=0 %then %do;
-        %put ERROR: [missings_contract] La cobertura TRAIN quedo vacia en
-            &input_caslib..&input_table..;
+    %if &_miss_nobs_train.=0 %then %do;
+        %put ERROR: [missings_contract] No hay cobertura TRAIN.;
         %let _miss_rc=1;
         %return;
     %end;
 
     %if &_miss_nobs_oot.=0 %then %do;
-        %put ERROR: [missings_contract] La cobertura OOT quedo vacia en
-            &input_caslib..&input_table..;
+        %put ERROR: [missings_contract] No hay cobertura OOT.;
         %let _miss_rc=1;
         %return;
     %end;
 
-    %put NOTE: [missings_contract] OK - mode=&split_mode. base=&_miss_nobs_scope.
-        TRAIN=&_miss_nobs_trn. OOT=&_miss_nobs_oot.;
-    %if %length(%superq(vars_num)) > 0 %then %put NOTE: [missings_contract]
-        vars_num=&vars_num.;
-    %if %length(%superq(vars_cat)) > 0 %then %put NOTE: [missings_contract]
-        vars_cat=&vars_cat.;
+    %put NOTE: [missings_contract] OK - scope=&_miss_nobs_scope. TRAIN=
+        &_miss_nobs_train. OOT=&_miss_nobs_oot..;
 
 %mend missings_contract;
