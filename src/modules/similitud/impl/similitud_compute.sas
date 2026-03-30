@@ -261,7 +261,7 @@ Nota:
                end as Split_Order,
                a.Split,
                a.Periodo,
-               cats(a.Split, '_', trim(cast(a.Periodo as varchar(32))))
+               trim(a.Split) || '_' || trim(cast(a.Periodo as varchar(32)))
                    as Periodo_Plot,
                case
                    when a.Valor is null then 0
@@ -376,8 +376,8 @@ Nota:
                end as Split_Order,
                upcase(strip(&split_var.)) as Split,
                &byvar. as Periodo,
-               cats(upcase(strip(&split_var.)), '_',
-                   trim(cast(&byvar. as varchar(32)))) as Periodo_Plot,
+               trim(upcase(strip(&split_var.))) || '_' ||
+                   trim(cast(&byvar. as varchar(32))) as Periodo_Plot,
                coalesce(trim(cast(&var. as varchar(200))), '00. Missing') as Bucket
         from &data.
         where upcase(strip(&split_var.)) in ('TRAIN', 'OOT');
