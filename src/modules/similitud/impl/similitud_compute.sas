@@ -39,108 +39,84 @@ Nota:
 %macro _simil_build_num_cuts(data=, split_var=Split, split_value=TRAIN, var=,
     groups=5, out_table=_simil_num_cuts);
 
-    %local rnd _simil_nobs;
+    %local rnd;
     %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
-    %let _simil_nobs=0;
 
     data work._simil_rk_&rnd._1;
-        set &data.(keep=&split_var. &var.
+        set &data.(
+            keep=&split_var. &var.
             where=(upcase(strip(&split_var.))="%upcase(&split_value.)"));
         if &var. in (., 1111111111, -1111111111, 2222222222, -2222222222,
             3333333333, -3333333333, 4444444444, 5555555555, 6666666666,
             7777777777, -999999999) then &var.=.;
-        &var.=round(&var., 0.0001);
+        &var.=put(&var., F12.4);
         keep &var.;
     run;
 
-    proc sql noprint;
-        select count(*) into :_simil_nobs trimmed
-        from work._simil_rk_&rnd._1;
+    proc rank data=work._simil_rk_&rnd._1 out=work._simil_rk_&rnd._2
+        groups=&groups.;
+        ranks RANGO;
+        var &var.;
+    run;
+
+    proc sql;
+        create table work._simil_rk_&rnd._3 as
+        select RANGO,
+               min(&var.) as MINVAL,
+               max(&var.) as MAXVAL
+        from work._simil_rk_&rnd._2
+        group by RANGO;
     quit;
 
-    %if &_simil_nobs. > 0 %then %do;
-        proc rank data=work._simil_rk_&rnd._1 out=work._simil_rk_&rnd._2
-            groups=&groups.;
-            ranks RANGO;
-            var &var.;
-        run;
+    proc sort data=work._simil_rk_&rnd._3;
+        by RANGO;
+    run;
 
-        proc sql noprint;
-            create table work._simil_rk_&rnd._3 as
-            select RANGO,
-                   min(&var.) as MINVAL,
-                   max(&var.) as MAXVAL
-            from work._simil_rk_&rnd._2
-            group by RANGO;
-        quit;
+    data work._simil_rk_&rnd._4;
+        set work._simil_rk_&rnd._3(rename=(RANGO=RANGO_INI)) end=EOF;
+        retain MARCA 0;
+        N=_n_;
+        FLAG_INI=0;
+        FLAG_FIN=0;
+        LAGMAXVAL=lag(MAXVAL);
+        RANGO=RANGO_INI+1;
+        if RANGO_INI=. then RANGO=0;
+        if RANGO_INI>=0 then MARCA=MARCA+1;
+        if MARCA=1 then FLAG_INI=1;
+        if EOF then FLAG_FIN=1;
+    run;
 
-        proc sort data=work._simil_rk_&rnd._3;
-            by RANGO;
-        run;
-
-        data work._simil_rk_&rnd._4;
-            set work._simil_rk_&rnd._3(rename=(RANGO=RANGO_INI)) end=EOF;
-            retain MARCA 0;
-            FLAG_INI=0;
-            FLAG_FIN=0;
-            LAGMAXVAL=lag(MAXVAL);
-            RANGO=RANGO_INI + 1;
-            if RANGO_INI=. then RANGO=0;
-            if RANGO_INI >= 0 then MARCA + 1;
-            if MARCA=1 then FLAG_INI=1;
-            if EOF then FLAG_FIN=1;
-        run;
-
-        proc sql noprint;
-            create table work._simil_cuts_raw_&rnd. as
-            select "&var." as VARIABLE length=32,
-                   RANGO,
-                   RANGO_INI,
-                   LAGMAXVAL as INICIO,
-                   MAXVAL as FIN,
-                   FLAG_INI,
-                   FLAG_FIN
-            from work._simil_rk_&rnd._4;
-        quit;
-
-        data work._simil_cuts_&rnd.;
-            length ETIQUETA $200 _INICIO_TXT _FIN_TXT $32;
-            set work._simil_cuts_raw_&rnd.;
-
-            _INICIO_TXT=strip(put(INICIO, 32.12));
-            _FIN_TXT=strip(put(FIN, 32.12));
-
-            _INICIO_TXT=prxchange('s/(\.\d*?[1-9])0+$/$1/', -1, _INICIO_TXT);
-            _INICIO_TXT=prxchange('s/\.0+$//', -1, _INICIO_TXT);
-            _FIN_TXT=prxchange('s/(\.\d*?[1-9])0+$/$1/', -1, _FIN_TXT);
-            _FIN_TXT=prxchange('s/\.0+$//', -1, _FIN_TXT);
-
-            if RANGO = 0 then
-                ETIQUETA="00. Missing";
-            else if FLAG_INI = 1 then
-                ETIQUETA=cat(put(RANGO, Z2.), ". <-Inf; ", _FIN_TXT, "]");
-            else if FLAG_FIN = 1 then
-                ETIQUETA=cat(put(RANGO, Z2.), ". <", _INICIO_TXT, "; +Inf>");
-            else
-                ETIQUETA=cat(put(RANGO, Z2.), ". <", _INICIO_TXT, "; ", _FIN_TXT, "]");
-
-            drop _INICIO_TXT _FIN_TXT;
-        run;
-    %end;
-    %else %do;
-        data work._simil_cuts_&rnd.;
-            length VARIABLE $32 RANGO 8 RANGO_INI 8 INICIO 8 FIN 8
-                FLAG_INI 8 FLAG_FIN 8 ETIQUETA $200;
-            stop;
-        run;
-    %end;
+    proc sql;
+        create table work._simil_cuts_&rnd. as
+        select "&var." as VARIABLE length=32,
+               RANGO,
+               RANGO_INI,
+               LAGMAXVAL as INICIO,
+               MAXVAL as FIN,
+               FLAG_INI,
+               FLAG_FIN,
+               case
+                   when RANGO=0 then "00. Missing"
+                   when FLAG_INI=1 then
+                       cat(put(RANGO,Z2.),". <-Inf; ",
+                           cats(put(MAXVAL,F12.4)), "]")
+                   when FLAG_FIN=1 then
+                       cat(put(RANGO,Z2.),". <",
+                           cats(put(LAGMAXVAL,F12.4)), "; +Inf>")
+                   else
+                       cat(put(RANGO,Z2.), ". <",
+                           cats(put(LAGMAXVAL,F12.4)), "; ",
+                           cats(put(MAXVAL,F12.4)), "]")
+               end as ETIQUETA length=200
+        from work._simil_rk_&rnd._4;
+    quit;
 
     data casuser.&out_table.;
         set work._simil_cuts_&rnd.;
     run;
 
     proc datasets library=work nolist nowarn;
-        delete _simil_rk_&rnd.: _simil_cuts_raw_&rnd. _simil_cuts_&rnd.;
+        delete _simil_rk_&rnd.: _simil_cuts_&rnd.;
     quit;
 
 %mend _simil_build_num_cuts;
