@@ -28,8 +28,8 @@ Flujo CAS-first:
 
     proc cas;
         session conn;
-        table.dropTable / caslib='casuser' name='&out_table.' quiet=true;
-        table.dropTable / caslib='casuser' name='_simil_input_stage' quiet=true;
+        table.dropTable / caslib="casuser" name="&out_table." quiet=true;
+        table.dropTable / caslib="casuser" name="_simil_input_stage" quiet=true;
     quit;
 
     proc fedsql sessref=conn;
@@ -53,9 +53,9 @@ Flujo CAS-first:
     proc cas;
         session conn;
         table.append /
-            source={caslib='casuser', name='_simil_input_stage'},
-            target={caslib='casuser', name='&out_table.'};
-        table.dropTable / caslib='casuser' name='_simil_input_stage' quiet=true;
+            source={caslib="casuser", name="_simil_input_stage"},
+            target={caslib="casuser", name="&out_table."};
+        table.dropTable / caslib="casuser" name="_simil_input_stage" quiet=true;
     quit;
 
 %mend _simil_prepare_input_scope;

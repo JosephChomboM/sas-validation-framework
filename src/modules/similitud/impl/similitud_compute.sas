@@ -17,14 +17,14 @@ Principios:
         session conn;
         table.partition /
             table={
-                caslib='casuser',
-                name='&table_name.',
+                caslib="casuser",
+                name="&table_name.",
                 orderby=&orderby.,
                 groupby=&groupby.
             },
             casout={
-                caslib='casuser',
-                name='&table_name.',
+                caslib="casuser",
+                name="&table_name.",
                 replace=true
             };
     quit;
