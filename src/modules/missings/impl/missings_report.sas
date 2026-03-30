@@ -42,40 +42,74 @@ No persiste tablas en tables/.
 
 %mend _miss_prepare_scope_data;
 
-%macro _miss_render_variable_reports(detail_data=, vars=);
+%macro _miss_stage_detail_sections(detail_data=, vars=, out_prefix=,
+    ds_list_var=, label_list_var=);
 
-    %local _i _var _has_rows;
+    %local _i _var _nobs _dsid _dsname;
+
+    %let &ds_list_var.=;
+    %let &label_list_var.=;
 
     %let _i=1;
     %let _var=%scan(%superq(vars), &_i., %str( ));
     %do %while(%length(%superq(_var)) > 0);
-        proc sql noprint;
-            select count(*)
-            into :_has_rows trimmed
-            from &detail_data.
-            where cats(Variable)="%superq(_var)";
-        quit;
+        %let _dsname=&out_prefix._%sysfunc(putn(&_i., z4.));
 
-        %if %sysevalf(%superq(_has_rows)=, boolean) %then %let _has_rows=0;
+        data work.&_dsname.;
+            set &detail_data.;
+            where Variable="&_var.";
+        run;
 
-        %if &_has_rows. > 0 %then %do;
-            proc print data=&detail_data.(where=(cats(Variable)="%superq(_var)")) label noobs;
-                var Dummy_Value Type Total_N NMiss Pct_Miss;
-                label Dummy_Value="&_var."
-                      Total_N='Total';
-                format Pct_Miss percent8.2;
-            run;
+        %let _dsid=%sysfunc(open(work.&_dsname.));
+        %if &_dsid. > 0 %then %do;
+            %let _nobs=%sysfunc(attrn(&_dsid., nlobs));
+            %let _dsid=%sysfunc(close(&_dsid.));
+        %end;
+        %else %let _nobs=0;
+
+        %if %sysevalf(%superq(_nobs)=, boolean) %then %let _nobs=0;
+
+        %if &_nobs. > 0 %then %do;
+            %let &ds_list_var.=&&&ds_list_var. &_dsname.;
+            %let &label_list_var.=&&&label_list_var. &_var.;
+        %end;
+        %else %do;
+            proc datasets library=work nolist nowarn;
+                delete &_dsname.;
+            quit;
         %end;
 
         %let _i=%eval(&_i. + 1);
         %let _var=%scan(%superq(vars), &_i., %str( ));
     %end;
 
-%mend _miss_render_variable_reports;
+%mend _miss_stage_detail_sections;
+
+%macro _miss_render_detail_sections(ds_list=, label_list=);
+
+    %local _i _ds _label;
+
+    %let _i=1;
+    %let _ds=%scan(%superq(ds_list), &_i., %str( ));
+    %let _label=%scan(%superq(label_list), &_i., %str( ));
+    %do %while(%length(%superq(_ds)) > 0);
+        proc print data=work.&_ds. label noobs;
+            var Dummy_Value Type Total_N NMiss Pct_Miss;
+            label Dummy_Value="&_label."
+                  Total_N='Total';
+            format Pct_Miss percent8.2;
+        run;
+
+        %let _i=%eval(&_i. + 1);
+        %let _ds=%scan(%superq(ds_list), &_i., %str( ));
+        %let _label=%scan(%superq(label_list), &_i., %str( ));
+    %end;
+
+%mend _miss_render_detail_sections;
 
 %macro _miss_render_summary(summary_data=, threshold=);
 
-    proc report data=&summary_data. nowd missing;
+    proc report data=work.&summary_data. nowd missing;
         columns Variable Type Total_Pct_Missing;
         define Variable / display;
         define Type / display;
@@ -90,13 +124,16 @@ No persiste tablas en tables/.
 
 %mend _miss_render_summary;
 
-%macro _miss_render_split(detail_data=, summary_data=, split_label=, vars_num=,
-    vars_cat=, threshold=);
+%macro _miss_render_split(detail_ds_list_num=, detail_label_list_num=,
+    detail_ds_list_cat=, detail_label_list_cat=, summary_data=,
+    split_label=, threshold=);
 
     title "&split_label.: Analisis de Missings";
     title2 "Missing summarize (variable/cases)";
-    %_miss_render_variable_reports(detail_data=&detail_data., vars=&vars_num.);
-    %_miss_render_variable_reports(detail_data=&detail_data., vars=&vars_cat.);
+    %_miss_render_detail_sections(ds_list=&detail_ds_list_num.,
+        label_list=&detail_label_list_num.);
+    %_miss_render_detail_sections(ds_list=&detail_ds_list_cat.,
+        label_list=&detail_label_list_cat.);
 
     title2 "Missing summarize (variables)";
     %_miss_render_summary(summary_data=&summary_data., threshold=&threshold.);
@@ -166,28 +203,72 @@ No persiste tablas en tables/.
     %_miss_sort_cas(table_name=_miss_oot_summary_rpt,
         orderby=%str({"Variable"}));
 
+    data work._miss_train_detail_rpt;
+        set casuser._miss_train_detail_rpt;
+    run;
+
+    data work._miss_oot_detail_rpt;
+        set casuser._miss_oot_detail_rpt;
+    run;
+
+    data work._miss_train_summary_rpt;
+        set casuser._miss_train_summary_rpt;
+    run;
+
+    data work._miss_oot_summary_rpt;
+        set casuser._miss_oot_summary_rpt;
+    run;
+
+    %local _train_num_ds _train_num_lbl _train_cat_ds _train_cat_lbl
+        _oot_num_ds _oot_num_lbl _oot_cat_ds _oot_cat_lbl;
+
+    %_miss_stage_detail_sections(detail_data=work._miss_train_detail_rpt,
+        vars=&vars_num., out_prefix=_miss_trn_num,
+        ds_list_var=_train_num_ds, label_list_var=_train_num_lbl);
+    %_miss_stage_detail_sections(detail_data=work._miss_train_detail_rpt,
+        vars=&vars_cat., out_prefix=_miss_trn_cat,
+        ds_list_var=_train_cat_ds, label_list_var=_train_cat_lbl);
+    %_miss_stage_detail_sections(detail_data=work._miss_oot_detail_rpt,
+        vars=&vars_num., out_prefix=_miss_oot_num,
+        ds_list_var=_oot_num_ds, label_list_var=_oot_num_lbl);
+    %_miss_stage_detail_sections(detail_data=work._miss_oot_detail_rpt,
+        vars=&vars_cat., out_prefix=_miss_oot_cat,
+        ds_list_var=_oot_cat_ds, label_list_var=_oot_cat_lbl);
+
     ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
-    %_miss_render_split(detail_data=casuser._miss_train_detail_rpt,
-        summary_data=casuser._miss_train_summary_rpt, split_label=TRAIN,
-        vars_num=&vars_num., vars_cat=&vars_cat., threshold=&threshold.);
-    %_miss_render_split(detail_data=casuser._miss_oot_detail_rpt,
-        summary_data=casuser._miss_oot_summary_rpt, split_label=OOT,
-        vars_num=&vars_num., vars_cat=&vars_cat., threshold=&threshold.);
+    %_miss_render_split(detail_ds_list_num=&_train_num_ds.,
+        detail_label_list_num=&_train_num_lbl.,
+        detail_ds_list_cat=&_train_cat_ds.,
+        detail_label_list_cat=&_train_cat_lbl.,
+        summary_data=_miss_train_summary_rpt, split_label=TRAIN,
+        threshold=&threshold.);
+    %_miss_render_split(detail_ds_list_num=&_oot_num_ds.,
+        detail_label_list_num=&_oot_num_lbl.,
+        detail_ds_list_cat=&_oot_cat_ds.,
+        detail_label_list_cat=&_oot_cat_lbl.,
+        summary_data=_miss_oot_summary_rpt, split_label=OOT,
+        threshold=&threshold.);
     ods html5 close;
 
     ods excel file="&report_path./&file_prefix..xlsx"
         options(sheet_name="TRAIN_Missings" sheet_interval="none"
         embedded_titles="yes");
-    %_miss_render_split(detail_data=casuser._miss_train_detail_rpt,
-        summary_data=casuser._miss_train_summary_rpt, split_label=TRAIN,
-        vars_num=&vars_num., vars_cat=&vars_cat., threshold=&threshold.);
+    %_miss_render_split(detail_ds_list_num=&_train_num_ds.,
+        detail_label_list_num=&_train_num_lbl.,
+        detail_ds_list_cat=&_train_cat_ds.,
+        detail_label_list_cat=&_train_cat_lbl.,
+        summary_data=_miss_train_summary_rpt, split_label=TRAIN,
+        threshold=&threshold.);
 
     ods excel options(sheet_name="OOT_Missings" sheet_interval="now"
         embedded_titles="yes");
-    %_miss_render_split(detail_data=casuser._miss_oot_detail_rpt,
-        summary_data=casuser._miss_oot_summary_rpt, split_label=OOT,
-        vars_num=&vars_num., vars_cat=&vars_cat., threshold=&threshold.);
+    %_miss_render_split(detail_ds_list_num=&_oot_num_ds.,
+        detail_label_list_num=&_oot_num_lbl.,
+        detail_ds_list_cat=&_oot_cat_ds.,
+        detail_label_list_cat=&_oot_cat_lbl.,
+        summary_data=_miss_oot_summary_rpt, split_label=OOT,
+        threshold=&threshold.);
 
     ods excel close;
 
@@ -196,6 +277,13 @@ No persiste tablas en tables/.
             _miss_split_totals _miss_detail_raw _miss_summary_stage
             _miss_train_detail_rpt _miss_oot_detail_rpt
             _miss_train_summary_rpt _miss_oot_summary_rpt;
+    quit;
+
+    proc datasets library=work nolist nowarn;
+        delete _miss_train_detail_rpt _miss_oot_detail_rpt
+            _miss_train_summary_rpt _miss_oot_summary_rpt
+            _miss_trn_num_: _miss_trn_cat_:
+            _miss_oot_num_: _miss_oot_cat_:;
     quit;
 
     %put NOTE: [missings_report] HTML=> &report_path./&file_prefix..html;
