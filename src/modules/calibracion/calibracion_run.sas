@@ -2,11 +2,11 @@
 calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
 ========================================================================= */
 %include "&fw_root./src/modules/calibracion/calibracion_contract.sas";
-%include "&fw_root./src/modules/calibracion/impl/calibracion_compute.sas";
-%include "&fw_root./src/modules/calibracion/impl/calibracion_report.sas";
+%include "&fw_root./src/modules/calibracion/impl/calibracion_compute_v2.sas";
+%include "&fw_root./src/modules/calibracion/impl/calibracion_report_v2.sas";
 
-%macro calibracion_run(input_caslib=PROC, train_table=_train_input,
-    oot_table=_oot_input, output_caslib=OUT, troncal_id=, scope=, run_id=);
+%macro calibracion_run(input_caslib=PROC, input_table=_scope_input,
+    output_caslib=OUT, troncal_id=, scope=, run_id=);
 
     %global _cal_rc;
     %let _cal_rc=0;
@@ -14,17 +14,17 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
     %local _cal_target _cal_score _cal_pd _cal_xb _cal_monto _cal_byvar
         _cal_def_cld _cal_vars_num _cal_vars_cat _cal_is_custom _cal_scope_abbr
         _cal_report_path _cal_images_path _cal_tables_path _cal_file_prefix
-        _cal_tbl_prefix _cal_seg_num _cal_dir_rc _cal_groups _cal_keep_train
-        _cal_keep_oot _cal_keep_train_sql _cal_keep_oot_sql
-        _cal_driver_keep_train _cal_driver_keep_oot _cal_any_train
-        _cal_weighted _cal_score_mode _cal_cfg_num _cal_cfg_cat
-        _cal_cfg_dri_num _cal_cfg_dri_cat _cal_merge_idx _cal_merge_var;
+        _cal_tbl_prefix _cal_seg_num _cal_dir_rc _cal_groups _cal_keep_input
+        _cal_keep_input_sql _cal_driver_keep _cal_any_input _cal_weighted
+        _cal_score_mode _cal_cfg_num _cal_cfg_cat _cal_cfg_dri_num
+        _cal_cfg_dri_cat _cal_merge_idx _cal_merge_var _cal_train_min
+        _cal_train_max _cal_oot_min _cal_oot_max _cal_has_target
+        _cal_has_score _cal_has_byvar _cal_has_monto;
 
     %put NOTE:======================================================;
     %put NOTE: [calibracion_run] INICIO;
     %put NOTE: troncal=&troncal_id. scope=&scope.;
-    %put NOTE: train=&input_caslib..&train_table.;
-    %put NOTE: oot=&input_caslib..&oot_table.;
+    %put NOTE: input=&input_caslib..&input_table.;
     %put NOTE:======================================================;
 
     %let _cal_target=;
@@ -42,6 +42,10 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
     %let _cal_cfg_dri_cat=;
     %let _cal_is_custom=0;
     %let _cal_weighted=0;
+    %let _cal_train_min=;
+    %let _cal_train_max=;
+    %let _cal_oot_min=;
+    %let _cal_oot_max=;
 
     proc sql noprint;
         select strip(target) into :_cal_target trimmed from
@@ -56,6 +60,14 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
             casuser.cfg_troncales where troncal_id=&troncal_id.;
         select strip(put(def_cld, best.)) into :_cal_def_cld trimmed from
             casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(train_min_mes, best.)) into :_cal_train_min trimmed
+            from casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(train_max_mes, best.)) into :_cal_train_max trimmed
+            from casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(oot_min_mes, best.)) into :_cal_oot_min trimmed
+            from casuser.cfg_troncales where troncal_id=&troncal_id.;
+        select strip(put(oot_max_mes, best.)) into :_cal_oot_max trimmed
+            from casuser.cfg_troncales where troncal_id=&troncal_id.;
     quit;
 
     %let _cal_score_mode=%upcase(%superq(cal_score_source));
@@ -201,6 +213,8 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
     %put NOTE: [calibracion_run] target=&_cal_target. score=&_cal_score.;
     %put NOTE: [calibracion_run] monto=&_cal_monto. byvar=&_cal_byvar.
         def_cld=&_cal_def_cld.;
+    %put NOTE: [calibracion_run] TRAIN=&_cal_train_min.-&_cal_train_max.
+        OOT=&_cal_oot_min.-&_cal_oot_max..;
     %put NOTE: [calibracion_run] dri_num=&_cal_vars_num.;
     %put NOTE: [calibracion_run] dri_cat=&_cal_vars_cat.;
     %put NOTE: [calibracion_run] groups=&_cal_groups.;
@@ -231,9 +245,88 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
         %put NOTE: [calibracion_run] Output -> reports/images/tables METOD8.;
     %end;
 
-    %calibracion_contract(input_caslib=&input_caslib.,
-        train_table=&train_table., oot_table=&oot_table.,
+    %let _cal_has_target=0;
+    %let _cal_has_score=0;
+    %let _cal_has_byvar=0;
+    %let _cal_has_monto=0;
+    %_cal_var_exists(data=&input_caslib..&input_table., var=&_cal_target.,
+        outvar=_cal_has_target);
+    %_cal_var_exists(data=&input_caslib..&input_table., var=&_cal_score.,
+        outvar=_cal_has_score);
+    %_cal_var_exists(data=&input_caslib..&input_table., var=&_cal_byvar.,
+        outvar=_cal_has_byvar);
+
+    %if &_cal_has_target.=0 or &_cal_has_score.=0 or &_cal_has_byvar.=0 %then
+        %do;
+        %put ERROR: [calibracion_run] Columnas requeridas ausentes en
+            &input_caslib..&input_table.;
+        %put ERROR: [calibracion_run] target=&_cal_target.
+            exists=&_cal_has_target.;
+        %put ERROR: [calibracion_run] score=&_cal_score.
+            exists=&_cal_has_score.;
+        %put ERROR: [calibracion_run] byvar=&_cal_byvar.
+            exists=&_cal_has_byvar.;
+        %let _cal_rc=1;
+        %return;
+    %end;
+
+    %if %length(%superq(_cal_monto)) > 0 %then %do;
+        %_cal_var_exists(data=&input_caslib..&input_table., var=&_cal_monto.,
+            outvar=_cal_has_monto);
+        %if &_cal_has_monto.=0 %then %do;
+            %put WARNING: [calibracion_run] monto=&_cal_monto. no existe en
+                &input_caslib..&input_table..;
+        %end;
+    %end;
+
+    %_cal_build_driver_meta(data=&input_caslib..&input_table.,
         vars_num=&_cal_vars_num., vars_cat=&_cal_vars_cat.,
+        out=work._cal_driver_meta, out_keep=_cal_driver_keep,
+        out_any=_cal_any_input);
+
+    %if %sysfunc(inputn(&_cal_any_input., best32.))=0 %then %do;
+        %put ERROR: [calibracion_run] Ningun driver valido existe en input.;
+        %let _cal_rc=1;
+        %return;
+    %end;
+
+    %let _cal_keep_input=;
+    %_cal_push_unique(list_name=_cal_keep_input, value=&_cal_target.);
+    %_cal_push_unique(list_name=_cal_keep_input, value=&_cal_score.);
+    %_cal_push_unique(list_name=_cal_keep_input, value=&_cal_byvar.);
+    %if %length(%superq(_cal_monto)) > 0 %then
+        %_cal_push_unique(list_name=_cal_keep_input, value=&_cal_monto.);
+    %let _cal_merge_idx=1;
+    %let _cal_merge_var=%scan(%superq(_cal_driver_keep),
+        &_cal_merge_idx., %str( ));
+    %do %while(%length(%superq(_cal_merge_var)) > 0);
+        %_cal_push_unique(list_name=_cal_keep_input, value=&_cal_merge_var.);
+        %let _cal_merge_idx=%eval(&_cal_merge_idx. + 1);
+        %let _cal_merge_var=%scan(%superq(_cal_driver_keep),
+            &_cal_merge_idx., %str( ));
+    %end;
+    %let _cal_keep_input_sql=%sysfunc(tranwrd(%superq(_cal_keep_input),
+        %str( ), %str(, )));
+
+    proc fedsql sessref=conn;
+        create table casuser._cal_input {options replace=true} as
+            select cast('TRAIN' as varchar(5)) as Split,
+                   &_cal_keep_input_sql.
+            from &input_caslib..&input_table.
+            where &_cal_byvar. >= &_cal_train_min.
+              and &_cal_byvar. <= &_cal_train_max.
+              and &_cal_byvar. <= &_cal_def_cld.
+        union all
+            select cast('OOT' as varchar(5)) as Split,
+                   &_cal_keep_input_sql.
+            from &input_caslib..&input_table.
+            where &_cal_byvar. >= &_cal_oot_min.
+              and &_cal_byvar. <= &_cal_oot_max.
+              and &_cal_byvar. <= &_cal_def_cld.;
+    quit;
+
+    %calibracion_contract(input_caslib=casuser, input_table=_cal_input,
+        split_var=Split, vars_num=&_cal_vars_num., vars_cat=&_cal_vars_cat.,
         target=&_cal_target., score_var=&_cal_score., byvar=&_cal_byvar.,
         def_cld=&_cal_def_cld., monto_var=&_cal_monto.);
 
@@ -242,94 +335,28 @@ calibracion_run.sas - Macro publica del modulo Calibracion (METOD8)
         %return;
     %end;
 
-    %_cal_build_driver_meta(data_train=&input_caslib..&train_table.,
-        data_oot=&input_caslib..&oot_table., vars_num=&_cal_vars_num.,
-        vars_cat=&_cal_vars_cat., out=work._cal_driver_meta,
-        out_keep_train=_cal_driver_keep_train,
-        out_keep_oot=_cal_driver_keep_oot,
-        out_any_train=_cal_any_train);
-
-    %if %sysfunc(inputn(&_cal_any_train., best32.))=0 %then %do;
-        %put ERROR: [calibracion_run] Ningun driver valido existe en TRAIN.;
-        %let _cal_rc=1;
-        %return;
-    %end;
-
-    %let _cal_keep_train=;
-    %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_target.);
-    %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_score.);
-    %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_byvar.);
-    %if %length(%superq(_cal_monto)) > 0 %then
-        %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_monto.);
-    %let _cal_merge_idx=1;
-    %let _cal_merge_var=%scan(%superq(_cal_driver_keep_train),
-        &_cal_merge_idx., %str( ));
-    %do %while(%length(%superq(_cal_merge_var)) > 0);
-        %_cal_push_unique(list_name=_cal_keep_train, value=&_cal_merge_var.);
-        %let _cal_merge_idx=%eval(&_cal_merge_idx. + 1);
-        %let _cal_merge_var=%scan(%superq(_cal_driver_keep_train),
-            &_cal_merge_idx., %str( ));
-    %end;
-    %let _cal_keep_train_sql=%sysfunc(tranwrd(%superq(_cal_keep_train),
-        %str( ), %str(, )));
-
-    %let _cal_keep_oot=;
-    %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_target.);
-    %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_score.);
-    %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_byvar.);
-    %if %length(%superq(_cal_monto)) > 0 %then
-        %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_monto.);
-    %let _cal_merge_idx=1;
-    %let _cal_merge_var=%scan(%superq(_cal_driver_keep_oot),
-        &_cal_merge_idx., %str( ));
-    %do %while(%length(%superq(_cal_merge_var)) > 0);
-        %_cal_push_unique(list_name=_cal_keep_oot, value=&_cal_merge_var.);
-        %let _cal_merge_idx=%eval(&_cal_merge_idx. + 1);
-        %let _cal_merge_var=%scan(%superq(_cal_driver_keep_oot),
-            &_cal_merge_idx., %str( ));
-    %end;
-    %let _cal_keep_oot_sql=%sysfunc(tranwrd(%superq(_cal_keep_oot),
-        %str( ), %str(, )));
-
-    proc fedsql sessref=conn;
-        create table casuser._cal_train {options replace=true} as
-            select &_cal_keep_train_sql.
-            from &input_caslib..&train_table.
-            where &_cal_byvar. <= &_cal_def_cld.;
-    quit;
-
-    proc fedsql sessref=conn;
-        create table casuser._cal_oot {options replace=true} as
-            select &_cal_keep_oot_sql.
-            from &input_caslib..&oot_table.
-            where &_cal_byvar. <= &_cal_def_cld.;
-    quit;
-
     %if (%upcase(&cal_use_weighted.)=1 or %upcase(&cal_use_weighted.)=YES)
         and %length(%superq(_cal_monto)) > 0 %then %do;
         %let _cal_weighted=1;
     %end;
 
     %if &_cal_weighted.=1 %then %do;
-        %local _cal_has_w_trn _cal_has_w_oot;
-        %let _cal_has_w_trn=0;
-        %let _cal_has_w_oot=0;
-        %_cal_var_exists(data=casuser._cal_train, var=&_cal_monto.,
-            outvar=_cal_has_w_trn);
-        %_cal_var_exists(data=casuser._cal_oot, var=&_cal_monto.,
-            outvar=_cal_has_w_oot);
-        %if &_cal_has_w_trn.=0 or &_cal_has_w_oot.=0 %then %do;
+        %local _cal_has_w;
+        %let _cal_has_w=0;
+        %_cal_var_exists(data=casuser._cal_input, var=&_cal_monto.,
+            outvar=_cal_has_w);
+        %if &_cal_has_w.=0 %then %do;
             %put WARNING: [calibracion_run] monto=&_cal_monto. no disponible
-                en ambos splits filtrados. Se omite la variante ponderada.;
+                en input unificado. Se omite la variante ponderada.;
             %let _cal_weighted=0;
         %end;
     %end;
 
-    %_calibration_compute(train_data=casuser._cal_train, oot_data=casuser._cal_oot,
-        driver_meta=work._cal_driver_meta, target=&_cal_target.,
-        score_var=&_cal_score., weight_var=&_cal_monto., groups=&_cal_groups.,
-        calc_weighted=&_cal_weighted., out_detail=casuser._cal_detail,
-        out_cuts=casuser._cal_cuts);
+    %_calibration_compute(input_data=casuser._cal_input,
+        split_var=Split, driver_meta=work._cal_driver_meta,
+        target=&_cal_target., score_var=&_cal_score., weight_var=&_cal_monto.,
+        groups=&_cal_groups., calc_weighted=&_cal_weighted.,
+        out_detail=casuser._cal_detail, out_cuts=casuser._cal_cuts);
 
     libname _calout "&_cal_tables_path.";
 

@@ -59,19 +59,19 @@ Step de modulo: Calibracion / Backtesting por driver (METOD8)
         %end;
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             %run_module(module=calibracion, troncal_id=&ctx_troncal_id.,
-                split=, seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
+                split=, seg_id=&ctx_seg_id., run_id=&run_id., scope_input=1);
         %end;
         %else %do;
             %do _sg=1 %to &ctx_n_segments.;
                 %run_module(module=calibracion, troncal_id=&ctx_troncal_id.,
-                    split=, seg_id=&_sg., run_id=&run_id., dual_input=1);
+                    split=, seg_id=&_sg., run_id=&run_id., scope_input=1);
             %end;
         %end;
     %end;
     %else %if %upcase(&ctx_scope.)=UNIVERSO %then %do;
         %put NOTE: [step_calibracion] UNIVERSO: troncal=&ctx_troncal_id.;
         %run_module(module=calibracion, troncal_id=&ctx_troncal_id., split=,
-            seg_id=, run_id=&run_id., dual_input=1);
+            seg_id=, run_id=&run_id., scope_input=1);
     %end;
     %else %do;
         %put ERROR: [step_calibracion] ctx_scope=&ctx_scope. no reconocido.;
