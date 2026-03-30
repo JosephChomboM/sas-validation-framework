@@ -34,7 +34,7 @@ Principios:
 %macro _simil_get_median(data=, split_var=Split, split_value=TRAIN, var=,
     outvar=_simil_median);
 
-    %local _simil_n;
+    %local _simil_n _rank_lo _rank_hi _simil_med_lo _simil_med_hi;
     %let &outvar=.;
 
     proc fedsql sessref=conn;
@@ -45,40 +45,49 @@ Principios:
           and &var. is not null;
     quit;
 
-    proc fedsql sessref=conn;
-        create table casuser._simil_med_ord {options replace=true} as
-        select Valor,
-               row_number() over(order by Valor) as RN,
-               count(*) over() as N
+    %let _simil_n=0;
+    proc sql noprint;
+        select count(*) into :_simil_n trimmed
         from casuser._simil_med_src;
     quit;
 
-    %let _simil_n=0;
-    proc sql noprint;
-        select coalesce(max(N), 0) into :_simil_n trimmed
-        from casuser._simil_med_ord;
-    quit;
-
     %if &_simil_n. > 0 %then %do;
-        %if %sysfunc(mod(&_simil_n., 2)) = 1 %then %do;
-            proc sql noprint;
-                select Valor into :&outvar. trimmed
-                from casuser._simil_med_ord
-                where RN = %sysfunc(ceil(%sysevalf((&_simil_n. + 1) / 2)));
-            quit;
-        %end;
-        %else %do;
-            proc sql noprint;
-                select avg(Valor) into :&outvar. trimmed
-                from casuser._simil_med_ord
-                where RN in (%sysevalf(&_simil_n. / 2),
-                    %sysevalf(&_simil_n. / 2 + 1));
-            quit;
-        %end;
+        %let _rank_lo=%sysfunc(floor(%sysevalf((&_simil_n. + 1) / 2)));
+        %let _rank_hi=%sysfunc(ceil(%sysevalf((&_simil_n. + 1) / 2)));
+        %let _simil_med_lo=.;
+        %let _simil_med_hi=.;
+
+        proc sql noprint;
+            select min(a.Valor) into :_simil_med_lo trimmed
+            from casuser._simil_med_src a
+            where (select count(*) from casuser._simil_med_src b
+                   where b.Valor < a.Valor) < &_rank_lo.
+              and (select count(*) from casuser._simil_med_src b
+                   where b.Valor <= a.Valor) >= &_rank_lo.;
+        quit;
+
+        proc sql noprint;
+            select min(a.Valor) into :_simil_med_hi trimmed
+            from casuser._simil_med_src a
+            where (select count(*) from casuser._simil_med_src b
+                   where b.Valor < a.Valor) < &_rank_hi.
+              and (select count(*) from casuser._simil_med_src b
+                   where b.Valor <= a.Valor) >= &_rank_hi.;
+        quit;
+
+        %if %sysevalf(%superq(_simil_med_lo)=, boolean) %then
+            %let _simil_med_lo=.;
+        %if %sysevalf(%superq(_simil_med_hi)=, boolean) %then
+            %let _simil_med_hi=.;
+
+        %if %sysfunc(mod(&_simil_n., 2)) = 1 %then
+            %let &outvar=&_simil_med_hi.;
+        %else
+            %let &outvar=%sysevalf((&_simil_med_lo. + &_simil_med_hi.) / 2);
     %end;
 
     proc datasets library=casuser nolist nowarn;
-        delete _simil_med_src _simil_med_ord;
+        delete _simil_med_src;
     quit;
 
 %mend _simil_get_median;
@@ -86,7 +95,7 @@ Principios:
 %macro _simil_get_mode_pct(data=, split_var=Split, split_value=TRAIN, var=,
     out_mode=_simil_mode, out_pct=_simil_pct);
 
-    %local _simil_mode_n;
+    %local _simil_mode_n _simil_mode_tot _simil_mode_max;
     %let &out_mode=;
     %let &out_pct=0;
 
@@ -100,35 +109,33 @@ Principios:
         group by trim(cast(&var. as varchar(200)));
     quit;
 
-    proc fedsql sessref=conn;
-        create table casuser._simil_mode_rank {options replace=true} as
-        select Category,
-               N,
-               sum(N) over() as Tot,
-               row_number() over(order by N desc, Category asc) as RN
-        from casuser._simil_mode_freq;
-    quit;
-
     %let _simil_mode_n=0;
+    %let _simil_mode_tot=0;
+    %let _simil_mode_max=0;
     proc sql noprint;
         select count(*) into :_simil_mode_n trimmed
-        from casuser._simil_mode_rank
-        where RN=1;
+        from casuser._simil_mode_freq;
+
+        select coalesce(sum(N), 0),
+               coalesce(max(N), 0)
+          into :_simil_mode_tot trimmed,
+               :_simil_mode_max trimmed
+        from casuser._simil_mode_freq;
     quit;
 
     %if &_simil_mode_n. > 0 %then %do;
         proc sql noprint;
-            select Category,
-                   case when Tot > 0 then 100 * N / Tot else 0 end
-              into :&out_mode. trimmed,
-                   :&out_pct. trimmed
-            from casuser._simil_mode_rank
-            where RN=1;
+            select min(Category) into :&out_mode. trimmed
+            from casuser._simil_mode_freq
+            where N=&_simil_mode_max.;
         quit;
+
+        %if &_simil_mode_tot. > 0 %then
+            %let &out_pct=%sysevalf(100 * &_simil_mode_max. / &_simil_mode_tot.);
     %end;
 
     proc datasets library=casuser nolist nowarn;
-        delete _simil_mode_freq _simil_mode_rank;
+        delete _simil_mode_freq;
     quit;
 
 %mend _simil_get_mode_pct;
@@ -136,7 +143,7 @@ Principios:
 %macro _simil_bucket_plot_num(data=, split_var=Split, var=, byvar=,
     groups=5, m_data_type=TRAIN);
 
-    %local rnd _simil_rank_n;
+    %local rnd _simil_rank_n _simil_total_n;
     %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
 
     proc fedsql sessref=conn;
@@ -154,30 +161,61 @@ Principios:
         where upcase(strip(&split_var.)) in ('TRAIN', 'OOT');
     quit;
 
-    proc fedsql sessref=conn;
-        create table casuser._simil_num_rank_&rnd. {options replace=true} as
-        select Valor,
-               ntile(&groups.) over(order by Valor) as Rango
+    %let _simil_rank_n=0;
+    %let _simil_total_n=0;
+    proc sql noprint;
+        select count(*) into :_simil_rank_n trimmed
         from casuser._simil_num_src_&rnd.
         where Split='TRAIN'
           and Valor is not null;
     quit;
 
-    %let _simil_rank_n=0;
-    proc sql noprint;
-        select count(*) into :_simil_rank_n trimmed
-        from casuser._simil_num_rank_&rnd.;
-    quit;
-
     %if &_simil_rank_n. > 0 %then %do;
+        proc fedsql sessref=conn;
+            create table casuser._simil_num_dist_&rnd. {options replace=true} as
+            select Valor,
+                   count(*) as N_Valor
+            from casuser._simil_num_src_&rnd.
+            where Split='TRAIN'
+              and Valor is not null
+            group by Valor;
+        quit;
+
+        proc sql noprint;
+            select coalesce(sum(N_Valor), 0) into :_simil_total_n trimmed
+            from casuser._simil_num_dist_&rnd.;
+        quit;
+
+        proc fedsql sessref=conn;
+            create table casuser._simil_num_rank_&rnd. {options replace=true} as
+            select a.Valor,
+                   a.N_Valor,
+                   (select sum(b.N_Valor)
+                    from casuser._simil_num_dist_&rnd. b
+                    where b.Valor <= a.Valor) as Cum_N
+            from casuser._simil_num_dist_&rnd. a;
+        quit;
+
         proc fedsql sessref=conn;
             create table casuser._simil_num_cuts_raw_&rnd.
                 {options replace=true} as
-            select Rango,
+            select case
+                       when ceil(Cum_N * &groups. / &_simil_total_n.) < 1
+                           then 1
+                       when ceil(Cum_N * &groups. / &_simil_total_n.) > &groups.
+                           then &groups.
+                       else ceil(Cum_N * &groups. / &_simil_total_n.)
+                   end as Rango,
                    min(Valor) as MinVal,
                    max(Valor) as MaxVal
             from casuser._simil_num_rank_&rnd.
-            group by Rango;
+            group by case
+                       when ceil(Cum_N * &groups. / &_simil_total_n.) < 1
+                           then 1
+                       when ceil(Cum_N * &groups. / &_simil_total_n.) > &groups.
+                           then &groups.
+                       else ceil(Cum_N * &groups. / &_simil_total_n.)
+                     end;
         quit;
 
         proc fedsql sessref=conn;
@@ -294,6 +332,7 @@ Principios:
 
     proc datasets library=casuser nolist nowarn;
         delete _simil_num_src_&rnd.
+               _simil_num_dist_&rnd.
                _simil_num_rank_&rnd.
                _simil_num_cuts_raw_&rnd.
                _simil_num_cuts_&rnd.
