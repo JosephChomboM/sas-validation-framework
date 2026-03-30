@@ -1,15 +1,15 @@
 /* =========================================================================
-missings_compute.sas - Computo CAS-first de analisis de missings/dummies
+missings_compute.sas - Computo CAS-first alineado a missings_legacy.sas
+
+Metodologia preservada:
+- detalle por valor missing/dummy realmente encontrado
+- resumen por variable con sum(pct_miss)
+- no fabricar filas en 0% para variables sin hallazgos
 
 Salida:
 - casuser.<detail_table>      : Split, Variable, Type, Dummy_Value, NMiss, Pct_Miss
-- casuser.<summary_table>     : Split, Variable, Type, NMiss, Pct_Miss
-- casuser.<var_catalog_table> : Variable, Type
+- casuser.<summary_table>     : Split, Variable, Type, Pct_Miss
 - casuser.<split_totals_table>: Split, Total_N
-
-Regla:
-- el compute pesado vive en CAS
-- el sort ocurre solo al final sobre tablas chicas de reporting
 ========================================================================= */
 
 %macro _miss_sort_cas(table_name=, orderby=, groupby={});
@@ -34,36 +34,6 @@ Regla:
     quit;
 
 %mend _miss_sort_cas;
-
-%macro _miss_var_catalog(vars_num=, vars_cat=, out_table=_miss_var_catalog);
-
-    data casuser.&out_table.;
-        length Variable $128 Type $16;
-
-        %local _i _var;
-
-        %let _i=1;
-        %let _var=%scan(%superq(vars_num), &_i., %str( ));
-        %do %while(%length(%superq(_var)) > 0);
-            Variable="&_var.";
-            Type="num";
-            output;
-            %let _i=%eval(&_i. + 1);
-            %let _var=%scan(%superq(vars_num), &_i., %str( ));
-        %end;
-
-        %let _i=1;
-        %let _var=%scan(%superq(vars_cat), &_i., %str( ));
-        %do %while(%length(%superq(_var)) > 0);
-            Variable="&_var.";
-            Type="categ";
-            output;
-            %let _i=%eval(&_i. + 1);
-            %let _var=%scan(%superq(vars_cat), &_i., %str( ));
-        %end;
-    run;
-
-%mend _miss_var_catalog;
 
 %macro _miss_detail_union_sql(data=, split_var=, vars_num=, vars_cat=,
     outvar=_miss_union_sql);
@@ -107,8 +77,8 @@ Regla:
                    "&_var." as Variable,
                    'categ' as Type,
                    case
-                       when a.&_var. is null then '<BLANK>'
-                       when trim(a.&_var.)='' then '<BLANK>'
+                       when a.&_var. is null then ''
+                       when trim(a.&_var.)='' then ''
                        when upcase(trim(a.&_var.))='MISSING' then 'MISSING'
                        when trim(a.&_var.)='.' then '.'
                        else trim(a.&_var.)
@@ -137,9 +107,6 @@ Regla:
         delete &detail_table. &summary_table. &var_catalog_table.
             &split_totals_table. _miss_detail_raw _miss_summary_stage;
     quit;
-
-    %_miss_var_catalog(vars_num=&vars_num., vars_cat=&vars_cat.,
-        out_table=&var_catalog_table.);
 
     proc fedsql sessref=conn;
         create table casuser.&split_totals_table. {options replace=true} as
@@ -185,27 +152,13 @@ Regla:
     quit;
 
     proc fedsql sessref=conn;
-        create table casuser._miss_summary_stage {options replace=true} as
-        select d.Split,
-               d.Variable,
-               max(d.Type) as Type,
-               sum(d.NMiss) as NMiss
-        from casuser.&detail_table. d
-        group by d.Split, d.Variable;
-    quit;
-
-    proc fedsql sessref=conn;
         create table casuser.&summary_table. {options replace=true} as
-        select t.Split,
-               v.Variable,
-               v.Type,
-               coalesce(s.NMiss, 0) as NMiss,
-               coalesce(s.NMiss, 0) / t.Total_N as Pct_Miss
-        from casuser.&split_totals_table. t
-        cross join casuser.&var_catalog_table. v
-        left join casuser._miss_summary_stage s
-            on t.Split=s.Split
-           and v.Variable=s.Variable;
+        select Split,
+               Variable,
+               max(Type) as Type,
+               sum(Pct_Miss) as Pct_Miss
+        from casuser.&detail_table.
+        group by Split, Variable;
     quit;
 
 %mend _miss_compute;

@@ -2,10 +2,10 @@
 missings_report.sas - Reportes legacy sobre compute unificado CAS-first
 
 Genera:
-- <report_path>/<prefix>_train.html
-- <report_path>/<prefix>_oot.html
+- <report_path>/<prefix>.html
 - <report_path>/<prefix>.xlsx
 
+El HTML consolidado presenta TRAIN y OOT en secciones separadas.
 No persiste tablas en tables/.
 ========================================================================= */
 
@@ -54,8 +54,8 @@ No persiste tablas en tables/.
     title2 "Missing summarize (variables)";
     proc print data=&summary_data. noobs
         style(column)={backgroundcolor=MissSignif.};
-        var Variable Type NMiss Pct_Miss;
-        format Pct_Miss percent8.2;
+        var Variable Type Total_Pct_Miss;
+        format Total_Pct_Miss percent8.2;
     run;
 
     title;
@@ -104,20 +104,20 @@ No persiste tablas en tables/.
         where Split='OOT';
 
         create table casuser._miss_train_summary_rpt {options replace=true} as
-        select Variable, Type, NMiss, Pct_Miss
+        select Variable, Type, Pct_Miss as Total_Pct_Miss
         from casuser._miss_summary
         where Split='TRAIN';
 
         create table casuser._miss_oot_summary_rpt {options replace=true} as
-        select Variable, Type, NMiss, Pct_Miss
+        select Variable, Type, Pct_Miss as Total_Pct_Miss
         from casuser._miss_summary
         where Split='OOT';
     quit;
 
     %_miss_sort_cas(table_name=_miss_train_detail_rpt,
-        orderby=%str({"Variable", "Type", "Dummy_Value"}));
+        orderby=%str({"Variable", "Dummy_Value"}));
     %_miss_sort_cas(table_name=_miss_oot_detail_rpt,
-        orderby=%str({"Variable", "Type", "Dummy_Value"}));
+        orderby=%str({"Variable", "Dummy_Value"}));
     %_miss_sort_cas(table_name=_miss_train_summary_rpt,
         orderby=%str({"Variable"}));
     %_miss_sort_cas(table_name=_miss_oot_summary_rpt,
@@ -127,16 +127,10 @@ No persiste tablas en tables/.
         value MissSignif low-<&threshold.='white' &threshold.-high='red';
     run;
 
-    ods graphics on;
-
-    ods html5 file="&report_path./&file_prefix._train.html"
+    ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
     %_miss_render_split(detail_data=casuser._miss_train_detail_rpt,
         summary_data=casuser._miss_train_summary_rpt, split_label=TRAIN);
-    ods html5 close;
-
-    ods html5 file="&report_path./&file_prefix._oot.html"
-        options(bitmap_mode="inline");
     %_miss_render_split(detail_data=casuser._miss_oot_detail_rpt,
         summary_data=casuser._miss_oot_summary_rpt, split_label=OOT);
     ods html5 close;
@@ -153,8 +147,6 @@ No persiste tablas en tables/.
         summary_data=casuser._miss_oot_summary_rpt, split_label=OOT);
 
     ods excel close;
-    ods graphics / reset=all;
-    ods graphics off;
 
     proc datasets library=casuser nolist nowarn;
         delete _miss_input _miss_detail _miss_summary _miss_var_catalog
@@ -163,10 +155,7 @@ No persiste tablas en tables/.
             _miss_train_summary_rpt _miss_oot_summary_rpt;
     quit;
 
-    %put NOTE: [missings_report] HTML TRAIN=>
-        &report_path./&file_prefix._train.html;
-    %put NOTE: [missings_report] HTML OOT=>
-        &report_path./&file_prefix._oot.html;
+    %put NOTE: [missings_report] HTML=> &report_path./&file_prefix..html;
     %put NOTE: [missings_report] Excel=> &report_path./&file_prefix..xlsx;
 
 %mend _missings_report;
