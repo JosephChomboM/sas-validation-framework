@@ -31,6 +31,45 @@ Compatibilidad: segmento y universo.
 %include "&fw_root./src/modules/missings/impl/missings_compute.sas";
 %include "&fw_root./src/modules/missings/impl/missings_report.sas";
 
+%macro _miss_normalize_var_lists(vars_num=, vars_cat=, out_num=, out_cat=);
+
+    %local _norm_num _norm_cat _seen _i _var;
+
+    %let _norm_num=;
+    %let _norm_cat=;
+    %let _seen=;
+
+    %let _i=1;
+    %let _var=%scan(%superq(vars_num), &_i., %str( ));
+    %do %while(%length(%superq(_var)) > 0);
+        %if %sysfunc(findw(%superq(_seen), %superq(_var), %str( ))) = 0 %then %do;
+            %let _norm_num=&_norm_num. &_var.;
+            %let _seen=&_seen. &_var.;
+        %end;
+        %let _i=%eval(&_i. + 1);
+        %let _var=%scan(%superq(vars_num), &_i., %str( ));
+    %end;
+
+    %let _i=1;
+    %let _var=%scan(%superq(vars_cat), &_i., %str( ));
+    %do %while(%length(%superq(_var)) > 0);
+        %if %sysfunc(findw(%superq(_seen), %superq(_var), %str( ))) = 0 %then %do;
+            %let _norm_cat=&_norm_cat. &_var.;
+            %let _seen=&_seen. &_var.;
+        %end;
+        %else %do;
+            %put WARNING: [missings_run] Variable duplicada entre listas o repetida:
+                &_var.. Se mantiene la primera declaracion desde config.;
+        %end;
+        %let _i=%eval(&_i. + 1);
+        %let _var=%scan(%superq(vars_cat), &_i., %str( ));
+    %end;
+
+    %let &out_num.=%sysfunc(compbl(%superq(_norm_num)));
+    %let &out_cat.=%sysfunc(compbl(%superq(_norm_cat)));
+
+%mend _miss_normalize_var_lists;
+
 %macro missings_run(input_caslib=PROC, input_table=_scope_input, train_table=,
     oot_table=, output_caslib=OUT, troncal_id=, scope=, run_id=);
 
@@ -115,6 +154,10 @@ Compatibilidad: segmento y universo.
             quit;
         %end;
     %end;
+
+    %_miss_normalize_var_lists(vars_num=&_miss_vars_num.,
+        vars_cat=&_miss_vars_cat., out_num=_miss_vars_num,
+        out_cat=_miss_vars_cat);
 
     %put NOTE: [missings_run] Variables resueltas:;
     %put NOTE: [missings_run] num=&_miss_vars_num.;

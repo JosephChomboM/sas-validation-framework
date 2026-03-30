@@ -47,9 +47,9 @@ Salida:
     %do %while(%length(%superq(_var)) > 0);
         %if %length(%superq(_sql)) > 0 %then %let _sql=&_sql. union all ;
         %let _sql=&_sql.
-            select a.&split_var. as Split,
-                   '&_var.' as Variable,
-                   'num' as Type,
+            select cast(a.&split_var. as varchar(16)) as Split,
+                   cast('&_var.' as varchar(128)) as Variable,
+                   cast('num' as varchar(16)) as Type,
                    case
                        when a.&_var. is null then '.'
                        else cast(a.&_var. as varchar(128))
@@ -73,9 +73,9 @@ Salida:
     %do %while(%length(%superq(_var)) > 0);
         %if %length(%superq(_sql)) > 0 %then %let _sql=&_sql. union all ;
         %let _sql=&_sql.
-            select a.&split_var. as Split,
-                   '&_var.' as Variable,
-                   'categ' as Type,
+            select cast(a.&split_var. as varchar(16)) as Split,
+                   cast('&_var.' as varchar(128)) as Variable,
+                   cast('categ' as varchar(16)) as Type,
                    case
                        when a.&_var. is null then ''
                        when trim(a.&_var.)='' then ''
