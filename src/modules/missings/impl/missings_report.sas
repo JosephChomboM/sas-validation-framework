@@ -54,14 +54,15 @@ Metodologia funcional basada en missings_legacy.sas.
 
 %mend _miss_prepare_scope_data;
 
-%macro _miss_print_detail(detail_data=, vars=);
+%macro _miss_print_detail(detail_data=, vars=, type_filter=);
 
     %local _i _var;
 
     %let _i=1;
     %let _var=%scan(%superq(vars), &_i., %str( ));
     %do %while(%length(%superq(_var)) > 0);
-        proc print data=&detail_data.(where=(Variable="&_var.")) noobs label;
+        proc print data=&detail_data.(where=(Variable="&_var." and
+            Type="&type_filter.")) noobs label;
             var Dummy_Value Type Total NMiss Pct_Miss;
             label Dummy_Value="&_var."
                   Type="type"
@@ -82,8 +83,10 @@ Metodologia funcional basada en missings_legacy.sas.
 
     title "&split_label.: Analisis de Missings";
     title2 "Missing summarize (variable/cases)";
-    %_miss_print_detail(detail_data=&detail_data., vars=&vars_num.);
-    %_miss_print_detail(detail_data=&detail_data., vars=&vars_cat.);
+    %_miss_print_detail(detail_data=&detail_data., vars=&vars_num.,
+        type_filter=num);
+    %_miss_print_detail(detail_data=&detail_data., vars=&vars_cat.,
+        type_filter=categ);
 
     title;
     title2 "Missing summarize (variables)";
