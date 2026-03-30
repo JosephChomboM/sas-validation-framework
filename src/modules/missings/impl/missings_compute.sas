@@ -43,18 +43,28 @@ Modelo:
 
 %macro _miss_init_outputs(detail_table=, summary_table=);
 
-    data casuser.&detail_table.;
-        length Variable $128 Type $16 Dummy_Value $256 Total 8 NMiss 8
-            Pct_Miss 8 Var_Ord 8;
-        format Pct_Miss percent8.2;
-        stop;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser.&detail_table. {options replace=true} as
+        select cast('' as varchar(128)) as Variable,
+               cast('' as varchar(16)) as Type,
+               cast('' as varchar(256)) as Dummy_Value,
+               cast(0 as double) as Total,
+               cast(0 as double) as NMiss,
+               cast(0 as double) as Pct_Miss,
+               cast(0 as double) as Var_Ord
+        from casuser.cfg_troncales
+        where 1=0;
+    quit;
 
-    data casuser.&summary_table.;
-        length Variable $128 Type $16 Total_Pct_Missing 8 Var_Ord 8;
-        format Total_Pct_Missing percent8.2;
-        stop;
-    run;
+    proc fedsql sessref=conn;
+        create table casuser.&summary_table. {options replace=true} as
+        select cast('' as varchar(128)) as Variable,
+               cast('' as varchar(16)) as Type,
+               cast(0 as double) as Total_Pct_Missing,
+               cast(0 as double) as Var_Ord
+        from casuser.cfg_troncales
+        where 1=0;
+    quit;
 
 %mend _miss_init_outputs;
 
