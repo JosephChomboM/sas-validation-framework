@@ -47,11 +47,13 @@ precision_contract.sas - Validaciones pre-ejecucion del modulo Precision
         select count(*) into :_prec_nobs_trn trimmed
         from &input_caslib..&input_table.
         where &byvar. >= &train_min_mes.
-          and &byvar. <= &train_max_mes.;
+          and &byvar. <= &train_max_mes.
+          and &byvar. <= &def_cld.;
         select count(*) into :_prec_nobs_oot trimmed
         from &input_caslib..&input_table.
         where &byvar. >= &oot_min_mes.
-          and &byvar. <= &oot_max_mes.;
+          and &byvar. <= &oot_max_mes.
+          and &byvar. <= &def_cld.;
     quit;
 
     %if &_prec_nobs_scope.=0 %then %do;
@@ -61,15 +63,15 @@ precision_contract.sas - Validaciones pre-ejecucion del modulo Precision
     %end;
 
     %if &_prec_nobs_trn.=0 %then %do;
-        %put ERROR: [precision_contract] TRAIN derivado vacio en ventana
-            &train_min_mes.-&train_max_mes..;
+        %put ERROR: [precision_contract] TRAIN efectivo vacio en ventana
+            &train_min_mes.-&train_max_mes. con def_cld=&def_cld..;
         %let _prec_rc=1;
         %return;
     %end;
 
     %if &_prec_nobs_oot.=0 %then %do;
-        %put ERROR: [precision_contract] OOT derivado vacio en ventana
-            &oot_min_mes.-&oot_max_mes..;
+        %put ERROR: [precision_contract] OOT efectivo vacio en ventana
+            &oot_min_mes.-&oot_max_mes. con def_cld=&def_cld..;
         %let _prec_rc=1;
         %return;
     %end;

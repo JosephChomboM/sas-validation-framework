@@ -9,6 +9,7 @@ Compara promedio observado (target) vs score del modelo (PD/XB), con:
 - filtro por default cerrado (def_cld)
 
 Usa run_module con scope_input=1 (dataset unificado por scope).
+TRAIN/OOT se derivan internamente dentro del modulo sobre CAS.
 ========================================================================= */
 /* ---- Dependencias ----------------------------------------------------- */
 %include "&fw_root./src/common/common_public.sas";

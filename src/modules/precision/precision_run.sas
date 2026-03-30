@@ -5,8 +5,6 @@ API:
 %precision_run(
     input_caslib  = PROC,
     input_table   = _scope_input,
-    train_table   = <legacy_opcional>,
-    oot_table     = <legacy_opcional>,
     output_caslib = OUT,
     troncal_id    = <id>,
     scope         = base | segNNN,
@@ -15,7 +13,8 @@ API:
 
 Precision compara el promedio observado (target) vs el score del modelo
 (PD o XB), con y sin ponderacion por monto, y opcionalmente por segmento.
-Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
+Usa default cerrado (def_cld) para derivar TRAIN/OOT dentro del modulo
+sobre una sola tabla CAS con columna split.
 ========================================================================= */
 /* ---- Incluir componentes del modulo ----------------------------------- */
 %include "&fw_root./src/modules/precision/precision_contract.sas";
@@ -23,8 +22,7 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
 %include "&fw_root./src/modules/precision/impl/precision_report.sas";
 
 %macro precision_run(input_caslib=PROC, input_table=_scope_input,
-    train_table=, oot_table=, output_caslib=OUT, troncal_id=, scope=,
-    run_id=);
+    output_caslib=OUT, troncal_id=, scope=, run_id=);
 
     %global _prec_rc;
     %let _prec_rc=0;
@@ -34,17 +32,12 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
         _prec_report_path _prec_images_path _prec_file_prefix
         _prec_is_custom _prec_seg_num _prec_dir_rc _prec_has_col
         _prec_train_min_mes _prec_train_max_mes _prec_oot_min_mes
-        _prec_oot_max_mes _prec_input_caslib_eff _prec_input_table_eff
-        _prec_has_input _prec_has_train _prec_has_oot;
+        _prec_oot_max_mes;
 
     %put NOTE:======================================================;
     %put NOTE: [precision_run] INICIO;
     %put NOTE: troncal=&troncal_id. scope=&scope.;
     %put NOTE: input=&input_caslib..&input_table.;
-    %if %length(%superq(train_table))>0 %then
-        %put NOTE: [precision_run] train(legacy)=&input_caslib..&train_table.;
-    %if %length(%superq(oot_table))>0 %then
-        %put NOTE: [precision_run] oot(legacy)=&input_caslib..&oot_table.;
     %put NOTE:======================================================;
 
     %let _prec_target= ;
@@ -60,8 +53,6 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
     %let _prec_train_max_mes= ;
     %let _prec_oot_min_mes= ;
     %let _prec_oot_max_mes= ;
-    %let _prec_input_caslib_eff=&input_caslib.;
-    %let _prec_input_table_eff=&input_table.;
 
     proc sql noprint;
         select strip(target) into :_prec_target trimmed
@@ -136,54 +127,6 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
     %if %substr(&scope., 1, 3)=seg %then %let _prec_scope_abbr=&scope.;
     %else %let _prec_scope_abbr=base;
 
-    /* Compatibilidad: si llaman con train/oot legacy y no existe input_table,
-       reconstruir un input unico en CAS para mantener contrato nuevo. */
-    %if %length(%superq(train_table)) > 0 and %length(%superq(oot_table)) > 0
-        %then %do;
-        %let _prec_has_input=0;
-        %let _prec_has_train=0;
-        %let _prec_has_oot=0;
-        proc sql noprint;
-            select count(*) into :_prec_has_input trimmed
-            from dictionary.tables
-            where upcase(libname)=upcase("&input_caslib.")
-              and upcase(memname)=upcase("&input_table.");
-            select count(*) into :_prec_has_train trimmed
-            from dictionary.tables
-            where upcase(libname)=upcase("&input_caslib.")
-              and upcase(memname)=upcase("&train_table.");
-            select count(*) into :_prec_has_oot trimmed
-            from dictionary.tables
-            where upcase(libname)=upcase("&input_caslib.")
-              and upcase(memname)=upcase("&oot_table.");
-        quit;
-
-        %if &_prec_has_input.=0 and &_prec_has_train.=1 and &_prec_has_oot.=1
-            %then %do;
-            %put WARNING: [precision_run] Modo compatibilidad legacy activado:
-                train_table/oot_table -> input unico CAS.;
-
-            proc cas;
-                session conn;
-                table.dropTable / caslib='casuser' name='_prec_input_compat'
-                    quiet=true;
-            quit;
-
-            proc fedsql sessref=conn;
-                create table casuser._prec_input_compat
-                    {options replace=true} as
-                select * from &input_caslib..&train_table.
-                union all
-                select * from &input_caslib..&oot_table.;
-            quit;
-
-            %let _prec_input_caslib_eff=casuser;
-            %let _prec_input_table_eff=_prec_input_compat;
-            %put NOTE: [precision_run] Input efectivo compat=
-                &_prec_input_caslib_eff..&_prec_input_table_eff.;
-        %end;
-    %end;
-
     %if &_prec_is_custom.=1 %then %do;
         %let _prec_report_path=&fw_root./outputs/runs/&run_id./experiments;
         %let _prec_images_path=&fw_root./outputs/runs/&run_id./experiments;
@@ -199,8 +142,8 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
         %put NOTE: [precision_run] Output -> reports/METOD6 + images/METOD6.;
     %end;
 
-    %precision_contract(input_caslib=&_prec_input_caslib_eff.,
-        input_table=&_prec_input_table_eff., target=&_prec_target.,
+    %precision_contract(input_caslib=&input_caslib.,
+        input_table=&input_table., target=&_prec_target.,
         score_var=&_prec_score., byvar=&_prec_byvar.,
         def_cld=&_prec_def_cld., train_min_mes=&_prec_train_min_mes.,
         train_max_mes=&_prec_train_max_mes., oot_min_mes=&_prec_oot_min_mes.,
@@ -218,8 +161,8 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
         proc sql noprint;
             select count(*) into :_prec_has_col trimmed
             from dictionary.columns
-            where upcase(libname)=upcase("&_prec_input_caslib_eff.")
-              and upcase(memname)=upcase("&_prec_input_table_eff.")
+            where upcase(libname)=upcase("&input_caslib.")
+              and upcase(memname)=upcase("&input_table.")
               and upcase(name)=upcase("&_prec_monto.");
         quit;
         %if &_prec_has_col.=0 %then %do;
@@ -234,8 +177,8 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
         proc sql noprint;
             select count(*) into :_prec_has_col trimmed
             from dictionary.columns
-            where upcase(libname)=upcase("&_prec_input_caslib_eff.")
-              and upcase(memname)=upcase("&_prec_input_table_eff.")
+            where upcase(libname)=upcase("&input_caslib.")
+              and upcase(memname)=upcase("&input_table.")
               and upcase(name)=upcase("&_prec_segvar.");
         quit;
         %if &_prec_has_col.=0 %then %do;
@@ -245,8 +188,8 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
         %end;
     %end;
 
-    %_precision_report(input_caslib=&_prec_input_caslib_eff.,
-        input_table=&_prec_input_table_eff., target=&_prec_target.,
+    %_precision_report(input_caslib=&input_caslib.,
+        input_table=&input_table., target=&_prec_target.,
         score_var=&_prec_score., monto_var=&_prec_monto.,
         segvar=&_prec_segvar., byvar=&_prec_byvar., def_cld=&_prec_def_cld.,
         train_min_mes=&_prec_train_min_mes.,
@@ -254,12 +197,6 @@ Usa default cerrado (def_cld) para filtrar TRAIN y OOT.
         oot_max_mes=&_prec_oot_max_mes., ponderado=&prec_use_weighted.,
         report_path=&_prec_report_path., images_path=&_prec_images_path.,
         file_prefix=&_prec_file_prefix.);
-
-    proc cas;
-        session conn;
-        table.dropTable / caslib='casuser' name='_prec_input_compat'
-            quiet=true;
-    quit;
 
     %put NOTE:======================================================;
     %put NOTE: [precision_run] FIN - &_prec_file_prefix. (mode=&prec_mode.);
