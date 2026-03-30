@@ -186,8 +186,8 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
             o.Ranking as Rank_OOT,
             (t.Gini - o.Gini) as Delta_Gini,
             abs(t.Ranking - o.Ranking) as Delta_Rank
-        from (select * from &data. where Split="TRAIN") t
-        full join (select * from &data. where Split="OOT") o
+        from (select * from &data. where Split='TRAIN') t
+        full join (select * from &data. where Split='OOT') o
             on t.Variable=o.Variable;
     quit;
 
