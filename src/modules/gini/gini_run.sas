@@ -380,17 +380,22 @@ Implementacion CAS-first:
         %return;
     %end;
 
-    data casuser._gini_train casuser._gini_oot
-        work._gini_train_w work._gini_oot_w;
+    data casuser._gini_train;
         set casuser._gini_input;
-        if _fw_gini_split_flag_01="TRAIN" then do;
-            output casuser._gini_train;
-            output work._gini_train_w;
-        end;
-        else if _fw_gini_split_flag_01="OOT" then do;
-            output casuser._gini_oot;
-            output work._gini_oot_w;
-        end;
+        where _fw_gini_split_flag_01="TRAIN";
+    run;
+
+    data casuser._gini_oot;
+        set casuser._gini_input;
+        where _fw_gini_split_flag_01="OOT";
+    run;
+
+    data work._gini_train_w;
+        set casuser._gini_train;
+    run;
+
+    data work._gini_oot_w;
+        set casuser._gini_oot;
     run;
 
     proc sort data=work._gini_train_w out=work._gini_train_msrc;
