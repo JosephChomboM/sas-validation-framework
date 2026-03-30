@@ -229,7 +229,7 @@ Nota:
 %mend _simil_get_mode_pct;
 
 %macro _simil_bucket_plot_num(data=, split_var=Split, var=, byvar=,
-    groups=5, m_data_type=TRAIN);
+    groups=5);
 
     %local rnd _simil_rank_n;
     %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
@@ -255,7 +255,14 @@ Nota:
 
     proc fedsql sessref=conn;
         create table casuser._simil_num_bucket_&rnd. {options replace=true} as
-        select a.Periodo,
+        select case
+                   when upcase(strip(a.Split))='TRAIN' then 1
+                   else 2
+               end as Split_Order,
+               a.Split,
+               a.Periodo,
+               cats(a.Split, '_', trim(cast(a.Periodo as varchar(32))))
+                   as Periodo_Plot,
                case
                    when a.Valor is null then 0
                    when c.Rango is null then 999
@@ -269,8 +276,7 @@ Nota:
                end as Bucket
         from casuser._simil_num_src_&rnd. a
         left join casuser._simil_num_cuts_&rnd. c
-            on upcase(strip(a.Split))='%upcase(&m_data_type.)'
-           and (
+            on (
                (c.Flag_Ini=1 and c.Flag_Fin=1 and a.Valor is not null)
                or
                (c.Flag_Ini=1 and c.Flag_Fin=0 and a.Valor <= c.Fin)
@@ -278,46 +284,57 @@ Nota:
                (c.Flag_Ini=0 and c.Flag_Fin=1 and a.Valor > c.Inicio)
                or
                (c.Flag_Ini=0 and c.Flag_Fin=0 and a.Valor > c.Inicio and a.Valor <= c.Fin)
-           )
-        where upcase(strip(a.Split))='%upcase(&m_data_type.)';
+           );
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._simil_num_cnt_&rnd. {options replace=true} as
-        select Periodo,
+        select Split_Order,
+               Split,
+               Periodo,
+               Periodo_Plot,
                Bucket_N,
                Bucket,
                count(*) as N
         from casuser._simil_num_bucket_&rnd.
-        group by Periodo, Bucket_N, Bucket;
+        group by Split_Order, Split, Periodo, Periodo_Plot, Bucket_N, Bucket;
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._simil_num_tot_&rnd. {options replace=true} as
-        select Periodo,
+        select Split_Order,
+               Split,
+               Periodo,
+               Periodo_Plot,
                sum(N) as Total_N
         from casuser._simil_num_cnt_&rnd.
-        group by Periodo;
+        group by Split_Order, Split, Periodo, Periodo_Plot;
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._simil_num_pct_&rnd. {options replace=true} as
-        select c.Periodo,
+        select c.Split_Order,
+               c.Split,
+               c.Periodo,
+               c.Periodo_Plot,
                c.Bucket_N,
                c.Bucket,
                c.N,
                case when t.Total_N > 0 then 100 * c.N / t.Total_N else 0 end as Percent
         from casuser._simil_num_cnt_&rnd. c
         inner join casuser._simil_num_tot_&rnd. t
-            on c.Periodo=t.Periodo;
+            on c.Split_Order=t.Split_Order
+           and c.Split=t.Split
+           and c.Periodo=t.Periodo
+           and c.Periodo_Plot=t.Periodo_Plot;
     quit;
 
     %_simil_sort_cas(table_name=_simil_num_pct_&rnd.,
-        orderby=%str({"Periodo", "Bucket_N"}));
+        orderby=%str({"Split_Order", "Periodo", "Bucket_N"}));
 
-    title "Evolutivo distribucion variable &var. - %upcase(&m_data_type.).";
+    title "Evolutivo distribucion variable &var. - TRAIN + OOT.";
     proc sgplot data=casuser._simil_num_pct_&rnd.;
-        vbar Periodo / response=Percent group=Bucket
+        vbar Periodo_Plot / response=Percent group=Bucket
             groupdisplay=stack nooutline name='bars' barwidth=1;
         keylegend 'bars' / title='Rango' opaque;
         xaxis type=discrete discreteorder=data valueattrs=(size=7pt);
@@ -327,11 +344,11 @@ Nota:
 
     ods escapechar='^';
     ods text=' ';
-    ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar. - %upcase(&m_data_type.).";
+    ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar. usando cortes TRAIN (TRAIN + OOT).";
     ods text=' ';
 
     proc print data=casuser._simil_num_pct_&rnd. noobs;
-        var Periodo Bucket N Percent;
+        var Split Periodo Bucket N Percent;
         format Percent 8.2;
     run;
 
@@ -346,54 +363,72 @@ Nota:
 
 %mend _simil_bucket_plot_num;
 
-%macro _simil_bucket_plot_cat(data=, split_var=Split, var=, byvar=,
-    m_data_type=TRAIN);
+%macro _simil_bucket_plot_cat(data=, split_var=Split, var=, byvar=);
 
     %local rnd;
     %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
 
     proc fedsql sessref=conn;
         create table casuser._simil_cat_src_&rnd. {options replace=true} as
-        select &byvar. as Periodo,
+        select case
+                   when upcase(strip(&split_var.))='TRAIN' then 1
+                   else 2
+               end as Split_Order,
+               upcase(strip(&split_var.)) as Split,
+               &byvar. as Periodo,
+               cats(upcase(strip(&split_var.)), '_',
+                   trim(cast(&byvar. as varchar(32)))) as Periodo_Plot,
                coalesce(trim(cast(&var. as varchar(200))), '00. Missing') as Bucket
         from &data.
-        where upcase(strip(&split_var.))='%upcase(&m_data_type.)';
+        where upcase(strip(&split_var.)) in ('TRAIN', 'OOT');
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._simil_cat_cnt_&rnd. {options replace=true} as
-        select Periodo,
+        select Split_Order,
+               Split,
+               Periodo,
+               Periodo_Plot,
                Bucket,
                count(*) as N
         from casuser._simil_cat_src_&rnd.
-        group by Periodo, Bucket;
+        group by Split_Order, Split, Periodo, Periodo_Plot, Bucket;
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._simil_cat_tot_&rnd. {options replace=true} as
-        select Periodo,
+        select Split_Order,
+               Split,
+               Periodo,
+               Periodo_Plot,
                sum(N) as Total_N
         from casuser._simil_cat_cnt_&rnd.
-        group by Periodo;
+        group by Split_Order, Split, Periodo, Periodo_Plot;
     quit;
 
     proc fedsql sessref=conn;
         create table casuser._simil_cat_pct_&rnd. {options replace=true} as
-        select c.Periodo,
+        select c.Split_Order,
+               c.Split,
+               c.Periodo,
+               c.Periodo_Plot,
                c.Bucket,
                c.N,
                case when t.Total_N > 0 then 100 * c.N / t.Total_N else 0 end as Percent
         from casuser._simil_cat_cnt_&rnd. c
         inner join casuser._simil_cat_tot_&rnd. t
-            on c.Periodo=t.Periodo;
+            on c.Split_Order=t.Split_Order
+           and c.Split=t.Split
+           and c.Periodo=t.Periodo
+           and c.Periodo_Plot=t.Periodo_Plot;
     quit;
 
     %_simil_sort_cas(table_name=_simil_cat_pct_&rnd.,
-        orderby=%str({"Periodo", "Bucket"}));
+        orderby=%str({"Split_Order", "Periodo", "Bucket"}));
 
-    title "Evolutivo distribucion variable &var. - %upcase(&m_data_type.).";
+    title "Evolutivo distribucion variable &var. - TRAIN + OOT.";
     proc sgplot data=casuser._simil_cat_pct_&rnd.;
-        vbar Periodo / response=Percent group=Bucket
+        vbar Periodo_Plot / response=Percent group=Bucket
             groupdisplay=stack nooutline name='bars' barwidth=1;
         keylegend 'bars' / title='Categoria' opaque;
         xaxis type=discrete discreteorder=data valueattrs=(size=7pt);
@@ -403,11 +438,11 @@ Nota:
 
     ods escapechar='^';
     ods text=' ';
-    ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar. - %upcase(&m_data_type.).";
+    ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar. (TRAIN + OOT).";
     ods text=' ';
 
     proc print data=casuser._simil_cat_pct_&rnd. noobs;
-        var Periodo Bucket N Percent;
+        var Split Periodo Bucket N Percent;
         format Percent 8.2;
     run;
 
@@ -431,9 +466,7 @@ Nota:
         %do %while(%length(&v.) > 0);
             %put NOTE: [similitud] Bucket plot numerica: &v.;
             %_simil_bucket_plot_num(data=&data., split_var=&split_var.,
-                var=&v., byvar=&byvar., groups=&groups., m_data_type=TRAIN);
-            %_simil_bucket_plot_num(data=&data., split_var=&split_var.,
-                var=&v., byvar=&byvar., groups=&groups., m_data_type=OOT);
+                var=&v., byvar=&byvar., groups=&groups.);
             %let c=%eval(&c. + 1);
             %let v=%scan(&vars_num., &c., %str( ));
         %end;
@@ -445,9 +478,7 @@ Nota:
         %do %while(%length(&v_cat.) > 0);
             %put NOTE: [similitud] Bucket plot categorica: &v_cat.;
             %_simil_bucket_plot_cat(data=&data., split_var=&split_var.,
-                var=&v_cat., byvar=&byvar., m_data_type=TRAIN);
-            %_simil_bucket_plot_cat(data=&data., split_var=&split_var.,
-                var=&v_cat., byvar=&byvar., m_data_type=OOT);
+                var=&v_cat., byvar=&byvar.);
             %let z=%eval(&z. + 1);
             %let v_cat=%scan(&vars_cat., &z., %str( ));
         %end;
