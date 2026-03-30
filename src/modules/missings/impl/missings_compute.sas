@@ -82,11 +82,12 @@ Modelo:
 %macro _miss_compute_numeric_var(data=, var=, total=, ord=, detail_table=,
     summary_table=);
 
-    %local _stage_nobs;
+    %local _stage_nobs _var_literal;
+    %let _var_literal=%str(%')%superq(var)%str(%');
 
     proc fedsql sessref=conn;
         create table casuser._miss_det_stage {options replace=true} as
-        select cast('&var.' as varchar(128)) as Variable,
+        select cast(&_var_literal. as varchar(128)) as Variable,
                cast('num' as varchar(16)) as Type,
                case
                    when &var. is null then '.'
@@ -94,7 +95,8 @@ Modelo:
                end as Dummy_Value,
                cast(&total. as double) as Total,
                cast(count(*) as double) as NMiss,
-               cast(count(*) / &total. as double) as Pct_Miss,
+               cast(cast(count(*) as double) / cast(&total. as double)
+                   as double) as Pct_Miss,
                cast(&ord. as double) as Var_Ord
         from &data.
         where &var. is null
@@ -119,7 +121,7 @@ Modelo:
 
         proc fedsql sessref=conn;
             create table casuser._miss_sum_stage {options replace=true} as
-            select cast('&var.' as varchar(128)) as Variable,
+            select cast(&_var_literal. as varchar(128)) as Variable,
                    cast('num' as varchar(16)) as Type,
                    cast(sum(Pct_Miss) as double) as Total_Pct_Missing,
                    cast(&ord. as double) as Var_Ord
@@ -138,11 +140,12 @@ Modelo:
 %macro _miss_compute_categ_var(data=, var=, total=, ord=, detail_table=,
     summary_table=);
 
-    %local _stage_nobs;
+    %local _stage_nobs _var_literal;
+    %let _var_literal=%str(%')%superq(var)%str(%');
 
     proc fedsql sessref=conn;
         create table casuser._miss_det_stage {options replace=true} as
-        select cast('&var.' as varchar(128)) as Variable,
+        select cast(&_var_literal. as varchar(128)) as Variable,
                cast('categ' as varchar(16)) as Type,
                case
                    when &var. is null then ''
@@ -154,7 +157,8 @@ Modelo:
                end as Dummy_Value,
                cast(&total. as double) as Total,
                cast(count(*) as double) as NMiss,
-               cast(count(*) / &total. as double) as Pct_Miss,
+               cast(cast(count(*) as double) / cast(&total. as double)
+                   as double) as Pct_Miss,
                cast(&ord. as double) as Var_Ord
         from &data.
         where &var. is null
@@ -178,7 +182,7 @@ Modelo:
 
         proc fedsql sessref=conn;
             create table casuser._miss_sum_stage {options replace=true} as
-            select cast('&var.' as varchar(128)) as Variable,
+            select cast(&_var_literal. as varchar(128)) as Variable,
                    cast('categ' as varchar(16)) as Type,
                    cast(sum(Pct_Miss) as double) as Total_Pct_Missing,
                    cast(&ord. as double) as Var_Ord
