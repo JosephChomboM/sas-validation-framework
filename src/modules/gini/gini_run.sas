@@ -108,7 +108,7 @@ Implementacion CAS-first:
 
     %local _gini_vars_num _gini_target _gini_score _gini_pd _gini_xb
         _gini_byvar _gini_def_cld _gini_is_custom _scope_abbr _report_path
-        _images_path _tables_path _file_prefix _tbl_prefix _seg_num _dir_rc
+        _images_path _file_prefix _seg_num _dir_rc
         _gini_model_low _gini_model_high _gini_var_low _gini_var_high
         _gini_model_type _gini_vars_train _gini_vars_oot _gini_vars_shared
         _gini_has_model_type_col _gini_train_min _gini_train_max _gini_oot_min
@@ -292,24 +292,18 @@ Implementacion CAS-first:
     %if &_gini_is_custom.=1 %then %do;
         %let _report_path=&fw_root./outputs/runs/&run_id./experiments;
         %let _images_path=&fw_root./outputs/runs/&run_id./experiments;
-        %let _tables_path=&fw_root./outputs/runs/&run_id./experiments;
         %let _file_prefix=custom_gini_troncal_&troncal_id._&_scope_abbr.;
-        %let _tbl_prefix=cx_gini_t&troncal_id._&_scope_abbr.;
         %put NOTE: [gini_run] Output -> experiments/ (exploratorio);
     %end;
     %else %do;
         %let _report_path=&fw_root./outputs/runs/&run_id./reports/METOD4.3;
         %let _images_path=&fw_root./outputs/runs/&run_id./images/METOD4.3;
-        %let _tables_path=&fw_root./outputs/runs/&run_id./tables/METOD4.3;
         %let _file_prefix=gini_troncal_&troncal_id._&_scope_abbr.;
-        %let _tbl_prefix=gini_t&troncal_id._&_scope_abbr.;
         %let _dir_rc=%sysfunc(dcreate(METOD4.3,
             &fw_root./outputs/runs/&run_id./reports));
         %let _dir_rc=%sysfunc(dcreate(METOD4.3,
             &fw_root./outputs/runs/&run_id./images));
-        %let _dir_rc=%sysfunc(dcreate(METOD4.3,
-            &fw_root./outputs/runs/&run_id./tables));
-        %put NOTE: [gini_run] Output -> reports/images/tables METOD4.3.;
+        %put NOTE: [gini_run] Output -> reports/images METOD4.3.;
     %end;
 
     %let _gini_has_input_table=0;
@@ -446,30 +440,39 @@ Implementacion CAS-first:
     %_gini_sort_cas(table_name=_gini_vars_detail,
         orderby=%str({"Variable", "Periodo", "Split"}));
 
-    libname _giniout "&_tables_path.";
-
-    data _giniout.&_tbl_prefix._mdlg;
+    data work._gini_mdlg;
         set casuser._gini_model_general;
+        _sort_order=1;
+        if upcase(strip(Split))="OOT" then _sort_order=2;
     run;
 
-    data _giniout.&_tbl_prefix._mdlm;
-        set casuser._gini_model_monthly;
+    proc sort data=work._gini_mdlg;
+        by _sort_order;
     run;
 
-    data _giniout.&_tbl_prefix._varg;
-        set casuser._gini_vars_general;
+    data work._gini_mdlg;
+        set work._gini_mdlg;
+        drop _sort_order;
     run;
 
-    data _giniout.&_tbl_prefix._vcmp;
-        set casuser._gini_vars_compare;
+    proc sort data=casuser._gini_model_monthly out=work._gini_mdlm;
+        by Periodo Split;
     run;
 
-    data _giniout.&_tbl_prefix._vsum;
-        set casuser._gini_vars_summary;
+    proc sort data=casuser._gini_vars_general out=work._gini_varg;
+        by Variable Split;
     run;
 
-    data _giniout.&_tbl_prefix._vdet;
-        set casuser._gini_vars_detail;
+    proc sort data=casuser._gini_vars_compare out=work._gini_vcmp;
+        by Variable;
+    run;
+
+    proc sort data=casuser._gini_vars_summary out=work._gini_vsum;
+        by Variable;
+    run;
+
+    proc sort data=casuser._gini_vars_detail out=work._gini_vdet;
+        by Variable Periodo Split;
     run;
 
     %_gini_report(report_path=&_report_path., images_path=&_images_path.,
@@ -477,9 +480,12 @@ Implementacion CAS-first:
         model_low=&_gini_model_low., model_high=&_gini_model_high.,
         var_low=&_gini_var_low., var_high=&_gini_var_high.,
         delta_warn=&gini_delta_warn., top_n=&gini_plot_top_n.,
-        table_lib=_giniout, table_prefix=&_tbl_prefix.);
+        table_lib=work, table_prefix=_gini);
 
-    libname _giniout clear;
+    proc datasets library=work nolist nowarn;
+        delete _gini_mdlg _gini_mdlm _gini_varg _gini_vcmp _gini_vsum
+            _gini_vdet;
+    quit;
 
     proc datasets library=casuser nolist nowarn;
         delete _gini_:;
