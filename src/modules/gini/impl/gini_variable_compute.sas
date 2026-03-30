@@ -9,53 +9,41 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
     %local _gini_split_label;
     %let _gini_split_label=%upcase(%superq(split));
 
-    data work._gini_vars_accum;
-        length Variable $64 Split $5 N_Total N_Valid N_Default N_Gini Ranking 8
-            Pct_Valid Gini Smdcr_Raw 8 Evaluacion $15;
-        format Pct_Valid percent8.2 Gini Smdcr_Raw 8.4;
-        stop;
-    run;
-
     %if %length(%superq(vars_num))=0 %then %do;
         data &out.;
-            set work._gini_vars_accum;
+            length Variable $64 Split $5 N_Total N_Valid N_Default N_Gini Ranking 8
+                Pct_Valid Gini Smdcr_Raw 8 Evaluacion $15;
+            format Pct_Valid percent8.2 Gini Smdcr_Raw 8.4;
+            stop;
         run;
         %return;
     %end;
 
-    data work._gini_var_src;
-        set &data.;
+    %_gini_profile_general(data=&data., split=&split., target=&target.,
+        vars_num=&vars_num., with_missing=&with_missing.,
+        out=work._gini_var_profile);
+
+    data work._gini_var_gini;
+        length Variable $64 Split $5 Smdcr_Raw Gini 8;
+        format Gini Smdcr_Raw 8.4;
+        stop;
     run;
 
-    %local _n_total_all _n_default_all;
-    proc sql noprint;
-        select count(*), sum(&target.)
-        into :_n_total_all trimmed, :_n_default_all trimmed
-        from work._gini_var_src;
-    quit;
-
-    %local _i _var _n_total _n_valid _n_default _n_gini _smdcr
-        _gini_var_label;
+    %local _i _var _n_gini_var _smdcr _gini_var_label;
     %let _i=1;
     %let _var=%scan(&vars_num., &_i., %str( ));
 
     %do %while(%length(&_var.) > 0);
-        %let _n_total=&_n_total_all.;
-        %let _n_default=&_n_default_all.;
-
         proc sql noprint;
-            select sum(case when not missing(&_var.) then 1 else 0 end)
-            into :_n_valid trimmed
-            from work._gini_var_src;
+            select max(N_Gini) into :_n_gini_var trimmed
+            from work._gini_var_profile
+            where Variable="%upcase(&_var.)";
         quit;
 
-        %_gini_count_rows(data=work._gini_var_src, target=&target., score=&_var.,
-            with_missing=&with_missing., outvar=_n_gini);
-
         %let _smdcr=.;
-        %if %sysfunc(inputn(&_n_gini., best32.)) >= &min_n_valid. %then %do;
-            %_gini_freqtab_general(data=work._gini_var_src, target=&target.,
-                score=&_var.,
+        %if %sysfunc(inputn(%superq(_n_gini_var), best32.)) >= &min_n_valid.
+            %then %do;
+            %_gini_freqtab_general(data=&data., target=&target., score=&_var.,
                 with_missing=&with_missing., out=work._gini_var_ft);
             %if %sysfunc(exist(work._gini_var_ft)) %then %do;
                 proc sql noprint;
@@ -63,32 +51,21 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
                     from work._gini_var_ft;
                 quit;
             %end;
+
+            %let _gini_var_label=%upcase(%superq(_var));
+
+            data work._gini_var_row;
+                length Variable $64 Split $5 Smdcr_Raw Gini 8;
+                Variable=symget('_gini_var_label');
+                Split=symget('_gini_split_label');
+                Smdcr_Raw=input(symget('_smdcr'), best32.);
+                Gini=abs(Smdcr_Raw);
+                format Gini Smdcr_Raw 8.4;
+            run;
+
+            proc append base=work._gini_var_gini data=work._gini_var_row force;
+            run;
         %end;
-
-        %let _gini_var_label=%upcase(%superq(_var));
-
-        data work._gini_var_row;
-            length Variable $64 Split $5 Evaluacion $15;
-            Variable=symget('_gini_var_label');
-            Split=symget('_gini_split_label');
-            N_Total=input(symget('_n_total'), best32.);
-            N_Valid=input(symget('_n_valid'), best32.);
-            N_Default=input(symget('_n_default'), best32.);
-            N_Gini=input(symget('_n_gini'), best32.);
-            Ranking=.;
-            if N_Total > 0 then Pct_Valid=N_Valid / N_Total;
-            Smdcr_Raw=input(symget('_smdcr'), best32.);
-            Gini=abs(Smdcr_Raw);
-            if N_Gini < &min_n_valid. then Evaluacion="MIN DATOS";
-            else if missing(Gini) then Evaluacion="SIN DATOS";
-            else if Gini >= &var_high. then Evaluacion="SATISFACTORIO";
-            else if Gini >= &var_low. then Evaluacion="ACEPTABLE";
-            else Evaluacion="BAJO";
-            format Pct_Valid percent8.2 Gini Smdcr_Raw 8.4;
-        run;
-
-        proc append base=work._gini_vars_accum data=work._gini_var_row force;
-        run;
 
         proc datasets library=work nolist nowarn;
             delete _gini_var_ft _gini_var_row;
@@ -98,9 +75,33 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         %let _var=%scan(&vars_num., &_i., %str( ));
     %end;
 
+    proc sql noprint;
+        create table work._gini_vars_join as
+        select p.Variable,
+            p.Split,
+            p.N_Total,
+            p.N_Valid,
+            p.N_Default,
+            p.N_Gini,
+            g.Smdcr_Raw,
+            g.Gini
+        from work._gini_var_profile p
+        left join work._gini_var_gini g
+            on p.Variable=g.Variable and p.Split=g.Split;
+    quit;
+
     data work._gini_vars_ranked;
-        set work._gini_vars_accum;
+        length Evaluacion $15;
+        set work._gini_vars_join;
+        Ranking=.;
+        if N_Total > 0 then Pct_Valid=N_Valid / N_Total;
+        if N_Gini < &min_n_valid. then Evaluacion="MIN DATOS";
+        else if missing(Gini) then Evaluacion="SIN DATOS";
+        else if Gini >= &var_high. then Evaluacion="SATISFACTORIO";
+        else if Gini >= &var_low. then Evaluacion="ACEPTABLE";
+        else Evaluacion="BAJO";
         SortMissing=missing(Gini);
+        format Pct_Valid percent8.2 Gini Smdcr_Raw 8.4;
     run;
 
     proc sort data=work._gini_vars_ranked;
@@ -120,7 +121,8 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
     run;
 
     proc datasets library=work nolist nowarn;
-        delete _gini_var_src _gini_vars_accum _gini_vars_ranked;
+        delete _gini_var_ft _gini_var_gini _gini_var_profile _gini_vars_join
+            _gini_vars_ranked;
     quit;
 
 %mend _gini_variables_general_split;
@@ -209,29 +211,27 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
     %local _gini_split_label;
     %let _gini_split_label=%upcase(%superq(split));
 
-    data work._gini_vars_month_accum;
-        length Variable $64 Split $5 Periodo 8 N_Total N_Valid N_Default N_Gini 8
-            Gini Smdcr_Raw 8 Evaluacion $15;
-        format Gini Smdcr_Raw 8.4;
-        stop;
-    run;
-
     %if %length(%superq(vars_num))=0 %then %do;
         data &out.;
-            set work._gini_vars_month_accum;
+            length Variable $64 Split $5 Periodo 8 N_Total N_Valid N_Default N_Gini 8
+                Gini Smdcr_Raw 8 Evaluacion $15;
+            format Gini Smdcr_Raw 8.4;
+            stop;
         run;
         %return;
     %end;
 
-    data work._gini_var_src;
-        set &data.;
+    %_gini_profile_monthly(data=&data., split=&split., target=&target.,
+        vars_num=&vars_num., byvar=&byvar., with_missing=&with_missing.,
+        out=work._gini_var_profile_m);
+
+    data work._gini_vars_month_gini;
+        length Variable $64 Split $5 Periodo 8 Smdcr_Raw Gini 8;
+        format Gini Smdcr_Raw 8.4;
+        stop;
     run;
 
-    proc sort data=work._gini_var_src;
-        by &byvar.;
-    run;
-
-    %local _i _var _gini_var_label;
+    %local _i _var _gini_var_label _n_gini_var;
     %let _i=1;
     %let _var=%scan(&vars_num., &_i., %str( ));
 
@@ -239,100 +239,88 @@ gini_variable_compute.sas - Gini de variables (general, comparativo y mensual)
         %let _gini_var_label=%upcase(%superq(_var));
 
         proc sql noprint;
-            create table work._gini_var_cnt as
-            select &byvar. as Periodo,
-                count(*) as N_Total,
-                sum(case when not missing(&_var.) then 1 else 0 end)
-                    as N_Valid,
-                sum(&target.) as N_Default
-            from work._gini_var_src
-            group by &byvar.;
+            select max(N_Gini) into :_n_gini_var trimmed
+            from work._gini_var_profile_m
+            where Variable="%upcase(&_var.)";
         quit;
 
-        %if &with_missing.=1 %then %do;
-            proc sql noprint;
-                create table work._gini_var_ng as
-                select &byvar. as Periodo,
-                    count(*) as N_Gini
-                from work._gini_var_src
-                where not missing(&target.)
-                group by &byvar.;
-            quit;
-
-            proc freqtab data=work._gini_var_src noprint missing;
+        %if %sysfunc(inputn(%superq(_n_gini_var), best32.)) >= &min_n_valid.
+            %then %do;
+            %if &with_missing.=1 %then %do;
+            proc freqtab data=&data. noprint missing;
                 by &byvar.;
                 tables &target. * &_var. / measures;
                 output out=work._gini_var_ftb smdcr;
             run;
-        %end;
-        %else %do;
-            proc sql noprint;
-                create table work._gini_var_ng as
-                select &byvar. as Periodo,
-                    count(*) as N_Gini
-                from work._gini_var_src
-                where not missing(&target.) and not missing(&_var.)
-                group by &byvar.;
-            quit;
-
-            proc freqtab data=work._gini_var_src noprint;
+            %end;
+            %else %do;
+            proc freqtab data=&data. noprint;
                 by &byvar.;
                 tables &target. * &_var. / measures;
                 output out=work._gini_var_ftb smdcr;
             run;
-        %end;
+            %end;
 
-        proc sql noprint;
-            create table work._gini_var_row as
-            select c.Periodo,
-                c.N_Total,
-                c.N_Valid,
-                c.N_Default,
-                n.N_Gini,
-                f._SMDCR_ as Smdcr_Raw format=8.4,
-                abs(f._SMDCR_) as Gini format=8.4
-            from work._gini_var_cnt c
-            left join work._gini_var_ng n
-                on c.Periodo=n.Periodo
-            left join work._gini_var_ftb f
-                on c.Periodo=f.&byvar.;
-        quit;
-
-        data work._gini_var_row;
-            length Variable $64 Split $5 Evaluacion $15;
-            set work._gini_var_row;
+            data work._gini_var_row;
+            length Variable $64 Split $5 Periodo 8 Smdcr_Raw Gini 8;
+            set work._gini_var_ftb;
+            Periodo=&byvar.;
             Variable=symget('_gini_var_label');
             Split=symget('_gini_split_label');
-            if N_Gini < &min_n_valid. then do;
-                Smdcr_Raw=.;
-                Gini=.;
-                Evaluacion="MIN DATOS";
-            end;
-            else if missing(Gini) then Evaluacion="SIN DATOS";
-            else if Gini >= &var_high. then Evaluacion="SATISFACTORIO";
-            else if Gini >= &var_low. then Evaluacion="ACEPTABLE";
-            else Evaluacion="BAJO";
+            Smdcr_Raw=_SMDCR_;
+            Gini=abs(_SMDCR_);
             format Gini Smdcr_Raw 8.4;
+            keep Variable Split Periodo Smdcr_Raw Gini;
         run;
 
-        proc append base=work._gini_vars_month_accum data=work._gini_var_row
+        proc append base=work._gini_vars_month_gini data=work._gini_var_row
             force;
         run;
+        %end;
 
         proc datasets library=work nolist nowarn;
-            delete _gini_var_cnt _gini_var_ng _gini_var_ftb _gini_var_row;
+            delete _gini_var_ftb _gini_var_row;
         quit;
 
         %let _i=%eval(&_i. + 1);
         %let _var=%scan(&vars_num., &_i., %str( ));
     %end;
 
+    proc sql noprint;
+        create table work._gini_vars_month_join as
+        select p.Variable,
+            p.Split,
+            p.Periodo,
+            p.N_Total,
+            p.N_Valid,
+            p.N_Default,
+            p.N_Gini,
+            g.Smdcr_Raw,
+            g.Gini
+        from work._gini_var_profile_m p
+        left join work._gini_vars_month_gini g
+            on p.Variable=g.Variable and p.Split=g.Split and
+            p.Periodo=g.Periodo;
+    quit;
+
     data &out.;
-        set work._gini_vars_month_accum;
+        length Evaluacion $15;
+        set work._gini_vars_month_join;
+        if N_Gini < &min_n_valid. then do;
+            Smdcr_Raw=.;
+            Gini=.;
+            Evaluacion="MIN DATOS";
+        end;
+        else if missing(Gini) then Evaluacion="SIN DATOS";
+        else if Gini >= &var_high. then Evaluacion="SATISFACTORIO";
+        else if Gini >= &var_low. then Evaluacion="ACEPTABLE";
+        else Evaluacion="BAJO";
+        format Gini Smdcr_Raw 8.4;
     run;
 
     proc datasets library=work nolist nowarn;
-        delete _gini_var_src _gini_vars_month_accum;
+        delete _gini_var_ftb _gini_var_profile_m _gini_vars_month_gini
+            _gini_vars_month_join;
     quit;
 
 %mend _gini_variables_monthly_split;

@@ -8,12 +8,12 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
     %local _gini_n _smdcr _gini_split_label;
     %let _gini_split_label=%upcase(%superq(split));
 
-    proc fedsql sessref=conn;
-        create table casuser._gini_model_agg {options replace=true} as
+    proc sql noprint;
+        create table work._gini_model_agg as
         select count(*) as N_Total,
             sum(&target.) as N_Default,
             sum(1-&target.) as N_No_Default,
-            (sum(&target.) / count(*)) as Tasa_Default
+            calculated N_Default / calculated N_Total as Tasa_Default
         from &data.;
     quit;
 
@@ -32,7 +32,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
 
     data &out.;
         length Split $5 Evaluacion $15;
-        set casuser._gini_model_agg;
+        set work._gini_model_agg;
         Split=symget('_gini_split_label');
         N_Gini=input(symget('_gini_n'), best32.);
         Smdcr_Raw=input(symget('_smdcr'), best32.);
@@ -50,12 +50,8 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             IC_95_Upper 8.4;
     run;
 
-    proc datasets library=casuser nolist nowarn;
-        delete _gini_model_agg;
-    quit;
-
     proc datasets library=work nolist nowarn;
-        delete _gini_model_ft;
+        delete _gini_model_agg _gini_model_ft;
     quit;
 
 %mend _gini_model_general_split;
@@ -102,14 +98,6 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
     %local _gini_split_label;
     %let _gini_split_label=%upcase(%superq(split));
 
-    data work._gini_model_src;
-        set &data.;
-    run;
-
-    proc sort data=work._gini_model_src;
-        by &byvar.;
-    run;
-
     proc sql noprint;
         create table work._gini_model_cnt as
         select &byvar. as Periodo,
@@ -118,7 +106,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             sum(1-&target.) as N_No_Default,
             calculated N_Default / calculated N_Total as Tasa_Default
                 format=percent8.2
-        from work._gini_model_src
+        from &data.
         group by &byvar.;
     quit;
 
@@ -127,12 +115,12 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             create table work._gini_model_ng as
             select &byvar. as Periodo,
                 count(*) as N_Gini
-            from work._gini_model_src
+            from &data.
             where not missing(&target.)
             group by &byvar.;
         quit;
 
-        proc freqtab data=work._gini_model_src noprint missing;
+        proc freqtab data=&data. noprint missing;
             by &byvar.;
             tables &target. * &score. / measures;
             output out=work._gini_model_ftb smdcr;
@@ -143,12 +131,12 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
             create table work._gini_model_ng as
             select &byvar. as Periodo,
                 count(*) as N_Gini
-            from work._gini_model_src
+            from &data.
             where not missing(&target.) and not missing(&score.)
             group by &byvar.;
         quit;
 
-        proc freqtab data=work._gini_model_src noprint;
+        proc freqtab data=&data. noprint;
             by &byvar.;
             tables &target. * &score. / measures;
             output out=work._gini_model_ftb smdcr;
@@ -184,8 +172,7 @@ gini_model_compute.sas - Gini del modelo (general y mensual)
     run;
 
     proc datasets library=work nolist nowarn;
-        delete _gini_model_src _gini_model_cnt _gini_model_ng _gini_model_ftb
-            _gini_model_join;
+        delete _gini_model_cnt _gini_model_ng _gini_model_ftb _gini_model_join;
     quit;
 
 %mend _gini_model_monthly_split;

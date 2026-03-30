@@ -36,6 +36,124 @@ gini_common.sas - Utilidades reutilizables para Gini con PROC FREQTAB
 
 %mend _gini_sort_cas;
 
+%macro _gini_profile_general(data=, split=, target=, vars_num=,
+    with_missing=1, out=work._gini_var_profile);
+
+    %local _gini_split_label _gini_var_count;
+    %let _gini_split_label=%upcase(%superq(split));
+    %let _gini_var_count=%sysfunc(countw(%superq(vars_num), %str( )));
+
+    %if %length(%superq(vars_num))=0 %then %do;
+        data &out.;
+            length Variable $64 Split $5 N_Total N_Default N_Valid N_Gini 8;
+            stop;
+        run;
+        %return;
+    %end;
+
+    data &out.;
+        length Variable $64 Split $5 N_Total N_Default N_Valid N_Gini 8;
+        retain N_Total 0 N_Default 0;
+        array _gini_vars {*} &vars_num.;
+        array _gini_valid[&_gini_var_count.] _temporary_;
+        array _gini_n[&_gini_var_count.] _temporary_;
+
+        set &data. end=_gini_eof;
+
+        N_Total + 1;
+        N_Default + &target.;
+
+        do _gini_i=1 to dim(_gini_vars);
+            if not missing(_gini_vars[_gini_i]) then _gini_valid[_gini_i] + 1;
+            %if &with_missing.=1 %then %do;
+                if not missing(&target.) then _gini_n[_gini_i] + 1;
+            %end;
+            %else %do;
+                if not missing(&target.) and not missing(_gini_vars[_gini_i])
+                    then _gini_n[_gini_i] + 1;
+            %end;
+        end;
+
+        if _gini_eof then do;
+            Split=symget('_gini_split_label');
+            do _gini_i=1 to dim(_gini_vars);
+                Variable=upcase(vname(_gini_vars[_gini_i]));
+                N_Valid=_gini_valid[_gini_i];
+                N_Gini=_gini_n[_gini_i];
+                output;
+            end;
+        end;
+
+        keep Variable Split N_Total N_Default N_Valid N_Gini;
+    run;
+
+%mend _gini_profile_general;
+
+%macro _gini_profile_monthly(data=, split=, target=, vars_num=, byvar=,
+    with_missing=1, out=work._gini_var_profile_m);
+
+    %local _gini_split_label _gini_var_count;
+    %let _gini_split_label=%upcase(%superq(split));
+    %let _gini_var_count=%sysfunc(countw(%superq(vars_num), %str( )));
+
+    %if %length(%superq(vars_num))=0 %then %do;
+        data &out.;
+            length Variable $64 Split $5 Periodo 8 N_Total N_Default N_Valid
+                N_Gini 8;
+            stop;
+        run;
+        %return;
+    %end;
+
+    data &out.;
+        length Variable $64 Split $5 Periodo 8 N_Total N_Default N_Valid N_Gini 8;
+        retain N_Total N_Default;
+        array _gini_vars {*} &vars_num.;
+        array _gini_valid[&_gini_var_count.] _temporary_;
+        array _gini_n[&_gini_var_count.] _temporary_;
+
+        set &data. end=_gini_eof;
+        by &byvar.;
+
+        if first.&byvar. then do;
+            N_Total=0;
+            N_Default=0;
+            do _gini_i=1 to dim(_gini_vars);
+                _gini_valid[_gini_i]=0;
+                _gini_n[_gini_i]=0;
+            end;
+        end;
+
+        N_Total + 1;
+        N_Default + &target.;
+
+        do _gini_i=1 to dim(_gini_vars);
+            if not missing(_gini_vars[_gini_i]) then _gini_valid[_gini_i] + 1;
+            %if &with_missing.=1 %then %do;
+                if not missing(&target.) then _gini_n[_gini_i] + 1;
+            %end;
+            %else %do;
+                if not missing(&target.) and not missing(_gini_vars[_gini_i])
+                    then _gini_n[_gini_i] + 1;
+            %end;
+        end;
+
+        if last.&byvar. then do;
+            Split=symget('_gini_split_label');
+            Periodo=&byvar.;
+            do _gini_i=1 to dim(_gini_vars);
+                Variable=upcase(vname(_gini_vars[_gini_i]));
+                N_Valid=_gini_valid[_gini_i];
+                N_Gini=_gini_n[_gini_i];
+                output;
+            end;
+        end;
+
+        keep Variable Split Periodo N_Total N_Default N_Valid N_Gini;
+    run;
+
+%mend _gini_profile_monthly;
+
 %macro _gini_partition_vars(data=, train_data=, oot_data=, vars_num=,
     out_train=_gini_vars_train, out_oot=_gini_vars_oot,
     out_shared=_gini_vars_shared);
