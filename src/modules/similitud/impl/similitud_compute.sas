@@ -1,519 +1,528 @@
 /* =========================================================================
-similitud_compute.sas - Computo de analisis de similitud de muestras
+similitud_compute.sas - Computo CAS-first de analisis de similitud
 
-Contiene macros que:
-A) Discretizan variables numericas via PROC RANK y generan graficos
-   de distribucion evolutiva (stacked bar por bucket y periodo).
-B) Comparan TRAIN vs OOT estadisticamente:
-   - Numericas: mediana (MAE, RMSE, diferencia %)
-   - Categoricas: moda (frecuencia %, diferencia)
-
-Macros:
-%_simil_calcular_cortes    - Puntos de corte via PROC RANK (Pattern B)
-%_simil_bucket_plot        - Stacked bar por bucket y periodo (Pattern B)
-%_simil_bucket_variables   - Orquestador bucket: itera vars num+cat
-%_simil_similitud_num      - Comparacion mediana TRAIN vs OOT (Pattern B)
-%_simil_similitud_cat      - Comparacion moda TRAIN vs OOT (Pattern B)
-
-Todas las operaciones usan Pattern B (work staging):
-PROC RANK, PROC SORT, PROC FREQ BY, PROC TRANSPOSE no son
-CAS-compatibles.
-
-Patron de cortes (TRAIN -> OOT):
-- Numericas: cortes se calculan con TRAIN (reuse_cuts=0).
-- OOT: reutiliza cortes de TRAIN (reuse_cuts=1, tabla work._simil_cortes).
-- Categoricas: no se usan cortes (flg_continue=0).
+Principios:
+- Input unificado con Split=TRAIN/OOT
+- Intermedios en casuser (sin tablas operativas en work)
+- Cortes numericos: calculados en TRAIN y reaplicados en OOT
+- Sorting solo al final para lectura/visualizacion
 ========================================================================= */
 
-/* =====================================================================
-%_simil_calcular_cortes - Calcula cortes via PROC RANK + etiquetas
-Crea tabla work._simil_cortes con: VARIABLE, RANGO, INICIO, FIN, ETIQUETA
-===================================================================== */
-%macro _simil_calcular_cortes(tablain, var, groups);
+%macro _simil_sort_cas(table_name=, orderby=, groupby={});
+
+    %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
+        %return;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={
+                caslib='casuser',
+                name='&table_name.',
+                orderby=&orderby.,
+                groupby=&groupby.
+            },
+            casout={
+                caslib='casuser',
+                name='&table_name.',
+                replace=true
+            };
+    quit;
+
+%mend _simil_sort_cas;
+
+%macro _simil_get_median(data=, split_var=Split, split_value=TRAIN, var=,
+    outvar=_simil_median);
+
+    %local _simil_n;
+    %let &outvar=.;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_med_src {options replace=true} as
+        select &var. as Valor
+        from &data.
+        where upcase(strip(&split_var.))='%upcase(&split_value.)'
+          and &var. is not null;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_med_ord {options replace=true} as
+        select Valor,
+               row_number() over(order by Valor) as RN,
+               count(*) over() as N
+        from casuser._simil_med_src;
+    quit;
+
+    %let _simil_n=0;
+    proc sql noprint;
+        select coalesce(max(N), 0) into :_simil_n trimmed
+        from casuser._simil_med_ord;
+    quit;
+
+    %if &_simil_n. > 0 %then %do;
+        %if %sysfunc(mod(&_simil_n., 2)) = 1 %then %do;
+            proc sql noprint;
+                select Valor into :&outvar. trimmed
+                from casuser._simil_med_ord
+                where RN = %sysfunc(ceil(%sysevalf((&_simil_n. + 1) / 2)));
+            quit;
+        %end;
+        %else %do;
+            proc sql noprint;
+                select avg(Valor) into :&outvar. trimmed
+                from casuser._simil_med_ord
+                where RN in (%sysevalf(&_simil_n. / 2),
+                    %sysevalf(&_simil_n. / 2 + 1));
+            quit;
+        %end;
+    %end;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _simil_med_src _simil_med_ord;
+    quit;
+
+%mend _simil_get_median;
+
+%macro _simil_get_mode_pct(data=, split_var=Split, split_value=TRAIN, var=,
+    out_mode=_simil_mode, out_pct=_simil_pct);
+
+    %local _simil_mode_n;
+    %let &out_mode=;
+    %let &out_pct=0;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_mode_freq {options replace=true} as
+        select trim(cast(&var. as varchar(200))) as Category,
+               count(*) as N
+        from &data.
+        where upcase(strip(&split_var.))='%upcase(&split_value.)'
+          and &var. is not null
+        group by trim(cast(&var. as varchar(200)));
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_mode_rank {options replace=true} as
+        select Category,
+               N,
+               sum(N) over() as Tot,
+               row_number() over(order by N desc, Category asc) as RN
+        from casuser._simil_mode_freq;
+    quit;
+
+    %let _simil_mode_n=0;
+    proc sql noprint;
+        select count(*) into :_simil_mode_n trimmed
+        from casuser._simil_mode_rank
+        where RN=1;
+    quit;
+
+    %if &_simil_mode_n. > 0 %then %do;
+        proc sql noprint;
+            select Category,
+                   case when Tot > 0 then 100 * N / Tot else 0 end
+              into :&out_mode. trimmed,
+                   :&out_pct. trimmed
+            from casuser._simil_mode_rank
+            where RN=1;
+        quit;
+    %end;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _simil_mode_freq _simil_mode_rank;
+    quit;
+
+%mend _simil_get_mode_pct;
+
+%macro _simil_bucket_plot_num(data=, split_var=Split, var=, byvar=,
+    groups=5, m_data_type=TRAIN);
+
+    %local rnd _simil_rank_n;
+    %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_num_src_&rnd. {options replace=true} as
+        select upcase(strip(&split_var.)) as Split length 5,
+               &byvar. as Periodo,
+               case
+                   when &var. in (., 1111111111, -1111111111, 2222222222,
+                       -2222222222, 3333333333, -3333333333, 4444444444,
+                       5555555555, 6666666666, 7777777777, -999999999)
+                   then .
+                   else round(&var., 0.0001)
+               end as Valor
+        from &data.
+        where upcase(strip(&split_var.)) in ('TRAIN', 'OOT');
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_num_rank_&rnd. {options replace=true} as
+        select Valor,
+               ntile(&groups.) over(order by Valor) as Rango
+        from casuser._simil_num_src_&rnd.
+        where Split='TRAIN'
+          and Valor is not null;
+    quit;
+
+    %let _simil_rank_n=0;
+    proc sql noprint;
+        select count(*) into :_simil_rank_n trimmed
+        from casuser._simil_num_rank_&rnd.;
+    quit;
+
+    %if &_simil_rank_n. > 0 %then %do;
+        proc fedsql sessref=conn;
+            create table casuser._simil_num_cuts_raw_&rnd.
+                {options replace=true} as
+            select Rango,
+                   min(Valor) as MinVal,
+                   max(Valor) as MaxVal
+            from casuser._simil_num_rank_&rnd.
+            group by Rango;
+        quit;
+
+        proc fedsql sessref=conn;
+            create table casuser._simil_num_cuts_&rnd. {options replace=true} as
+            select c.Rango,
+                   p.MaxVal as Inicio,
+                   c.MaxVal as Fin,
+                   case when c.Rango = r.MinR then 1 else 0 end as Flag_Ini,
+                   case when c.Rango = r.MaxR then 1 else 0 end as Flag_Fin
+            from casuser._simil_num_cuts_raw_&rnd. c
+            left join casuser._simil_num_cuts_raw_&rnd. p
+                on c.Rango = p.Rango + 1
+            cross join (
+                select min(Rango) as MinR,
+                       max(Rango) as MaxR
+                from casuser._simil_num_cuts_raw_&rnd.
+            ) r;
+        quit;
+    %end;
+    %else %do;
+        proc fedsql sessref=conn;
+            create table casuser._simil_num_cuts_&rnd. {options replace=true} as
+            select cast(. as double) as Rango,
+                   cast(. as double) as Inicio,
+                   cast(. as double) as Fin,
+                   0 as Flag_Ini,
+                   0 as Flag_Fin
+            from casuser._simil_num_src_&rnd.
+            where 1=0;
+        quit;
+    %end;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_num_bucket_&rnd. {options replace=true} as
+        select a.Periodo,
+               case
+                   when a.Valor is null then 0
+                   when c.Rango is null then 999
+                   else c.Rango
+               end as Bucket_N,
+               case
+                   when a.Valor is null then '00. Missing'
+                   when c.Rango is null then '99. OutRange'
+                   when c.Rango < 10 then '0' || trim(cast(c.Rango as varchar(16)))
+                   else trim(cast(c.Rango as varchar(16)))
+               end as Bucket
+        from casuser._simil_num_src_&rnd. a
+        left join casuser._simil_num_cuts_&rnd. c
+            on upcase(strip(a.Split))='%upcase(&m_data_type.)'
+           and (
+               (c.Flag_Ini=1 and c.Flag_Fin=1 and a.Valor is not null)
+               or
+               (c.Flag_Ini=1 and c.Flag_Fin=0 and a.Valor <= c.Fin)
+               or
+               (c.Flag_Ini=0 and c.Flag_Fin=1 and a.Valor > c.Inicio)
+               or
+               (c.Flag_Ini=0 and c.Flag_Fin=0 and a.Valor > c.Inicio and a.Valor <= c.Fin)
+           )
+        where upcase(strip(a.Split))='%upcase(&m_data_type.)';
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_num_cnt_&rnd. {options replace=true} as
+        select Periodo,
+               Bucket_N,
+               Bucket,
+               count(*) as N
+        from casuser._simil_num_bucket_&rnd.
+        group by Periodo, Bucket_N, Bucket;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_num_tot_&rnd. {options replace=true} as
+        select Periodo,
+               sum(N) as Total_N
+        from casuser._simil_num_cnt_&rnd.
+        group by Periodo;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_num_pct_&rnd. {options replace=true} as
+        select c.Periodo,
+               c.Bucket_N,
+               c.Bucket,
+               c.N,
+               case when t.Total_N > 0 then 100 * c.N / t.Total_N else 0 end as Percent
+        from casuser._simil_num_cnt_&rnd. c
+        inner join casuser._simil_num_tot_&rnd. t
+            on c.Periodo=t.Periodo;
+    quit;
+
+    %_simil_sort_cas(table_name=_simil_num_pct_&rnd.,
+        orderby=%str({"Periodo", "Bucket_N"}));
+
+    title "Evolutivo distribucion variable &var. - %upcase(&m_data_type.).";
+    proc sgplot data=casuser._simil_num_pct_&rnd.;
+        vbar Periodo / response=Percent group=Bucket
+            groupdisplay=stack nooutline name='bars' barwidth=1;
+        keylegend 'bars' / title='Rango' opaque;
+        xaxis type=discrete discreteorder=data valueattrs=(size=7pt);
+        yaxis label='Percent';
+    run;
+    title;
+
+    ods escapechar='^';
+    ods text=' ';
+    ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar. - %upcase(&m_data_type.).";
+    ods text=' ';
+
+    proc print data=casuser._simil_num_pct_&rnd. noobs;
+        var Periodo Bucket N Percent;
+        format Percent 8.2;
+    run;
+
+    proc datasets library=casuser nolist nowarn;
+        delete _simil_num_src_&rnd.
+               _simil_num_rank_&rnd.
+               _simil_num_cuts_raw_&rnd.
+               _simil_num_cuts_&rnd.
+               _simil_num_bucket_&rnd.
+               _simil_num_cnt_&rnd.
+               _simil_num_tot_&rnd.
+               _simil_num_pct_&rnd.;
+    quit;
+
+%mend _simil_bucket_plot_num;
+
+%macro _simil_bucket_plot_cat(data=, split_var=Split, var=, byvar=,
+    m_data_type=TRAIN);
 
     %local rnd;
     %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
 
-    /* Copiar datos a work para PROC RANK (solo columna necesaria) */
-    data work._simil_rk_&rnd._1;
-        set &tablain.(keep=&var.);
-        &var. = round(&var., 0.0001);
-    run;
-
-    proc rank data=work._simil_rk_&rnd._1 out=work._simil_rk_&rnd._2
-        groups=&groups.;
-        ranks RANGO;
-        var &var.;
-    run;
-
-    proc sql noprint;
-        create table work._simil_rk_&rnd._3 as
-        select RANGO,
-               min(&var.) as MINVAL,
-               max(&var.) as MAXVAL
-        from work._simil_rk_&rnd._2
-        group by RANGO;
+    proc fedsql sessref=conn;
+        create table casuser._simil_cat_src_&rnd. {options replace=true} as
+        select &byvar. as Periodo,
+               coalesce(trim(cast(&var. as varchar(200))), '00. Missing') as Bucket
+        from &data.
+        where upcase(strip(&split_var.))='%upcase(&m_data_type.)';
     quit;
 
-    proc sort data=work._simil_rk_&rnd._3;
-        by RANGO;
+    proc fedsql sessref=conn;
+        create table casuser._simil_cat_cnt_&rnd. {options replace=true} as
+        select Periodo,
+               Bucket,
+               count(*) as N
+        from casuser._simil_cat_src_&rnd.
+        group by Periodo, Bucket;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_cat_tot_&rnd. {options replace=true} as
+        select Periodo,
+               sum(N) as Total_N
+        from casuser._simil_cat_cnt_&rnd.
+        group by Periodo;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._simil_cat_pct_&rnd. {options replace=true} as
+        select c.Periodo,
+               c.Bucket,
+               c.N,
+               case when t.Total_N > 0 then 100 * c.N / t.Total_N else 0 end as Percent
+        from casuser._simil_cat_cnt_&rnd. c
+        inner join casuser._simil_cat_tot_&rnd. t
+            on c.Periodo=t.Periodo;
+    quit;
+
+    %_simil_sort_cas(table_name=_simil_cat_pct_&rnd.,
+        orderby=%str({"Periodo", "Bucket"}));
+
+    title "Evolutivo distribucion variable &var. - %upcase(&m_data_type.).";
+    proc sgplot data=casuser._simil_cat_pct_&rnd.;
+        vbar Periodo / response=Percent group=Bucket
+            groupdisplay=stack nooutline name='bars' barwidth=1;
+        keylegend 'bars' / title='Categoria' opaque;
+        xaxis type=discrete discreteorder=data valueattrs=(size=7pt);
+        yaxis label='Percent';
+    run;
+    title;
+
+    ods escapechar='^';
+    ods text=' ';
+    ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar. - %upcase(&m_data_type.).";
+    ods text=' ';
+
+    proc print data=casuser._simil_cat_pct_&rnd. noobs;
+        var Periodo Bucket N Percent;
+        format Percent 8.2;
     run;
 
-    data work._simil_rk_&rnd._4;
-        set work._simil_rk_&rnd._3(rename=(RANGO=RANGO_INI)) end=EOF;
-        retain MARCA 0;
-        N = _n_;
-        FLAG_INI = 0;
-        FLAG_FIN = 0;
-        LAGMAXVAL = lag(MAXVAL);
-        RANGO = RANGO_INI + 1;
-        if RANGO_INI = . then RANGO = 0;
-        if RANGO_INI >= 0 then MARCA = MARCA + 1;
-        if MARCA = 1 then FLAG_INI = 1;
-        if EOF then FLAG_FIN = 1;
-    run;
-
-    proc sql noprint;
-        create table work._simil_cortes as
-        select "&var." as VARIABLE length=32,
-               RANGO,
-               RANGO_INI,
-               LAGMAXVAL as INICIO,
-               MAXVAL as FIN,
-               FLAG_INI,
-               FLAG_FIN,
-               case
-                   when RANGO = 0 then "00. Missing"
-                   when FLAG_INI = 1 then
-                       cat(put(RANGO, Z2.), ". <-Inf; ",
-                           cats(put(MAXVAL, F12.4)), "]")
-                   when FLAG_FIN = 1 then
-                       cat(put(RANGO, Z2.), ". <",
-                           cats(put(LAGMAXVAL, F12.4)), "; +Inf>")
-                   else
-                       cat(put(RANGO, Z2.), ". <",
-                           cats(put(LAGMAXVAL, F12.4)), "; ",
-                           cats(put(MAXVAL, F12.4)), "]")
-               end as ETIQUETA length=200
-        from work._simil_rk_&rnd._4;
+    proc datasets library=casuser nolist nowarn;
+        delete _simil_cat_src_&rnd.
+               _simil_cat_cnt_&rnd.
+               _simil_cat_tot_&rnd.
+               _simil_cat_pct_&rnd.;
     quit;
 
-    /* Cleanup staging */
-    proc datasets library=work nolist nowarn;
-        delete _simil_rk_&rnd.:;
-    quit;
+%mend _simil_bucket_plot_cat;
 
-%mend _simil_calcular_cortes;
-
-/* =====================================================================
-%_simil_bucket_plot - Stacked bar de distribucion por bucket y periodo
-
-Para numericas (flg_continue=1):
-- Discretiza con cortes de work._simil_cortes
-- Genera stacked bar (bucket % por periodo) + tabla pivotada
-
-Para categoricas (flg_continue=0):
-- Agrupa directamente por valor de la variable
-- Genera stacked bar (categoria % por periodo) + tabla pivotada
-
-Patron: Pattern B (work staging) - PROC SORT, PROC FREQ BY,
-PROC TRANSPOSE no son CAS-compatibles.
-===================================================================== */
-%macro _simil_bucket_plot(tablain, var, byvar=, groups=5, flg_continue=1,
-    reuse_cuts=0, m_data_type=);
-
-    %local rnd DATAAPPLY;
-    %let rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
-
-    %let color_list=mediumblue salmon mediumpurple gold vligb palegreen
-        pab vigb lip vpab;
-
-    %if &flg_continue. = 1 %then %do;
-        /* --- Numerica: discretizar con cortes --- */
-
-        /* Copiar datos a work, reemplazar dummies con missing */
-        data work._simil_bp_&rnd._0;
-            set &tablain.;
-            if &var. in (., 1111111111, -1111111111, 2222222222,
-                -2222222222, 3333333333, -3333333333, 4444444444,
-                5555555555, 6666666666, 7777777777, -999999999)
-                then &var. = .;
-        run;
-
-        /* Calcular cortes si no reutilizamos */
-        %if &reuse_cuts. = 0 %then %do;
-            %_simil_calcular_cortes(work._simil_bp_&rnd._0, &var., &groups.);
-
-            proc sort data=work._simil_cortes;
-                by RANGO;
-            run;
-        %end;
-        /* Si reuse_cuts=1, work._simil_cortes ya existe de TRAIN */
-
-        /* Construir sentencias IF para etiquetar buckets */
-        data work._simil_bp_&rnd._1;
-            set work._simil_cortes end=EOF;
-            length QUERY_BODY $500;
-            if RANGO = 0 then
-                QUERY_BODY = cat("IF MISSING(&var.)=1 THEN ETIQUETA=",
-                    '"', strip(ETIQUETA), '";');
-            else if FLAG_INI = 1 then
-                QUERY_BODY = cat("IF &var.<=", FIN,
-                    " AND &var.>. THEN ETIQUETA=",
-                    '"', strip(ETIQUETA), '";');
-            else if FLAG_FIN = 1 then
-                QUERY_BODY = cat("IF &var.>", INICIO,
-                    " THEN ETIQUETA=",
-                    '"', strip(ETIQUETA), '";');
-            else
-                QUERY_BODY = cat("IF ", INICIO, "<&var.<=", FIN,
-                    " THEN ETIQUETA=",
-                    '"', strip(ETIQUETA), '";');
-        run;
-
-        /* Color map para stacked bars */
-        data work._simil_attrmap_&rnd.(keep=id value fillcolor);
-            length FILLCOLOR $20;
-            set work._simil_bp_&rnd._1;
-            ID = 'MYID';
-            VALUE = ETIQUETA;
-            FILLCOLOR = scan("&color_list.", RANGO);
-        run;
-
-        proc sql noprint;
-            select QUERY_BODY into :DATAAPPLY separated by " "
-            from work._simil_bp_&rnd._1;
-        quit;
-
-        /* Aplicar etiquetas a datos */
-        data work._simil_bp_&rnd._2;
-            set work._simil_bp_&rnd._0;
-            length ETIQUETA $200;
-            &DATAAPPLY.;
-        run;
-
-        /* Calcular frecuencias por periodo y bucket */
-        proc sort data=work._simil_bp_&rnd._2;
-            by &byvar.;
-        run;
-
-        proc freq data=work._simil_bp_&rnd._2 noprint;
-            by &byvar.;
-            tables ETIQUETA / out=work._simil_bp_&rnd._3;
-        run;
-
-        title "Evolutivo distribucion variable &var. - &m_data_type.";
-
-        proc sgplot data=work._simil_bp_&rnd._3
-            dattrmap=work._simil_attrmap_&rnd.;
-            vbar &byvar. / response=percent group=ETIQUETA
-                groupdisplay=stack nooutline name="bars"
-                attrid=MYID barwidth=1;
-            keylegend "bars" / title="Rango" opaque;
-            xaxis type=discrete discreteorder=data
-                valueattrs=(size=7pt);
-        run;
-        title;
-
-        /* Tabla pivotada de porcentajes */
-        proc transpose data=work._simil_bp_&rnd._3
-            out=work._simil_bp_&rnd._rpt(drop=_name_ _label_);
-            by &byvar.;
-            id ETIQUETA;
-            var percent;
-        run;
-
-        ods escapechar="^";
-        ods text=" ";
-        ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar.";
-        ods text=" ";
-
-        proc print data=work._simil_bp_&rnd._rpt noobs;
-        run;
-
-    %end;
-    %else %do;
-        /* --- Categorica: agrupar directamente --- */
-
-        /* Copiar datos a work */
-        data work._simil_bp_&rnd._0;
-            set &tablain.;
-        run;
-
-        /* Color map basado en valores distintos */
-        proc sql noprint;
-            create table work._simil_bp_&rnd._cats as
-            select distinct &var. as category
-            from work._simil_bp_&rnd._0
-            order by &var.;
-        quit;
-
-        data work._simil_attrmap_&rnd.(keep=id value fillcolor);
-            length FILLCOLOR $20;
-            set work._simil_bp_&rnd._cats;
-            ID = 'MYID';
-            VALUE = cats(category);
-            FILLCOLOR = scan("&color_list.", _N_);
-        run;
-
-        /* Frecuencias por periodo y categoria */
-        proc sort data=work._simil_bp_&rnd._0;
-            by &byvar.;
-        run;
-
-        proc freq data=work._simil_bp_&rnd._0 noprint;
-            by &byvar.;
-            tables &var. / out=work._simil_bp_&rnd._3;
-        run;
-
-        data work._simil_bp_&rnd._3;
-            set work._simil_bp_&rnd._3;
-            category = cats(&var.);
-        run;
-
-        title "Evolutivo distribucion variable &var. - &m_data_type.";
-
-        proc sgplot data=work._simil_bp_&rnd._3
-            dattrmap=work._simil_attrmap_&rnd.;
-            vbar &byvar. / response=percent group=category
-                groupdisplay=stack nooutline name="bars"
-                attrid=MYID barwidth=1;
-            keylegend "bars" / title="Rango" opaque;
-            xaxis type=discrete discreteorder=data
-                valueattrs=(size=7pt);
-        run;
-        title;
-
-        /* Tabla pivotada */
-        proc transpose data=work._simil_bp_&rnd._3
-            out=work._simil_bp_&rnd._rpt(drop=_name_ _label_);
-            by &byvar.;
-            id &var.;
-            var percent;
-        run;
-
-        ods escapechar="^";
-        ods text=" ";
-        ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar.";
-        ods text=" ";
-
-        proc print data=work._simil_bp_&rnd._rpt noobs;
-        run;
-
-    %end;
-
-    /* Cleanup staging */
-    proc datasets library=work nolist nowarn;
-        delete _simil_bp_&rnd.: _simil_attrmap_&rnd.;
-    quit;
-
-%mend _simil_bucket_plot;
-
-/* =====================================================================
-%_simil_bucket_variables - Orquestador: itera vars num+cat para buckets
-
-Para cada variable numerica:
-- TRAIN: calcula cortes (reuse_cuts=0)
-- OOT: reutiliza cortes de TRAIN (reuse_cuts=1)
-
-Para cada variable categorica:
-- TRAIN + OOT sin cortes (flg_continue=0)
-===================================================================== */
-%macro _simil_bucket_variables(train_data=, oot_data=, byvar=, vars_num=,
+%macro _simil_bucket_variables(data=, split_var=Split, byvar=, vars_num=,
     vars_cat=, groups=5);
 
     %local c v z v_cat;
 
-    /* Procesar variables numericas */
-    %if %length(&vars_num.) > 0 %then %do;
-        %let c = 1;
-        %let v = %scan(&vars_num., &c., %str( ));
+    %if %length(%superq(vars_num)) > 0 %then %do;
+        %let c=1;
+        %let v=%scan(&vars_num., &c., %str( ));
         %do %while(%length(&v.) > 0);
             %put NOTE: [similitud] Bucket plot numerica: &v.;
-
-            /* TRAIN: calcular cortes */
-            %_simil_bucket_plot(&train_data., &v., byvar=&byvar.,
-                groups=&groups., flg_continue=1, reuse_cuts=0,
-                m_data_type=TRAIN);
-
-            /* OOT: reusar cortes de TRAIN */
-            %_simil_bucket_plot(&oot_data., &v., byvar=&byvar.,
-                groups=&groups., flg_continue=1, reuse_cuts=1,
-                m_data_type=OOT);
-
-            /* Limpiar cortes despues de OOT */
-            proc datasets library=work nolist nowarn;
-                delete _simil_cortes;
-            quit;
-
-            %let c = %eval(&c. + 1);
-            %let v = %scan(&vars_num., &c., %str( ));
+            %_simil_bucket_plot_num(data=&data., split_var=&split_var.,
+                var=&v., byvar=&byvar., groups=&groups., m_data_type=TRAIN);
+            %_simil_bucket_plot_num(data=&data., split_var=&split_var.,
+                var=&v., byvar=&byvar., groups=&groups., m_data_type=OOT);
+            %let c=%eval(&c. + 1);
+            %let v=%scan(&vars_num., &c., %str( ));
         %end;
     %end;
 
-    /* Procesar variables categoricas */
-    %if %length(&vars_cat.) > 0 %then %do;
-        %let z = 1;
-        %let v_cat = %scan(&vars_cat., &z., %str( ));
+    %if %length(%superq(vars_cat)) > 0 %then %do;
+        %let z=1;
+        %let v_cat=%scan(&vars_cat., &z., %str( ));
         %do %while(%length(&v_cat.) > 0);
             %put NOTE: [similitud] Bucket plot categorica: &v_cat.;
-
-            /* TRAIN */
-            %_simil_bucket_plot(&train_data., &v_cat., byvar=&byvar.,
-                groups=&groups., flg_continue=0, reuse_cuts=0,
-                m_data_type=TRAIN);
-
-            /* OOT */
-            %_simil_bucket_plot(&oot_data., &v_cat., byvar=&byvar.,
-                groups=&groups., flg_continue=0, reuse_cuts=0,
-                m_data_type=OOT);
-
-            %let z = %eval(&z. + 1);
-            %let v_cat = %scan(&vars_cat., &z., %str( ));
+            %_simil_bucket_plot_cat(data=&data., split_var=&split_var.,
+                var=&v_cat., byvar=&byvar., m_data_type=TRAIN);
+            %_simil_bucket_plot_cat(data=&data., split_var=&split_var.,
+                var=&v_cat., byvar=&byvar., m_data_type=OOT);
+            %let z=%eval(&z. + 1);
+            %let v_cat=%scan(&vars_cat., &z., %str( ));
         %end;
     %end;
 
 %mend _simil_bucket_variables;
 
-/* =====================================================================
-%_simil_similitud_num - Comparacion de medianas TRAIN vs OOT
-(variables numericas)
-
-Calcula: Mediana_TRAIN, Mediana_OOT, MAE, RMSE, Diferencia %
-Semaforo: Alta Similitud (<umbral_verde), Similitud Media, Baja Similitud
-
-Pattern B: PROC MEANS output, PROC APPEND, PROC PRINT en work.
-===================================================================== */
-%macro _simil_similitud_num(train_data=, oot_data=, vars_num=, target=,
+%macro _simil_similitud_num(data=, split_var=Split, vars_num=, target=,
     umbral_verde=10, umbral_amarillo=20);
 
     %local todas_vars total_vars i var_num;
     %local mediana_train mediana_oot mae rmse diferencia_pct similitud;
 
-    /* Combinar target + variables numericas */
-    %let todas_vars = &target. &vars_num.;
+    %let todas_vars=&target. &vars_num.;
 
     %if %length(%superq(todas_vars)) = 0 %then %do;
         %put WARNING: [similitud] No hay variables numericas para similitud.;
         %return;
     %end;
 
-    /* Crear tabla de resultados vacia */
-    data work._simil_res_num;
-        length Variable $32 Mediana_TRAIN 8 Mediana_OOT 8 MAE 8 RMSE 8
+    data casuser._simil_res_num;
+        length Variable $64 Mediana_TRAIN 8 Mediana_OOT 8 MAE 8 RMSE 8
             Diferencia_Pct 8 Similitud $20;
         stop;
     run;
 
-    %let total_vars = %sysfunc(countw(&todas_vars., %str( )));
+    %let total_vars=%sysfunc(countw(&todas_vars., %str( )));
 
-    %do i = 1 %to &total_vars.;
-        %let var_num = %scan(&todas_vars., &i., %str( ));
+    %do i=1 %to &total_vars.;
+        %let var_num=%scan(&todas_vars., &i., %str( ));
         %put NOTE: [similitud] Similitud numerica: &var_num.;
 
-        /* Mediana TRAIN */
-        proc means data=&train_data. median noprint;
-            var &var_num.;
-            output out=work._simil_med_trn(drop=_type_ _freq_)
-                median=mediana;
-        run;
+        %_simil_get_median(data=&data., split_var=&split_var.,
+            split_value=TRAIN, var=&var_num., outvar=mediana_train);
+        %_simil_get_median(data=&data., split_var=&split_var.,
+            split_value=OOT, var=&var_num., outvar=mediana_oot);
 
-        data _null_;
-            set work._simil_med_trn;
-            call symputx('mediana_train', mediana);
-        run;
+        %if %sysevalf(%superq(mediana_train)=, boolean) %then %let mediana_train=.;
+        %if %sysevalf(%superq(mediana_oot)=, boolean) %then %let mediana_oot=.;
 
-        /* Mediana OOT */
-        proc means data=&oot_data. median noprint;
-            var &var_num.;
-            output out=work._simil_med_oot(drop=_type_ _freq_)
-                median=mediana;
-        run;
+        %let mae=%sysfunc(abs(%sysevalf(&mediana_train. - &mediana_oot.)));
+        %let rmse=%sysfunc(sqrt((&mediana_train. - &mediana_oot.)**2));
 
-        data _null_;
-            set work._simil_med_oot;
-            call symputx('mediana_oot', mediana);
-        run;
-
-        /* Calcular metricas de error */
-        %let mae = %sysfunc(abs(%sysevalf(&mediana_train. - &mediana_oot.)));
-        %let rmse = %sysfunc(sqrt((&mediana_train. - &mediana_oot.)**2));
-
-        /* Diferencia porcentual (evitar division por cero) */
         %if %sysevalf(&mediana_train. ^= 0) %then %do;
-            %let diferencia_pct = %sysevalf(100 * &mae. / %sysfunc(abs(&mediana_train.)));
+            %let diferencia_pct=%sysevalf(100 * &mae. /
+                %sysfunc(abs(&mediana_train.)));
         %end;
         %else %if %sysevalf(&mediana_oot. = 0) %then %do;
-            %let diferencia_pct = 0;
+            %let diferencia_pct=0;
         %end;
         %else %do;
-            %let diferencia_pct = 100;
+            %let diferencia_pct=100;
         %end;
 
-        /* Semaforo */
         %if %sysevalf(&diferencia_pct. < &umbral_verde.) %then
-            %let similitud = Alta Similitud;
+            %let similitud=Alta Similitud;
         %else %if %sysevalf(&diferencia_pct. < &umbral_amarillo.) %then
-            %let similitud = Similitud Media;
+            %let similitud=Similitud Media;
         %else
-            %let similitud = Baja Similitud;
+            %let similitud=Baja Similitud;
 
-        /* Agregar fila al resultado */
-        data work._simil_tmp_num;
-            length Variable $32 Mediana_TRAIN 8 Mediana_OOT 8 MAE 8 RMSE 8
+        data casuser._simil_tmp_num;
+            length Variable $64 Mediana_TRAIN 8 Mediana_OOT 8 MAE 8 RMSE 8
                 Diferencia_Pct 8 Similitud $20;
-            Variable = "&var_num.";
-            Mediana_TRAIN = &mediana_train.;
-            Mediana_OOT = &mediana_oot.;
-            MAE = &mae.;
-            RMSE = &rmse.;
-            Diferencia_Pct = &diferencia_pct.;
-            Similitud = "&similitud.";
+            Variable="&var_num.";
+            Mediana_TRAIN=&mediana_train.;
+            Mediana_OOT=&mediana_oot.;
+            MAE=&mae.;
+            RMSE=&rmse.;
+            Diferencia_Pct=&diferencia_pct.;
+            Similitud="&similitud.";
+            output;
         run;
 
-        proc append base=work._simil_res_num data=work._simil_tmp_num;
-        run;
+        proc cas;
+            session conn;
+            table.append /
+                source={caslib='casuser', name='_simil_tmp_num'},
+                target={caslib='casuser', name='_simil_res_num'};
+        quit;
+
+        proc datasets library=casuser nolist nowarn;
+            delete _simil_tmp_num;
+        quit;
     %end;
 
-    /* Formato semaforo */
+    %_simil_sort_cas(table_name=_simil_res_num,
+        orderby=%str({"Variable"}));
+
     proc format;
         value $simil_bg
-            'Alta Similitud' = 'lightgreen'
-            'Similitud Media' = 'yellow'
-            'Baja Similitud' = 'salmon';
+            'Alta Similitud'='lightgreen'
+            'Similitud Media'='yellow'
+            'Baja Similitud'='salmon';
     run;
 
     title "Similitud de muestras - Variables Numericas (Mediana)";
-
-    proc print data=work._simil_res_num label noobs;
+    proc print data=casuser._simil_res_num label noobs;
         var Variable Mediana_TRAIN Mediana_OOT MAE RMSE Diferencia_Pct;
         var Similitud / style={background=$simil_bg.};
         format Mediana_TRAIN Mediana_OOT 12.4 MAE RMSE 12.4
             Diferencia_Pct 8.1;
-        label MAE = "Error Abs. Medio"
-              RMSE = "Raiz Error Cuad."
-              Diferencia_Pct = "Diferencia (%)"
-              Similitud = "Nivel de Similitud";
+        label MAE='Error Abs. Medio'
+              RMSE='Raiz Error Cuad.'
+              Diferencia_Pct='Diferencia (%)'
+              Similitud='Nivel de Similitud';
     run;
     title;
 
-    /* Cleanup */
-    proc datasets library=work nolist nowarn;
-        delete _simil_res_num _simil_tmp_num _simil_med_trn _simil_med_oot;
+    proc datasets library=casuser nolist nowarn;
+        delete _simil_res_num;
     quit;
 
 %mend _simil_similitud_num;
 
-/* =====================================================================
-%_simil_similitud_cat - Comparacion de modas TRAIN vs OOT
-(variables categoricas)
-
-Calcula: Moda_TRAIN, Moda_OOT, Pct_TRAIN, Pct_OOT, Diferencia %
-Semaforo: Alta Similitud (<umbral_verde), Similitud Media, Baja Similitud
-
-Pattern B: PROC FREQ, PROC SORT, PROC APPEND, PROC PRINT en work.
-===================================================================== */
-%macro _simil_similitud_cat(train_data=, oot_data=, vars_cat=,
+%macro _simil_similitud_cat(data=, split_var=Split, vars_cat=,
     umbral_verde=10, umbral_amarillo=20);
 
     %local total_vars i var_cat;
@@ -524,108 +533,84 @@ Pattern B: PROC FREQ, PROC SORT, PROC APPEND, PROC PRINT en work.
         %return;
     %end;
 
-    /* Crear tabla de resultados vacia */
-    data work._simil_res_cat;
-        length Variable $32 Moda_TRAIN $100 Moda_OOT $100 Pct_TRAIN 8
+    data casuser._simil_res_cat;
+        length Variable $64 Moda_TRAIN $200 Moda_OOT $200 Pct_TRAIN 8
             Pct_OOT 8 Diferencia 8 Similitud $20;
         stop;
     run;
 
-    %let total_vars = %sysfunc(countw(&vars_cat., %str( )));
+    %let total_vars=%sysfunc(countw(&vars_cat., %str( )));
 
-    %do i = 1 %to &total_vars.;
-        %let var_cat = %scan(&vars_cat., &i., %str( ));
+    %do i=1 %to &total_vars.;
+        %let var_cat=%scan(&vars_cat., &i., %str( ));
         %put NOTE: [similitud] Similitud categorica: &var_cat.;
 
-        /* Moda TRAIN */
-        proc freq data=&train_data. noprint;
-            tables &var_cat. / out=work._simil_freq_trn missing;
-        run;
+        %_simil_get_mode_pct(data=&data., split_var=&split_var.,
+            split_value=TRAIN, var=&var_cat., out_mode=moda_train,
+            out_pct=pct_train);
+        %_simil_get_mode_pct(data=&data., split_var=&split_var.,
+            split_value=OOT, var=&var_cat., out_mode=moda_oot,
+            out_pct=pct_oot);
 
-        data work._simil_freq_trn;
-            set work._simil_freq_trn;
-            where not missing(&var_cat.);
-        run;
+        %if %sysevalf(%superq(pct_train)=, boolean) %then %let pct_train=0;
+        %if %sysevalf(%superq(pct_oot)=, boolean) %then %let pct_oot=0;
 
-        proc sort data=work._simil_freq_trn;
-            by descending count;
-        run;
-
-        data _null_;
-            set work._simil_freq_trn(obs=1);
-            call symputx('moda_train', &var_cat.);
-            call symputx('pct_train', percent);
-        run;
-
-        /* Moda OOT */
-        proc freq data=&oot_data. noprint;
-            tables &var_cat. / out=work._simil_freq_oot missing;
-        run;
-
-        data work._simil_freq_oot;
-            set work._simil_freq_oot;
-            where not missing(&var_cat.);
-        run;
-
-        proc sort data=work._simil_freq_oot;
-            by descending count;
-        run;
-
-        data _null_;
-            set work._simil_freq_oot(obs=1);
-            call symputx('moda_oot', &var_cat.);
-            call symputx('pct_oot', percent);
-        run;
-
-        /* Diferencia y semaforo */
-        %let diferencia = %sysfunc(abs(%sysevalf(&pct_train. - &pct_oot.)));
+        %let diferencia=%sysfunc(abs(%sysevalf(&pct_train. - &pct_oot.)));
 
         %if %sysevalf(&diferencia. < &umbral_verde.) %then
-            %let similitud = Alta Similitud;
+            %let similitud=Alta Similitud;
         %else %if %sysevalf(&diferencia. < &umbral_amarillo.) %then
-            %let similitud = Similitud Media;
+            %let similitud=Similitud Media;
         %else
-            %let similitud = Baja Similitud;
+            %let similitud=Baja Similitud;
 
-        /* Agregar fila al resultado */
-        data work._simil_tmp_cat;
-            length Variable $32 Moda_TRAIN $100 Moda_OOT $100 Pct_TRAIN 8
+        data casuser._simil_tmp_cat;
+            length Variable $64 Moda_TRAIN $200 Moda_OOT $200 Pct_TRAIN 8
                 Pct_OOT 8 Diferencia 8 Similitud $20;
-            Variable = "&var_cat.";
-            Moda_TRAIN = "&moda_train.";
-            Moda_OOT = "&moda_oot.";
-            Pct_TRAIN = &pct_train.;
-            Pct_OOT = &pct_oot.;
-            Diferencia = &diferencia.;
-            Similitud = "&similitud.";
+            Variable="&var_cat.";
+            Moda_TRAIN=symget('moda_train');
+            Moda_OOT=symget('moda_oot');
+            Pct_TRAIN=&pct_train.;
+            Pct_OOT=&pct_oot.;
+            Diferencia=&diferencia.;
+            Similitud="&similitud.";
+            output;
         run;
 
-        proc append base=work._simil_res_cat data=work._simil_tmp_cat;
-        run;
+        proc cas;
+            session conn;
+            table.append /
+                source={caslib='casuser', name='_simil_tmp_cat'},
+                target={caslib='casuser', name='_simil_res_cat'};
+        quit;
+
+        proc datasets library=casuser nolist nowarn;
+            delete _simil_tmp_cat;
+        quit;
     %end;
 
-    /* Formato semaforo */
+    %_simil_sort_cas(table_name=_simil_res_cat,
+        orderby=%str({"Variable"}));
+
     proc format;
         value $simil_bg
-            'Alta Similitud' = 'lightgreen'
-            'Similitud Media' = 'yellow'
-            'Baja Similitud' = 'salmon';
+            'Alta Similitud'='lightgreen'
+            'Similitud Media'='yellow'
+            'Baja Similitud'='salmon';
     run;
 
     title "Similitud de muestras - Variables Categoricas (Moda)";
-
-    proc print data=work._simil_res_cat label noobs;
+    proc print data=casuser._simil_res_cat label noobs;
         var Variable Moda_TRAIN Pct_TRAIN Moda_OOT Pct_OOT Diferencia;
         var Similitud / style={background=$simil_bg.};
         format Pct_TRAIN Pct_OOT 8.1 Diferencia 8.1;
-        label Diferencia = "Diferencia (%)"
-              Similitud = "Nivel de Similitud";
+        label Diferencia='Diferencia (%)'
+              Similitud='Nivel de Similitud';
     run;
     title;
 
-    /* Cleanup */
-    proc datasets library=work nolist nowarn;
-        delete _simil_res_cat _simil_tmp_cat _simil_freq_trn _simil_freq_oot;
+    proc datasets library=casuser nolist nowarn;
+        delete _simil_res_cat;
     quit;
 
 %mend _simil_similitud_cat;
