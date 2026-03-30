@@ -1,5 +1,5 @@
 /* =========================================================================
-bootstrap_run.sas - Macro publica del modulo Bootstrap (Metodo 4.3)
+bootstrap_run.sas - Macro publica del modulo Bootstrap (Metodo 7)
 
 API:
 %bootstrap_run(
@@ -136,12 +136,12 @@ CUSTOM - usa boot_custom_vars (lista manual) + target de config.
         %put NOTE: [bootstrap_run] Output -> experiments/ (exploratorio);
     %end;
     %else %do;
-        %let _report_path = &fw_root./outputs/runs/&run_id./reports/METOD4.3;
-        %let _images_path = &fw_root./outputs/runs/&run_id./images/METOD4.3;
-        %let _tables_path = &fw_root./outputs/runs/&run_id./tables/METOD4.3;
+        %let _report_path = &fw_root./outputs/runs/&run_id./reports/METOD7;
+        %let _images_path = &fw_root./outputs/runs/&run_id./images/METOD7;
+        %let _tables_path = &fw_root./outputs/runs/&run_id./tables/METOD7;
         %let _file_prefix = boot_troncal_&troncal_id._&_scope_abbr.;
         %let _tbl_prefix  = boot_t&troncal_id._&_scope_abbr.;
-        %put NOTE: [bootstrap_run] Output -> reports/METOD4.3/;
+        %put NOTE: [bootstrap_run] Output -> reports/METOD7/;
     %end;
 
     /* ==================================================================
@@ -205,11 +205,11 @@ CUSTOM - usa boot_custom_vars (lista manual) + target de config.
     ================================================================== */
     %if &_boot_is_custom. = 0 %then %do;
         %let _dir_rc = %sysfunc(dcreate(
-            METOD4.3, &fw_root./outputs/runs/&run_id./reports));
+            METOD7, &fw_root./outputs/runs/&run_id./reports));
         %let _dir_rc = %sysfunc(dcreate(
-            METOD4.3, &fw_root./outputs/runs/&run_id./images));
+            METOD7, &fw_root./outputs/runs/&run_id./images));
         %let _dir_rc = %sysfunc(dcreate(
-            METOD4.3, &fw_root./outputs/runs/&run_id./tables));
+            METOD7, &fw_root./outputs/runs/&run_id./tables));
     %end;
 
     /* ==================================================================

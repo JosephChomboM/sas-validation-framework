@@ -1,6 +1,6 @@
 /* =========================================================================
-steps/methods/metod_4/step_bootstrap.sas
-Step de modulo: Bootstrapping de Coeficientes (Metodo 4.3)
+steps/methods/metod_7/step_bootstrap.sas
+Step de modulo: Bootstrapping de Coeficientes (Metodo 7)
 
 Flujo:
 1) Check flag run_bootstrap (skip si deshabilitado)
@@ -73,7 +73,7 @@ Cada step es independiente: carga sus propias dependencias.
     %let _step_status=OK;
 
     %fw_log_start(step_name=step_bootstrap, run_id=&run_id.,
-        fw_root=&fw_root., log_stem=metod_4_step_bootstrap);
+        fw_root=&fw_root., log_stem=metod_7_step_bootstrap);
 
     /* ---- 0) Check flag de habilitacion -------------------------------- */
     %if &run_bootstrap. ne 1 %then %do;

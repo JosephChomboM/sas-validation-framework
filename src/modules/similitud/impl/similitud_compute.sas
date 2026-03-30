@@ -261,8 +261,6 @@ Nota:
                end as Split_Order,
                a.Split,
                a.Periodo,
-               trim(a.Split) || '_' || trim(cast(a.Periodo as varchar(32)))
-                   as Periodo_Plot,
                case
                    when a.Valor is null then 0
                    when c.Rango is null then 999
@@ -271,8 +269,7 @@ Nota:
                case
                    when a.Valor is null then '00. Missing'
                    when c.Rango is null then '99. OutRange'
-                   when c.Rango < 10 then '0' || trim(cast(c.Rango as varchar(16)))
-                   else trim(cast(c.Rango as varchar(16)))
+                   else trim(c.ETIQUETA)
                end as Bucket
         from casuser._simil_num_src_&rnd. a
         left join casuser._simil_num_cuts_&rnd. c
@@ -292,12 +289,11 @@ Nota:
         select Split_Order,
                Split,
                Periodo,
-               Periodo_Plot,
                Bucket_N,
                Bucket,
                count(*) as N
         from casuser._simil_num_bucket_&rnd.
-        group by Split_Order, Split, Periodo, Periodo_Plot, Bucket_N, Bucket;
+        group by Split_Order, Split, Periodo, Bucket_N, Bucket;
     quit;
 
     proc fedsql sessref=conn;
@@ -305,10 +301,9 @@ Nota:
         select Split_Order,
                Split,
                Periodo,
-               Periodo_Plot,
                sum(N) as Total_N
         from casuser._simil_num_cnt_&rnd.
-        group by Split_Order, Split, Periodo, Periodo_Plot;
+        group by Split_Order, Split, Periodo;
     quit;
 
     proc fedsql sessref=conn;
@@ -316,7 +311,6 @@ Nota:
         select c.Split_Order,
                c.Split,
                c.Periodo,
-               c.Periodo_Plot,
                c.Bucket_N,
                c.Bucket,
                c.N,
@@ -325,19 +319,19 @@ Nota:
         inner join casuser._simil_num_tot_&rnd. t
             on c.Split_Order=t.Split_Order
            and c.Split=t.Split
-           and c.Periodo=t.Periodo
-           and c.Periodo_Plot=t.Periodo_Plot;
+           and c.Periodo=t.Periodo;
     quit;
 
     %_simil_sort_cas(table_name=_simil_num_pct_&rnd.,
-        orderby=%str({"Split_Order", "Periodo", "Bucket_N"}));
+        orderby=%str({"Periodo", "Bucket_N"}));
 
     title "Evolutivo distribucion variable &var. - TRAIN + OOT.";
     proc sgplot data=casuser._simil_num_pct_&rnd.;
-        vbar Periodo_Plot / response=Percent group=Bucket
+        vbar Periodo / response=Percent group=Bucket
             groupdisplay=stack nooutline name='bars' barwidth=1;
         keylegend 'bars' / title='Rango' opaque;
-        xaxis type=discrete discreteorder=data valueattrs=(size=7pt);
+        xaxis type=discrete discreteorder=data label="&byvar."
+            valueattrs=(size=7pt);
         yaxis label='Percent';
     run;
     title;
@@ -347,9 +341,28 @@ Nota:
     ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar. usando cortes TRAIN (TRAIN + OOT).";
     ods text=' ';
 
-    proc print data=casuser._simil_num_pct_&rnd. noobs;
-        var Split Periodo Bucket N Percent;
-        format Percent 8.2;
+    data work._simil_num_pct_&rnd.;
+        set casuser._simil_num_pct_&rnd.;
+    run;
+
+    proc sort data=work._simil_num_pct_&rnd.;
+        by Periodo Bucket_N;
+    run;
+
+    proc transpose data=work._simil_num_pct_&rnd.
+        out=work._simil_num_report_&rnd.(drop=_name_ _label_);
+        by Periodo;
+        id Bucket;
+        var Percent;
+    run;
+
+    data work._simil_num_report_&rnd.;
+        set work._simil_num_report_&rnd.;
+        rename Periodo=&byvar.;
+    run;
+
+    proc print data=work._simil_num_report_&rnd. noobs;
+        format _numeric_ 8.4;
     run;
 
     proc datasets library=casuser nolist nowarn;
@@ -359,6 +372,11 @@ Nota:
                _simil_num_cnt_&rnd.
                _simil_num_tot_&rnd.
                _simil_num_pct_&rnd.;
+    quit;
+
+    proc datasets library=work nolist nowarn;
+        delete _simil_num_pct_&rnd.
+               _simil_num_report_&rnd.;
     quit;
 
 %mend _simil_bucket_plot_num;
@@ -376,8 +394,6 @@ Nota:
                end as Split_Order,
                upcase(strip(&split_var.)) as Split,
                &byvar. as Periodo,
-               trim(upcase(strip(&split_var.))) || '_' ||
-                   trim(cast(&byvar. as varchar(32))) as Periodo_Plot,
                coalesce(trim(cast(&var. as varchar(200))), '00. Missing') as Bucket
         from &data.
         where upcase(strip(&split_var.)) in ('TRAIN', 'OOT');
@@ -388,11 +404,10 @@ Nota:
         select Split_Order,
                Split,
                Periodo,
-               Periodo_Plot,
                Bucket,
                count(*) as N
         from casuser._simil_cat_src_&rnd.
-        group by Split_Order, Split, Periodo, Periodo_Plot, Bucket;
+        group by Split_Order, Split, Periodo, Bucket;
     quit;
 
     proc fedsql sessref=conn;
@@ -400,10 +415,9 @@ Nota:
         select Split_Order,
                Split,
                Periodo,
-               Periodo_Plot,
                sum(N) as Total_N
         from casuser._simil_cat_cnt_&rnd.
-        group by Split_Order, Split, Periodo, Periodo_Plot;
+        group by Split_Order, Split, Periodo;
     quit;
 
     proc fedsql sessref=conn;
@@ -411,7 +425,6 @@ Nota:
         select c.Split_Order,
                c.Split,
                c.Periodo,
-               c.Periodo_Plot,
                c.Bucket,
                c.N,
                case when t.Total_N > 0 then 100 * c.N / t.Total_N else 0 end as Percent
@@ -419,19 +432,19 @@ Nota:
         inner join casuser._simil_cat_tot_&rnd. t
             on c.Split_Order=t.Split_Order
            and c.Split=t.Split
-           and c.Periodo=t.Periodo
-           and c.Periodo_Plot=t.Periodo_Plot;
+           and c.Periodo=t.Periodo;
     quit;
 
     %_simil_sort_cas(table_name=_simil_cat_pct_&rnd.,
-        orderby=%str({"Split_Order", "Periodo", "Bucket"}));
+        orderby=%str({"Periodo", "Bucket"}));
 
     title "Evolutivo distribucion variable &var. - TRAIN + OOT.";
     proc sgplot data=casuser._simil_cat_pct_&rnd.;
-        vbar Periodo_Plot / response=Percent group=Bucket
+        vbar Periodo / response=Percent group=Bucket
             groupdisplay=stack nooutline name='bars' barwidth=1;
         keylegend 'bars' / title='Categoria' opaque;
-        xaxis type=discrete discreteorder=data valueattrs=(size=7pt);
+        xaxis type=discrete discreteorder=data label="&byvar."
+            valueattrs=(size=7pt);
         yaxis label='Percent';
     run;
     title;
@@ -441,9 +454,28 @@ Nota:
     ods text="^S={fontweight=bold fontsize=11pt} Bucket % de &var. por &byvar. (TRAIN + OOT).";
     ods text=' ';
 
-    proc print data=casuser._simil_cat_pct_&rnd. noobs;
-        var Split Periodo Bucket N Percent;
-        format Percent 8.2;
+    data work._simil_cat_pct_&rnd.;
+        set casuser._simil_cat_pct_&rnd.;
+    run;
+
+    proc sort data=work._simil_cat_pct_&rnd.;
+        by Periodo Bucket;
+    run;
+
+    proc transpose data=work._simil_cat_pct_&rnd.
+        out=work._simil_cat_report_&rnd.(drop=_name_ _label_);
+        by Periodo;
+        id Bucket;
+        var Percent;
+    run;
+
+    data work._simil_cat_report_&rnd.;
+        set work._simil_cat_report_&rnd.;
+        rename Periodo=&byvar.;
+    run;
+
+    proc print data=work._simil_cat_report_&rnd. noobs;
+        format _numeric_ 8.4;
     run;
 
     proc datasets library=casuser nolist nowarn;
@@ -451,6 +483,11 @@ Nota:
                _simil_cat_cnt_&rnd.
                _simil_cat_tot_&rnd.
                _simil_cat_pct_&rnd.;
+    quit;
+
+    proc datasets library=work nolist nowarn;
+        delete _simil_cat_pct_&rnd.
+               _simil_cat_report_&rnd.;
     quit;
 
 %mend _simil_bucket_plot_cat;
