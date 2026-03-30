@@ -1,7 +1,7 @@
 /* =========================================================================
 missings_run.sas - Macro publica del modulo Missings (Metodo 4.2)
 
-API:
+API principal:
 %missings_run(
 input_caslib  = PROC,
 input_table   = _scope_input,
@@ -11,55 +11,57 @@ scope         = base | segNNN,
 run_id        = <run_id>
 )
 
+Compatibilidad transitoria:
+- acepta train_table= y oot_table=
+- si input_table no existe, adapta TRAIN/OOT legacy a una tabla canonica
+  con columna Split y reutiliza el flujo unificado
+
 Flujo interno:
 1) Resolver variables desde cfg_troncales/cfg_segmentos (vars num/cat)
 2) Resolver byvar + ventanas TRAIN/OOT desde cfg_troncales
-3) Ejecutar contract (validaciones)
-4) Generar reporte consolidado HTML + Excel
+3) Resolver modo de input (DERIVED o PRELABELED legacy)
+4) Ejecutar contract (validaciones)
+5) Generar reportes legacy (TRAIN/OOT visibles) sobre compute unificado
 
 NOTA: No persiste tablas .sas7bdat (analisis visual solamente).
 Compatibilidad: segmento y universo.
-
-Modos de ejecucion (configurados en step_missings.sas):
-AUTO   - resuelve vars desde config (cfg_segmentos.num_list/cat_list,
-fallback cfg_troncales.num_unv/cat_unv)
-CUSTOM - usa miss_custom_vars_num / miss_custom_vars_cat
 ========================================================================= */
 /* ---- Incluir componentes del modulo ----------------------------------- */
 %include "&fw_root./src/modules/missings/missings_contract.sas";
 %include "&fw_root./src/modules/missings/impl/missings_compute.sas";
 %include "&fw_root./src/modules/missings/impl/missings_report.sas";
 
-%macro missings_run(input_caslib=PROC, input_table=_scope_input,
-    output_caslib=OUT, troncal_id=, scope=, run_id=);
+%macro missings_run(input_caslib=PROC, input_table=_scope_input, train_table=,
+    oot_table=, output_caslib=OUT, troncal_id=, scope=, run_id=);
 
-    /* ---- Return code ---------------------------------------------------- */
     %global _miss_rc;
     %let _miss_rc=0;
 
     %local _miss_vars_num _miss_vars_cat _miss_threshold _report_path
         _file_prefix _scope_abbr _miss_is_custom _seg_num _miss_byvar
-        _miss_train_min _miss_train_max _miss_oot_min _miss_oot_max;
+        _miss_train_min _miss_train_max _miss_oot_min _miss_oot_max
+        _miss_input_exists _miss_train_exists _miss_oot_exists
+        _miss_source_table _miss_split_mode _miss_source_caslib;
 
     %put NOTE:======================================================;
     %put NOTE: [missings_run] INICIO;
     %put NOTE: troncal=&troncal_id. scope=&scope.;
     %put NOTE: input=&input_caslib..&input_table.;
+    %put NOTE: train_legacy=&input_caslib..&train_table.;
+    %put NOTE: oot_legacy=&input_caslib..&oot_table.;
     %put NOTE:======================================================;
 
-    /* ==================================================================
-    1) Resolver variables
-    ================================================================== */
     %let _miss_vars_num= ;
     %let _miss_vars_cat= ;
     %let _miss_is_custom=0;
+    %let _miss_source_table=;
+    %let _miss_split_mode=;
+    %let _miss_source_caslib=&input_caslib.;
 
-    /* Resolver threshold */
     %if %length(%superq(miss_threshold)) > 0 %then
         %let _miss_threshold=&miss_threshold.;
     %else %let _miss_threshold=0.1;
 
-    /* ------ Modo CUSTOM: variables personalizadas ---------------------- */
     %if %upcase(&miss_mode.)=CUSTOM %then %do;
         %if %length(%superq(miss_custom_vars_num)) > 0 or
             %length(%superq(miss_custom_vars_cat)) > 0 %then %do;
@@ -74,11 +76,9 @@ CUSTOM - usa miss_custom_vars_num / miss_custom_vars_cat
         %end;
     %end;
 
-    /* ------ Modo AUTO (o fallback): variables de configuracion ---------- */
     %if &_miss_is_custom.=0 %then %do;
         %put NOTE: [missings_run] Modo AUTO - resolviendo vars desde config.;
 
-        /* Si es segmento, intentar override desde cfg_segmentos */
         %if %substr(&scope., 1, 3)=seg %then %do;
             %let _seg_num=%sysfunc(inputn(%substr(&scope., 4), best.));
 
@@ -97,7 +97,6 @@ CUSTOM - usa miss_custom_vars_num / miss_custom_vars_cat
             quit;
         %end;
 
-        /* Fallback a vars del troncal si no hay override */
         %if %length(%superq(_miss_vars_num))=0 %then %do;
             proc sql noprint;
                 select strip(num_unv)
@@ -122,9 +121,6 @@ CUSTOM - usa miss_custom_vars_num / miss_custom_vars_cat
     %put NOTE: [missings_run] cat=&_miss_vars_cat.;
     %put NOTE: [missings_run] threshold=&_miss_threshold.;
 
-    /* ==================================================================
-    2) Resolver byvar y ventanas TRAIN/OOT
-    ================================================================== */
     proc sql noprint;
         select strip(byvar),
                strip(put(train_min_mes, best.)),
@@ -144,9 +140,6 @@ CUSTOM - usa miss_custom_vars_num / miss_custom_vars_cat
     %put NOTE: [missings_run] Ventanas TRAIN=&_miss_train_min.-&_miss_train_max.
         OOT=&_miss_oot_min.-&_miss_oot_max..;
 
-    /* ==================================================================
-    3) Determinar rutas de salida
-    ================================================================== */
     %if %substr(&scope., 1, 3)=seg %then %let _scope_abbr=&scope.;
     %else %let _scope_abbr=base;
 
@@ -161,31 +154,102 @@ CUSTOM - usa miss_custom_vars_num / miss_custom_vars_cat
         %put NOTE: [missings_run] Output -> reports/METOD4.2/.;
     %end;
 
-    /* ==================================================================
-    4) Contract - validaciones
-    ================================================================== */
-    %missings_contract(input_caslib=&input_caslib., input_table=&input_table.,
-        byvar=&_miss_byvar., train_min_mes=&_miss_train_min.,
-        train_max_mes=&_miss_train_max., oot_min_mes=&_miss_oot_min.,
-        oot_max_mes=&_miss_oot_max., vars_num=&_miss_vars_num.,
-        vars_cat=&_miss_vars_cat.);
+    %let _miss_input_exists=0;
+    %let _miss_train_exists=0;
+    %let _miss_oot_exists=0;
+
+    %if %length(%superq(input_table)) > 0 %then %do;
+        proc sql noprint;
+            select count(*) into :_miss_input_exists trimmed
+            from dictionary.tables
+            where upcase(libname)=upcase("&input_caslib.")
+              and upcase(memname)=upcase("&input_table.");
+        quit;
+    %end;
+
+    %if %length(%superq(train_table)) > 0 %then %do;
+        proc sql noprint;
+            select count(*) into :_miss_train_exists trimmed
+            from dictionary.tables
+            where upcase(libname)=upcase("&input_caslib.")
+              and upcase(memname)=upcase("&train_table.");
+        quit;
+    %end;
+
+    %if %length(%superq(oot_table)) > 0 %then %do;
+        proc sql noprint;
+            select count(*) into :_miss_oot_exists trimmed
+            from dictionary.tables
+            where upcase(libname)=upcase("&input_caslib.")
+              and upcase(memname)=upcase("&oot_table.");
+        quit;
+    %end;
+
+    proc cas;
+        session conn;
+        table.dropTable / caslib="casuser" name="_miss_input_legacy"
+            quiet=true;
+    quit;
+
+    %if &_miss_input_exists.=1 %then %do;
+        %let _miss_source_table=&input_table.;
+        %let _miss_split_mode=DERIVED;
+        %put NOTE: [missings_run] Usando input unificado oficial:
+            &input_caslib..&_miss_source_table.;
+    %end;
+    %else %if &_miss_train_exists.=1 and &_miss_oot_exists.=1 %then %do;
+        %let _miss_source_table=_miss_input_legacy;
+        %let _miss_split_mode=PRELABELED;
+        %let _miss_source_caslib=casuser;
+
+        proc fedsql sessref=conn;
+            create table casuser._miss_input_legacy {options replace=true} as
+            select 'TRAIN' as Split, *
+            from &input_caslib..&train_table.
+            union all
+            select 'OOT' as Split, *
+            from &input_caslib..&oot_table.;
+        quit;
+
+        %put NOTE: [missings_run] Input legacy adaptado a casuser._miss_input_legacy.;
+    %end;
+    %else %do;
+        %put ERROR: [missings_run] No hay input valido para ejecutar el modulo.;
+        %put ERROR: [missings_run] input_table=&input_caslib..&input_table.
+            exists=&_miss_input_exists.;
+        %put ERROR: [missings_run] train_table=&input_caslib..&train_table.
+            exists=&_miss_train_exists.;
+        %put ERROR: [missings_run] oot_table=&input_caslib..&oot_table.
+            exists=&_miss_oot_exists.;
+        %let _miss_rc=1;
+        %return;
+    %end;
+
+    %missings_contract(input_caslib=&_miss_source_caslib.,
+        input_table=&_miss_source_table.,
+        split_mode=&_miss_split_mode., split_var=Split, byvar=&_miss_byvar.,
+        train_min_mes=&_miss_train_min., train_max_mes=&_miss_train_max.,
+        oot_min_mes=&_miss_oot_min., oot_max_mes=&_miss_oot_max.,
+        vars_num=&_miss_vars_num., vars_cat=&_miss_vars_cat.);
 
     %if &_miss_rc. ne 0 %then %do;
         %put ERROR: [missings_run] Contract fallido - modulo abortado.;
         %return;
     %end;
 
-    /* ==================================================================
-    5) Report - HTML + Excel consolidado TRAIN/OOT
-    ================================================================== */
-    %_missings_report(input_caslib=&input_caslib., input_table=&input_table.,
-        byvar=&_miss_byvar., train_min_mes=&_miss_train_min.,
-        train_max_mes=&_miss_train_max., oot_min_mes=&_miss_oot_min.,
-        oot_max_mes=&_miss_oot_max., vars_num=&_miss_vars_num.,
-        vars_cat=&_miss_vars_cat., threshold=&_miss_threshold.,
-        report_path=&_report_path., file_prefix=&_file_prefix.);
+    %_missings_report(input_caslib=&_miss_source_caslib.,
+        input_table=&_miss_source_table.,
+        split_mode=&_miss_split_mode., split_var=Split, byvar=&_miss_byvar.,
+        train_min_mes=&_miss_train_min., train_max_mes=&_miss_train_max.,
+        oot_min_mes=&_miss_oot_min., oot_max_mes=&_miss_oot_max.,
+        vars_num=&_miss_vars_num., vars_cat=&_miss_vars_cat.,
+        threshold=&_miss_threshold., report_path=&_report_path.,
+        file_prefix=&_file_prefix.);
 
-    /* No se persisten tablas (analisis visual solamente) */
+    proc datasets library=casuser nolist nowarn;
+        delete _miss_input_legacy;
+    quit;
+
     %put NOTE:======================================================;
     %put NOTE: [missings_run] FIN - &_file_prefix. (mode=&miss_mode.);
     %put NOTE:======================================================;

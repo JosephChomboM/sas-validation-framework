@@ -1,17 +1,15 @@
 /* =========================================================================
 missings_compute.sas - Computo CAS-first de analisis de missings/dummies
 
-Macros:
-%_miss_sort_cas      - ordena en CAS (table.partition) para presentacion
-%_miss_compute       - genera tablas CAS de detalle y resumen
+Salida:
+- casuser.<detail_table>      : Split, Variable, Type, Dummy_Value, NMiss, Pct_Miss
+- casuser.<summary_table>     : Split, Variable, Type, NMiss, Pct_Miss
+- casuser.<var_catalog_table> : Variable, Type
+- casuser.<split_totals_table>: Split, Total_N
 
-Salida de %_miss_compute:
-- casuser.<detail_table> : split, variable, type, dummy_value, nmiss, pct_miss
-- casuser.<summary_table>: split, variable, type, nmiss, pct_miss
-
-Regla de sort:
-- No ordenar durante agregaciones
-- Ordenar solo al final para legibilidad del reporte
+Regla:
+- el compute pesado vive en CAS
+- el sort ocurre solo al final sobre tablas chicas de reporting
 ========================================================================= */
 
 %macro _miss_sort_cas(table_name=, orderby=, groupby={});
@@ -37,162 +35,177 @@ Regla de sort:
 
 %mend _miss_sort_cas;
 
-%macro _miss_append_stage(target_table=, stage_table=);
+%macro _miss_var_catalog(vars_num=, vars_cat=, out_table=_miss_var_catalog);
 
-    proc cas;
-        session conn;
-        table.append /
-            source={caslib="casuser", name="&stage_table."},
-            target={caslib="casuser", name="&target_table."};
-        table.dropTable / caslib="casuser" name="&stage_table." quiet=true;
+    data casuser.&out_table.;
+        length Variable $128 Type $16;
+
+        %local _i _var;
+
+        %let _i=1;
+        %let _var=%scan(%superq(vars_num), &_i., %str( ));
+        %do %while(%length(%superq(_var)) > 0);
+            Variable="&_var.";
+            Type="num";
+            output;
+            %let _i=%eval(&_i. + 1);
+            %let _var=%scan(%superq(vars_num), &_i., %str( ));
+        %end;
+
+        %let _i=1;
+        %let _var=%scan(%superq(vars_cat), &_i., %str( ));
+        %do %while(%length(%superq(_var)) > 0);
+            Variable="&_var.";
+            Type="categ";
+            output;
+            %let _i=%eval(&_i. + 1);
+            %let _var=%scan(%superq(vars_cat), &_i., %str( ));
+        %end;
+    run;
+
+%mend _miss_var_catalog;
+
+%macro _miss_detail_union_sql(data=, split_var=, vars_num=, vars_cat=,
+    outvar=_miss_union_sql);
+
+    %local _sql _i _var;
+
+    %let _sql=;
+
+    %let _i=1;
+    %let _var=%scan(%superq(vars_num), &_i., %str( ));
+    %do %while(%length(%superq(_var)) > 0);
+        %if %length(%superq(_sql)) > 0 %then %let _sql=&_sql. union all ;
+        %let _sql=&_sql.
+            select a.&split_var. as Split,
+                   "&_var." as Variable,
+                   'num' as Type,
+                   case
+                       when a.&_var. is null then '.'
+                       else cast(a.&_var. as varchar(128))
+                   end as Dummy_Value
+            from &data. a
+            where a.&_var. is null
+               or a.&_var. in (
+                    1111111111, -1111111111,
+                    2222222222, -2222222222,
+                    3333333333, -3333333333,
+                    4444444444, 5555555555,
+                    6666666666, 7777777777,
+                    -999999999
+               );
+        %let _i=%eval(&_i. + 1);
+        %let _var=%scan(%superq(vars_num), &_i., %str( ));
+    %end;
+
+    %let _i=1;
+    %let _var=%scan(%superq(vars_cat), &_i., %str( ));
+    %do %while(%length(%superq(_var)) > 0);
+        %if %length(%superq(_sql)) > 0 %then %let _sql=&_sql. union all ;
+        %let _sql=&_sql.
+            select a.&split_var. as Split,
+                   "&_var." as Variable,
+                   'categ' as Type,
+                   case
+                       when a.&_var. is null then '<BLANK>'
+                       when trim(a.&_var.)='' then '<BLANK>'
+                       when upcase(trim(a.&_var.))='MISSING' then 'MISSING'
+                       when trim(a.&_var.)='.' then '.'
+                       else trim(a.&_var.)
+                   end as Dummy_Value
+            from &data. a
+            where a.&_var. is null
+               or trim(a.&_var.)=''
+               or upcase(trim(a.&_var.))='MISSING'
+               or trim(a.&_var.)='.';
+        %let _i=%eval(&_i. + 1);
+        %let _var=%scan(%superq(vars_cat), &_i., %str( ));
+    %end;
+
+    %let &outvar.=&_sql.;
+
+%mend _miss_detail_union_sql;
+
+%macro _miss_compute(data=, split_var=Split, vars_num=, vars_cat=,
+    detail_table=_miss_detail, summary_table=_miss_summary,
+    var_catalog_table=_miss_var_catalog,
+    split_totals_table=_miss_split_totals);
+
+    %local _miss_union_sql;
+
+    proc datasets library=casuser nolist nowarn;
+        delete &detail_table. &summary_table. &var_catalog_table.
+            &split_totals_table. _miss_detail_raw _miss_summary_stage;
     quit;
 
-%mend _miss_append_stage;
-
-%macro _miss_numeric_stage(data=, split_var=, var=, stage_table=_miss_stage);
+    %_miss_var_catalog(vars_num=&vars_num., vars_cat=&vars_cat.,
+        out_table=&var_catalog_table.);
 
     proc fedsql sessref=conn;
-        create table casuser.&stage_table. {options replace=true} as
-        select a.&split_var. as split,
-               "&var." as variable,
-               'num' as type,
-               case
-                   when a.&var. is null then '.'
-                   else cast(a.&var. as varchar(64))
-               end as dummy_value,
-               count(*) as nmiss,
-               count(*) / t.total_n as pct_miss
-        from &data. a
-        inner join (
-            select &split_var., count(*) as total_n
+        create table casuser.&split_totals_table. {options replace=true} as
+        select &split_var. as Split,
+               count(*) as Total_N
+        from &data.
+        group by &split_var.;
+    quit;
+
+    %_miss_detail_union_sql(data=&data., split_var=&split_var.,
+        vars_num=&vars_num., vars_cat=&vars_cat., outvar=_miss_union_sql);
+
+    %if %length(%superq(_miss_union_sql)) > 0 %then %do;
+        proc fedsql sessref=conn;
+            create table casuser._miss_detail_raw {options replace=true} as
+            &_miss_union_sql.;
+        quit;
+    %end;
+    %else %do;
+        proc fedsql sessref=conn;
+            create table casuser._miss_detail_raw {options replace=true} as
+            select cast('' as varchar(16)) as Split,
+                   cast('' as varchar(128)) as Variable,
+                   cast('' as varchar(16)) as Type,
+                   cast('' as varchar(128)) as Dummy_Value
             from &data.
-            group by &split_var.
-        ) t
-            on a.&split_var.=t.&split_var.
-        where a.&var. is null
-           or a.&var. in (
-                1111111111, -1111111111,
-                2222222222, -2222222222,
-                3333333333, -3333333333,
-                4444444444, 5555555555,
-                6666666666, 7777777777,
-                -999999999
-           )
-        group by a.&split_var.,
-                 case
-                     when a.&var. is null then '.'
-                     else cast(a.&var. as varchar(64))
-                 end,
-                 t.total_n;
-    quit;
-
-%mend _miss_numeric_stage;
-
-%macro _miss_categ_stage(data=, split_var=, var=, stage_table=_miss_stage);
-
-    proc fedsql sessref=conn;
-        create table casuser.&stage_table. {options replace=true} as
-        select a.&split_var. as split,
-               "&var." as variable,
-               'categ' as type,
-               case
-                   when a.&var. is null then '<NULL>'
-                   when trim(a.&var.)='' then '<BLANK>'
-                   when upcase(trim(a.&var.))='MISSING' then 'MISSING'
-                   when trim(a.&var.)='.' then '.'
-                   else trim(a.&var.)
-               end as dummy_value,
-               count(*) as nmiss,
-               count(*) / t.total_n as pct_miss
-        from &data. a
-        inner join (
-            select &split_var., count(*) as total_n
-            from &data.
-            group by &split_var.
-        ) t
-            on a.&split_var.=t.&split_var.
-        where a.&var. is null
-           or trim(a.&var.)=''
-           or upcase(trim(a.&var.))='MISSING'
-           or trim(a.&var.)='.'
-        group by a.&split_var.,
-                 case
-                     when a.&var. is null then '<NULL>'
-                     when trim(a.&var.)='' then '<BLANK>'
-                     when upcase(trim(a.&var.))='MISSING' then 'MISSING'
-                     when trim(a.&var.)='.' then '.'
-                     else trim(a.&var.)
-                 end,
-                 t.total_n;
-    quit;
-
-%mend _miss_categ_stage;
-
-%macro _miss_compute(data=, split_var=_miss_split, vars_num=, vars_cat=,
-    detail_table=_miss_detail, summary_table=_miss_summary);
-
-    %local c z v v_cat;
-
-    proc cas;
-        session conn;
-        table.dropTable / caslib="casuser" name="&detail_table." quiet=true;
-        table.dropTable / caslib="casuser" name="&summary_table." quiet=true;
-        table.dropTable / caslib="casuser" name="_miss_stage" quiet=true;
-    quit;
+            where 1=0;
+        quit;
+    %end;
 
     proc fedsql sessref=conn;
         create table casuser.&detail_table. {options replace=true} as
-        select cast('' as varchar(8)) as split,
-               cast('' as varchar(128)) as variable,
-               cast('' as varchar(16)) as type,
-               cast('' as varchar(128)) as dummy_value,
-               cast(0 as double) as nmiss,
-               cast(0 as double) as pct_miss
-        from &data.
-        where 1=0;
+        select d.Split,
+               d.Variable,
+               d.Type,
+               d.Dummy_Value,
+               count(*) as NMiss,
+               count(*) / t.Total_N as Pct_Miss
+        from casuser._miss_detail_raw d
+        inner join casuser.&split_totals_table. t
+            on d.Split=t.Split
+        group by d.Split, d.Variable, d.Type, d.Dummy_Value, t.Total_N;
     quit;
 
-    /* Procesar variables numericas */
-    %if %length(%superq(vars_num)) > 0 %then %do;
-        %let c=1;
-        %let v=%scan(%superq(vars_num), &c., %str( ));
-        %do %while(%length(%superq(v)) > 0);
-            %put NOTE: [missings] Procesando variable numerica: &v.;
-            %_miss_numeric_stage(data=&data., split_var=&split_var., var=&v.,
-                stage_table=_miss_stage);
-            %_miss_append_stage(target_table=&detail_table.,
-                stage_table=_miss_stage);
-
-            %let c=%eval(&c. + 1);
-            %let v=%scan(%superq(vars_num), &c., %str( ));
-        %end;
-    %end;
-
-    /* Procesar variables categoricas */
-    %if %length(%superq(vars_cat)) > 0 %then %do;
-        %let z=1;
-        %let v_cat=%scan(%superq(vars_cat), &z., %str( ));
-        %do %while(%length(%superq(v_cat)) > 0);
-            %put NOTE: [missings] Procesando variable categorica: &v_cat.;
-            %_miss_categ_stage(data=&data., split_var=&split_var.,
-                var=&v_cat., stage_table=_miss_stage);
-            %_miss_append_stage(target_table=&detail_table.,
-                stage_table=_miss_stage);
-
-            %let z=%eval(&z. + 1);
-            %let v_cat=%scan(%superq(vars_cat), &z., %str( ));
-        %end;
-    %end;
+    proc fedsql sessref=conn;
+        create table casuser._miss_summary_stage {options replace=true} as
+        select d.Split,
+               d.Variable,
+               max(d.Type) as Type,
+               sum(d.NMiss) as NMiss
+        from casuser.&detail_table. d
+        group by d.Split, d.Variable;
+    quit;
 
     proc fedsql sessref=conn;
         create table casuser.&summary_table. {options replace=true} as
-        select split,
-               variable,
-               max(type) as type,
-               sum(nmiss) as nmiss,
-               sum(pct_miss) as pct_miss
-        from casuser.&detail_table.
-        group by split, variable;
+        select t.Split,
+               v.Variable,
+               v.Type,
+               coalesce(s.NMiss, 0) as NMiss,
+               coalesce(s.NMiss, 0) / t.Total_N as Pct_Miss
+        from casuser.&split_totals_table. t
+        cross join casuser.&var_catalog_table. v
+        left join casuser._miss_summary_stage s
+            on t.Split=s.Split
+           and v.Variable=s.Variable;
     quit;
 
 %mend _miss_compute;
