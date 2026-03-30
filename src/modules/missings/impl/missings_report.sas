@@ -57,7 +57,7 @@ No persiste tablas en tables/.
 
         data work.&_dsname.;
             set &detail_data.;
-            where Variable="&_var.";
+            where Variable='&_var.';
         run;
 
         %let _dsid=%sysfunc(open(work.&_dsname.));

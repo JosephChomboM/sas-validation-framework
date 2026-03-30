@@ -48,7 +48,7 @@ Salida:
         %if %length(%superq(_sql)) > 0 %then %let _sql=&_sql. union all ;
         %let _sql=&_sql.
             select a.&split_var. as Split,
-                   "&_var." as Variable,
+                   '&_var.' as Variable,
                    'num' as Type,
                    case
                        when a.&_var. is null then '.'
@@ -74,7 +74,7 @@ Salida:
         %if %length(%superq(_sql)) > 0 %then %let _sql=&_sql. union all ;
         %let _sql=&_sql.
             select a.&split_var. as Split,
-                   "&_var." as Variable,
+                   '&_var.' as Variable,
                    'categ' as Type,
                    case
                        when a.&_var. is null then ''
