@@ -42,20 +42,50 @@ No persiste tablas en tables/.
 
 %mend _miss_prepare_scope_data;
 
-%macro _miss_render_split(detail_data=, summary_data=, split_label=);
+%macro _miss_render_variable_reports(detail_data=, vars=);
+
+    %local _i _var _has_rows;
+
+    %let _i=1;
+    %let _var=%scan(%superq(vars), &_i., %str( ));
+    %do %while(%length(%superq(_var)) > 0);
+        proc sql noprint;
+            select count(*)
+            into :_has_rows trimmed
+            from &detail_data.
+            where Variable="&_var.";
+        quit;
+
+        %if %sysevalf(%superq(_has_rows)=, boolean) %then %let _has_rows=0;
+
+        %if &_has_rows. > 0 %then %do;
+            proc print data=&detail_data.(where=(Variable="&_var.")) label noobs;
+                var Dummy_Value Type Total_N NMiss Pct_Miss;
+                label Dummy_Value="&_var."
+                      Total_N='Total';
+                format Pct_Miss percent8.2;
+            run;
+        %end;
+
+        %let _i=%eval(&_i. + 1);
+        %let _var=%scan(%superq(vars), &_i., %str( ));
+    %end;
+
+%mend _miss_render_variable_reports;
+
+%macro _miss_render_split(detail_data=, summary_data=, split_label=, vars_num=,
+    vars_cat=);
 
     title "&split_label.: Analisis de Missings";
     title2 "Missing summarize (variable/cases)";
-    proc print data=&detail_data. noobs;
-        var Variable Dummy_Value Type NMiss Pct_Miss;
-        format Pct_Miss percent8.2;
-    run;
+    %_miss_render_variable_reports(detail_data=&detail_data., vars=&vars_num.);
+    %_miss_render_variable_reports(detail_data=&detail_data., vars=&vars_cat.);
 
     title2 "Missing summarize (variables)";
     proc print data=&summary_data. noobs
         style(column)={backgroundcolor=MissSignif.};
-        var Variable Type Total_Pct_Miss;
-        format Total_Pct_Miss percent8.2;
+        var Variable Type Total_Pct_Missing;
+        format Total_Pct_Missing percent8.2;
     run;
 
     title;
@@ -94,22 +124,22 @@ No persiste tablas en tables/.
 
     proc fedsql sessref=conn;
         create table casuser._miss_train_detail_rpt {options replace=true} as
-        select Variable, Dummy_Value, Type, NMiss, Pct_Miss
+        select Variable, Dummy_Value, Type, Total_N, NMiss, Pct_Miss
         from casuser._miss_detail
         where Split='TRAIN';
 
         create table casuser._miss_oot_detail_rpt {options replace=true} as
-        select Variable, Dummy_Value, Type, NMiss, Pct_Miss
+        select Variable, Dummy_Value, Type, Total_N, NMiss, Pct_Miss
         from casuser._miss_detail
         where Split='OOT';
 
         create table casuser._miss_train_summary_rpt {options replace=true} as
-        select Variable, Type, Pct_Miss as Total_Pct_Miss
+        select Variable, Type, Pct_Miss as Total_Pct_Missing
         from casuser._miss_summary
         where Split='TRAIN';
 
         create table casuser._miss_oot_summary_rpt {options replace=true} as
-        select Variable, Type, Pct_Miss as Total_Pct_Miss
+        select Variable, Type, Pct_Miss as Total_Pct_Missing
         from casuser._miss_summary
         where Split='OOT';
     quit;
@@ -130,21 +160,25 @@ No persiste tablas en tables/.
     ods html5 file="&report_path./&file_prefix..html"
         options(bitmap_mode="inline");
     %_miss_render_split(detail_data=casuser._miss_train_detail_rpt,
-        summary_data=casuser._miss_train_summary_rpt, split_label=TRAIN);
+        summary_data=casuser._miss_train_summary_rpt, split_label=TRAIN,
+        vars_num=&vars_num., vars_cat=&vars_cat.);
     %_miss_render_split(detail_data=casuser._miss_oot_detail_rpt,
-        summary_data=casuser._miss_oot_summary_rpt, split_label=OOT);
+        summary_data=casuser._miss_oot_summary_rpt, split_label=OOT,
+        vars_num=&vars_num., vars_cat=&vars_cat.);
     ods html5 close;
 
     ods excel file="&report_path./&file_prefix..xlsx"
         options(sheet_name="TRAIN_Missings" sheet_interval="none"
         embedded_titles="yes");
     %_miss_render_split(detail_data=casuser._miss_train_detail_rpt,
-        summary_data=casuser._miss_train_summary_rpt, split_label=TRAIN);
+        summary_data=casuser._miss_train_summary_rpt, split_label=TRAIN,
+        vars_num=&vars_num., vars_cat=&vars_cat.);
 
     ods excel options(sheet_name="OOT_Missings" sheet_interval="now"
         embedded_titles="yes");
     %_miss_render_split(detail_data=casuser._miss_oot_detail_rpt,
-        summary_data=casuser._miss_oot_summary_rpt, split_label=OOT);
+        summary_data=casuser._miss_oot_summary_rpt, split_label=OOT,
+        vars_num=&vars_num., vars_cat=&vars_cat.);
 
     ods excel close;
 

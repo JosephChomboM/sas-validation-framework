@@ -7,7 +7,7 @@ Metodologia preservada:
 - no fabricar filas en 0% para variables sin hallazgos
 
 Salida:
-- casuser.<detail_table>      : Split, Variable, Type, Dummy_Value, NMiss, Pct_Miss
+- casuser.<detail_table>      : Split, Variable, Type, Dummy_Value, Total_N, NMiss, Pct_Miss
 - casuser.<summary_table>     : Split, Variable, Type, Pct_Miss
 - casuser.<split_totals_table>: Split, Total_N
 ========================================================================= */
@@ -143,6 +143,7 @@ Salida:
                d.Variable,
                d.Type,
                d.Dummy_Value,
+               t.Total_N,
                count(*) as NMiss,
                count(*) / t.Total_N as Pct_Miss
         from casuser._miss_detail_raw d
