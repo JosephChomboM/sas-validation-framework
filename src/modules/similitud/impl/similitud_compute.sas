@@ -104,14 +104,14 @@ Nota:
                        when RANGO = 0 then "00. Missing"
                        when FLAG_INI = 1 then
                            cat(put(RANGO, Z2.), ". <-Inf; ",
-                               cats(put(MAXVAL, F12.4)), "]")
+                               strip(put(MAXVAL, best20.)), "]")
                        when FLAG_FIN = 1 then
                            cat(put(RANGO, Z2.), ". <",
-                               cats(put(LAGMAXVAL, F12.4)), "; +Inf>")
+                               strip(put(LAGMAXVAL, best20.)), "; +Inf>")
                        else
                            cat(put(RANGO, Z2.), ". <",
-                               cats(put(LAGMAXVAL, F12.4)), "; ",
-                               cats(put(MAXVAL, F12.4)), "]")
+                               strip(put(LAGMAXVAL, best20.)), "; ",
+                               strip(put(MAXVAL, best20.)), "]")
                    end as ETIQUETA length=200
             from work._simil_rk_&rnd._4;
         quit;
@@ -325,9 +325,20 @@ Nota:
     %_simil_sort_cas(table_name=_simil_num_pct_&rnd.,
         orderby=%str({"Periodo", "Bucket_N"}));
 
+    data work._simil_num_plot_&rnd.;
+        set casuser._simil_num_pct_&rnd.;
+        length Periodo_Plot $32;
+        Periodo_Plot=strip(put(Periodo, best32.-L));
+        format Periodo best12.;
+    run;
+
+    proc sort data=work._simil_num_plot_&rnd.;
+        by Periodo Bucket_N;
+    run;
+
     title "Evolutivo distribucion variable &var. - TRAIN + OOT.";
-    proc sgplot data=casuser._simil_num_pct_&rnd.;
-        vbar Periodo / response=Percent group=Bucket
+    proc sgplot data=work._simil_num_plot_&rnd.;
+        vbar Periodo_Plot / response=Percent group=Bucket
             groupdisplay=stack nooutline name='bars' barwidth=1;
         keylegend 'bars' / title='Rango' opaque;
         xaxis type=discrete discreteorder=data label="&byvar."
@@ -343,6 +354,7 @@ Nota:
 
     data work._simil_num_pct_&rnd.;
         set casuser._simil_num_pct_&rnd.;
+        format Periodo best12.;
     run;
 
     proc sort data=work._simil_num_pct_&rnd.;
@@ -359,6 +371,7 @@ Nota:
     data work._simil_num_report_&rnd.;
         set work._simil_num_report_&rnd.;
         rename Periodo=&byvar.;
+        format &byvar. best12.;
     run;
 
     proc print data=work._simil_num_report_&rnd. noobs;
@@ -376,6 +389,7 @@ Nota:
 
     proc datasets library=work nolist nowarn;
         delete _simil_num_pct_&rnd.
+               _simil_num_plot_&rnd.
                _simil_num_report_&rnd.;
     quit;
 
@@ -438,9 +452,20 @@ Nota:
     %_simil_sort_cas(table_name=_simil_cat_pct_&rnd.,
         orderby=%str({"Periodo", "Bucket"}));
 
+    data work._simil_cat_plot_&rnd.;
+        set casuser._simil_cat_pct_&rnd.;
+        length Periodo_Plot $32;
+        Periodo_Plot=strip(put(Periodo, best32.-L));
+        format Periodo best12.;
+    run;
+
+    proc sort data=work._simil_cat_plot_&rnd.;
+        by Periodo Bucket;
+    run;
+
     title "Evolutivo distribucion variable &var. - TRAIN + OOT.";
-    proc sgplot data=casuser._simil_cat_pct_&rnd.;
-        vbar Periodo / response=Percent group=Bucket
+    proc sgplot data=work._simil_cat_plot_&rnd.;
+        vbar Periodo_Plot / response=Percent group=Bucket
             groupdisplay=stack nooutline name='bars' barwidth=1;
         keylegend 'bars' / title='Categoria' opaque;
         xaxis type=discrete discreteorder=data label="&byvar."
@@ -456,6 +481,7 @@ Nota:
 
     data work._simil_cat_pct_&rnd.;
         set casuser._simil_cat_pct_&rnd.;
+        format Periodo best12.;
     run;
 
     proc sort data=work._simil_cat_pct_&rnd.;
@@ -472,6 +498,7 @@ Nota:
     data work._simil_cat_report_&rnd.;
         set work._simil_cat_report_&rnd.;
         rename Periodo=&byvar.;
+        format &byvar. best12.;
     run;
 
     proc print data=work._simil_cat_report_&rnd. noobs;
@@ -487,6 +514,7 @@ Nota:
 
     proc datasets library=work nolist nowarn;
         delete _simil_cat_pct_&rnd.
+               _simil_cat_plot_&rnd.
                _simil_cat_report_&rnd.;
     quit;
 
