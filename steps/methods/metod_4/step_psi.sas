@@ -6,17 +6,16 @@ Flujo:
 1) Check flag run_psi (skip si deshabilitado)
 2) Configuración propia del módulo (psi_mode, n_buckets, variables)
 3) Crear CASLIBs PROC + OUT
-4) Resolver splits (PSI siempre usa train+oot, ctx_split se ignora)
+4) Cargar scope unificado (run_module con scope_input=1)
 5) Iteración según ctx_scope:
-- SEGMENTO → itera segmentos vía run_module(dual_input=1)
-- UNIVERSO → ejecuta base vía run_module(dual_input=1)
+- SEGMENTO → itera segmentos vía run_module(scope_input=1)
+- UNIVERSO → ejecuta base vía run_module(scope_input=1)
 6) Cleanup CASLIBs
 
 NOTA IMPORTANTE:
-PSI compara TRAIN vs OOT → usa run_module con dual_input=1.
-run_module en modo B promueve ambas tablas (_train_input, _oot_input),
-ejecuta %psi_run, y dropea ambas tablas promovidas.
-El split del contexto se ignora (PSI siempre usa train+oot).
+PSI usa run_module con scope_input=1 y recibe _scope_input.
+El modulo deriva TRAIN/OOT internamente desde casuser.cfg_troncales.
+El split del contexto se ignora.
 
 Dependencias:
 - &ctx_scope (SEGMENTO | UNIVERSO) - seteado por context_and_modules.sas
@@ -70,8 +69,7 @@ Outputs van a experiments/ (análisis exploratorio).           */
     %end;
 
     %put NOTE: [step_psi] Iniciando - scope=&ctx_scope. psi_mode=&psi_mode.;
-    %put NOTE: [step_psi] PSI siempre compara TRAIN vs OOT (usa run_module
-        dual_input=1).;
+    %put NOTE: [step_psi] PSI usa entrada unificada (scope_input=1) y deriva TRAIN/OOT dentro del modulo.;
 
     /* ---- 1) Crear CASLIBs PROC + OUT --------------------------------- */
     %_create_caslib( cas_path=&fw_root./data/processed, caslib_name=PROC,
@@ -94,13 +92,13 @@ Outputs van a experiments/ (análisis exploratorio).           */
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             /* Segmento específico */
             %run_module(module=psi, troncal_id=&ctx_troncal_id., split=,
-                seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
+                seg_id=&ctx_seg_id., run_id=&run_id., scope_input=1);
         %end;
         %else %do;
             /* Todos los segmentos */
             %do _sg=1 %to &ctx_n_segments.;
                 %run_module(module=psi, troncal_id=&ctx_troncal_id., split=,
-                    seg_id=&_sg., run_id=&run_id., dual_input=1);
+                    seg_id=&_sg., run_id=&run_id., scope_input=1);
             %end;
         %end;
 
@@ -110,7 +108,7 @@ Outputs van a experiments/ (análisis exploratorio).           */
         %put NOTE: [step_psi] UNIVERSO: troncal=&ctx_troncal_id.;
 
         %run_module(module=psi, troncal_id=&ctx_troncal_id., split=, seg_id=,
-            run_id=&run_id., dual_input=1);
+            run_id=&run_id., scope_input=1);
 
     %end; /* fin UNIVERSO */
     %else %do;

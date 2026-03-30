@@ -149,6 +149,18 @@ archivos JPEG independientes (vía ods listing gpath).
         from casuser._psi_cubo;
     quit;
 
+    proc fedsql sessref=conn;
+        create table casuser._psi_wide_rpt {options replace=true} as
+        select *
+        from casuser._psi_cubo_wide;
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._psi_resumen_rpt {options replace=true} as
+        select *
+        from casuser._psi_resumen;
+    quit;
+
     %if %length(%superq(byvar)) > 0 %then %do;
         proc cas;
             session conn;
@@ -170,6 +182,18 @@ archivos JPEG independientes (vía ods listing gpath).
         quit;
     %end;
 
+    proc cas;
+        session conn;
+        table.partition /
+            table={caslib="casuser", name="_psi_wide_rpt",
+                groupby={}, orderby={"Variable"}},
+            casout={caslib="casuser", name="_psi_wide_rpt", replace=true};
+        table.partition /
+            table={caslib="casuser", name="_psi_resumen_rpt",
+                groupby={}, orderby={"Variable"}},
+            casout={caslib="casuser", name="_psi_resumen_rpt", replace=true};
+    quit;
+
     ods listing gpath="&images_path.";
 
     /* ==================================================================
@@ -181,8 +205,8 @@ archivos JPEG independientes (vía ods listing gpath).
 
     %_psi_render_detalle(data=casuser._psi_detalle_rpt, byvar=&byvar.,
         title_text=&_detalle_title., footnote_text=&_detalle_footnote.);
-    %_psi_render_wide(data=casuser._psi_cubo_wide);
-    %_psi_render_resumen(data=casuser._psi_resumen, byvar=&byvar.,
+    %_psi_render_wide(data=casuser._psi_wide_rpt);
+    %_psi_render_resumen(data=casuser._psi_resumen_rpt, byvar=&byvar.,
         title_text=&_resumen_title.);
 
     %if %length(%superq(byvar)) > 0 %then %do;
@@ -212,13 +236,13 @@ archivos JPEG independientes (vía ods listing gpath).
     ods excel options(sheet_name="PSI_Cubo_Wide" sheet_interval="now"
         embedded_titles="yes");
 
-    %_psi_render_wide(data=casuser._psi_cubo_wide);
+    %_psi_render_wide(data=casuser._psi_wide_rpt);
 
     /* ---- Hoja 3: Resumen ---------------------------------------------- */
     ods excel options(sheet_name="Resumen" sheet_interval="now"
         embedded_titles="yes");
 
-    %_psi_render_resumen(data=casuser._psi_resumen, byvar=&byvar.,
+    %_psi_render_resumen(data=casuser._psi_resumen_rpt, byvar=&byvar.,
         title_text=&_resumen_title.);
 
     /* ---- Hoja 4: Graficos (tendencia temporal) ------------------------ */
@@ -235,7 +259,7 @@ archivos JPEG independientes (vía ods listing gpath).
     ods graphics off;
 
     proc datasets library=casuser nolist nowarn;
-        delete _psi_detalle_rpt;
+        delete _psi_detalle_rpt _psi_wide_rpt _psi_resumen_rpt;
     quit;
 
     %put NOTE: [psi_report] HTML=> &report_path./&file_prefix..html;

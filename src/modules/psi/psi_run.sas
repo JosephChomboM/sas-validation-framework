@@ -4,8 +4,7 @@ psi_run.sas - Macro pública del módulo PSI (Population Stability Index)
 API:
 %psi_run(
 input_caslib  = PROC,
-train_table   = _train_input,
-oot_table     = _oot_input,
+input_table   = _scope_input,
 output_caslib = OUT,
 troncal_id    = <id>,
 scope         = base | segNNN,
@@ -32,8 +31,7 @@ Variables globales leídas (definidas en step_psi.sas):
 &psi_custom_vars_cat   - lista vars categóricas (solo CUSTOM)
 &psi_custom_byvar      - variable temporal (solo CUSTOM)
 
-NOTA: PSI es dual-input (train+oot). Recibe dos tablas promovidas.
-No usa split como parámetro (siempre train vs oot).
+NOTA: PSI usa scope-input. Recibe una tabla unificada y deriva TRAIN/OOT internamente desde casuser.cfg_troncales.
 
 Compatibilidad: segmento y universo.
 ========================================================================= */
@@ -42,8 +40,8 @@ Compatibilidad: segmento y universo.
 %include "&fw_root./src/modules/psi/impl/psi_compute.sas";
 %include "&fw_root./src/modules/psi/impl/psi_report.sas";
 
-%macro psi_run( input_caslib=PROC, train_table=_train_input, oot_table=
-    _oot_input, output_caslib=OUT, troncal_id=, scope=, run_id=);
+%macro psi_run( input_caslib=PROC, input_table=_scope_input, output_caslib=OUT,
+    troncal_id=, scope=, run_id=);
 
     /* ---- Return code: owned here, used by contract ---------------------- */
     %global _psi_rc;
@@ -56,8 +54,7 @@ Compatibilidad: segmento y universo.
     %put NOTE:======================================================;
     %put NOTE: [psi_run] INICIO;
     %put NOTE: troncal=&troncal_id. scope=&scope.;
-    %put NOTE: train=&input_caslib..&train_table.;
-    %put NOTE: oot=&input_caslib..&oot_table.;
+    %put NOTE: input=&input_caslib..&input_table.;
     %put NOTE: mode=&psi_mode.;
     %put NOTE:======================================================;
 
@@ -164,8 +161,8 @@ Compatibilidad: segmento y universo.
     /* ==================================================================
     2) Contract - validaciones pre-ejecución
     ================================================================== */
-    %psi_contract( input_caslib=&input_caslib., train_table=&train_table.,
-        oot_table=&oot_table., vars_num=&_psi_vars_num., vars_cat=
+    %psi_contract( input_caslib=&input_caslib., input_table=&input_table.,
+        troncal_id=&troncal_id., vars_num=&_psi_vars_num., vars_cat=
         &_psi_vars_cat., byvar=&_psi_byvar. );
 
     %if &_psi_rc. ne 0 %then %do;
@@ -176,10 +173,15 @@ Compatibilidad: segmento y universo.
     /* ==================================================================
     3) Compute - PSI cubo + cubo_wide + resumen → work tables
     ================================================================== */
-    %_psi_compute( input_caslib=&input_caslib., train_table=&train_table.,
-        oot_table=&oot_table., vars_num=&_psi_vars_num., vars_cat=
+    %_psi_compute( input_caslib=&input_caslib., input_table=&input_table.,
+        troncal_id=&troncal_id., vars_num=&_psi_vars_num., vars_cat=
         &_psi_vars_cat., byvar=&_psi_byvar., n_buckets=&psi_n_buckets., mensual=
         &psi_mensual. );
+
+    %if &_psi_rc. ne 0 %then %do;
+        %put ERROR: [psi_run] Compute fallido - modulo abortado.;
+        %return;
+    %end;
 
     /* ==================================================================
     4) Report - HTML + Excel + JPEG
