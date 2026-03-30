@@ -390,42 +390,31 @@ Implementacion CAS-first:
         where _fw_gini_split_flag_01="OOT";
     run;
 
-    data work._gini_train_w;
-        set casuser._gini_train;
-    run;
+    %_gini_sort_cas_as(source_table=_gini_train, target_table=_gini_train_msrc,
+        orderby=%str({"&_gini_byvar."}));
+    %_gini_sort_cas_as(source_table=_gini_oot, target_table=_gini_oot_msrc,
+        orderby=%str({"&_gini_byvar."}));
 
-    data work._gini_oot_w;
-        set casuser._gini_oot;
-    run;
-
-    proc sort data=work._gini_train_w out=work._gini_train_msrc;
-        by &_gini_byvar.;
-    run;
-
-    proc sort data=work._gini_oot_w out=work._gini_oot_msrc;
-        by &_gini_byvar.;
-    run;
-
-    %_gini_partition_vars(train_data=work._gini_train_w,
-        oot_data=work._gini_oot_w, vars_num=&_gini_vars_num.,
+    %_gini_partition_vars(train_data=casuser._gini_train,
+        oot_data=casuser._gini_oot, vars_num=&_gini_vars_num.,
         out_train=_gini_vars_train, out_oot=_gini_vars_oot,
         out_shared=_gini_vars_shared);
 
-    %_gini_model_general(train_data=work._gini_train_w,
-        oot_data=work._gini_oot_w,
+    %_gini_model_general(train_data=casuser._gini_train,
+        oot_data=casuser._gini_oot,
         target=&_gini_target., score=&_gini_score.,
         with_missing=&gini_with_missing., model_low=&_gini_model_low.,
         model_high=&_gini_model_high., out=casuser._gini_model_general);
 
-    %_gini_model_monthly(train_data=work._gini_train_msrc,
-        oot_data=work._gini_oot_msrc,
+    %_gini_model_monthly(train_data=casuser._gini_train_msrc,
+        oot_data=casuser._gini_oot_msrc,
         target=&_gini_target., score=&_gini_score., byvar=&_gini_byvar.,
         with_missing=&gini_with_missing., model_low=&_gini_model_low.,
         model_high=&_gini_model_high., trend_delta=&gini_trend_delta.,
         out=casuser._gini_model_monthly);
 
-    %_gini_variables_general(train_data=work._gini_train_w,
-        oot_data=work._gini_oot_w,
+    %_gini_variables_general(train_data=casuser._gini_train,
+        oot_data=casuser._gini_oot,
         target=&_gini_target., vars_num_train=&_gini_vars_train.,
         vars_num_oot=&_gini_vars_oot., with_missing=&gini_with_missing.,
         min_n_valid=&gini_min_n_valid., var_low=&_gini_var_low.,
@@ -434,8 +423,8 @@ Implementacion CAS-first:
     %_gini_variables_compare(data=casuser._gini_vars_general,
         delta_warn=&gini_delta_warn., out=casuser._gini_vars_compare);
 
-    %_gini_variables_monthly(train_data=work._gini_train_msrc,
-        oot_data=work._gini_oot_msrc,
+    %_gini_variables_monthly(train_data=casuser._gini_train_msrc,
+        oot_data=casuser._gini_oot_msrc,
         target=&_gini_target., vars_num_train=&_gini_vars_train.,
         vars_num_oot=&_gini_vars_oot., byvar=&_gini_byvar.,
         with_missing=&gini_with_missing., min_n_valid=&gini_min_n_valid.,
@@ -453,7 +442,7 @@ Implementacion CAS-first:
     %_gini_sort_cas(table_name=_gini_vars_compare,
         orderby=%str({"Variable"}));
     %_gini_sort_cas(table_name=_gini_vars_summary,
-        orderby=%str({"Variable", "First_Period", "Split"}));
+        orderby=%str({"Variable"}));
     %_gini_sort_cas(table_name=_gini_vars_detail,
         orderby=%str({"Variable", "Periodo", "Split"}));
 
@@ -491,10 +480,6 @@ Implementacion CAS-first:
         table_lib=_giniout, table_prefix=&_tbl_prefix.);
 
     libname _giniout clear;
-
-    proc datasets library=work nolist nowarn;
-        delete _gini_train_w _gini_oot_w _gini_train_msrc _gini_oot_msrc;
-    quit;
 
     proc datasets library=casuser nolist nowarn;
         delete _gini_:;

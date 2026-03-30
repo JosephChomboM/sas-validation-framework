@@ -36,6 +36,29 @@ gini_common.sas - Utilidades reutilizables para Gini con PROC FREQTAB
 
 %mend _gini_sort_cas;
 
+%macro _gini_sort_cas_as(source_table=, target_table=, orderby=, groupby={});
+
+    %if %length(%superq(source_table))=0 or %length(%superq(target_table))=0 or
+        %length(%superq(orderby))=0 %then %return;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={
+                caslib="casuser",
+                name="&source_table.",
+                orderby=&orderby.,
+                groupby=&groupby.
+            },
+            casout={
+                caslib="casuser",
+                name="&target_table.",
+                replace=true
+            };
+    quit;
+
+%mend _gini_sort_cas_as;
+
 %macro _gini_profile_general(data=, split=, target=, vars_num=,
     with_missing=1, out=work._gini_var_profile);
 
