@@ -99,7 +99,8 @@ ordenamiento solo se realiza al final con table.partition.
                min(_mono_score) as minval,
                max(_mono_score) as maxval
         from casuser._mono_ranked
-        group by rango_ini;
+        group by rango_ini
+        order by rango_ini;
     quit;
 
     data casuser._mono_cuts_num;
@@ -172,7 +173,8 @@ ordenamiento solo se realiza al final con table.partition.
           or (
                not missing(a._mono_score)
                and (
-                    (b.flag_ini = 1 and a._mono_score <= b.fin)
+                    (b.flag_ini = 1 and b.Bucket_Order = 1
+                        and a._mono_score <= b.fin)
                  or (b.flag_fin = 1 and a._mono_score > b.inicio)
                  or (b.flag_ini = 0 and b.flag_fin = 0
                      and a._mono_score > b.inicio
