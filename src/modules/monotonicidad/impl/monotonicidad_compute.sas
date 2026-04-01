@@ -1,59 +1,113 @@
 /* =========================================================================
-monotonicidad_compute.sas - Computo de monotonicidad (METOD7)
+monotonicidad_compute.sas - Computo CAS-first de monotonicidad (METOD7)
 
-Contiene macros que discretizan variables numericas via PROC RANK,
-reusan los cortes de TRAIN en OOT, y calculan distribucion + mean(target)
-por bucket. Para categoricas, agrupa directamente.
-
-Macros:
-%_mono_calcular_cortes  - Calcula puntos de corte via PROC RANK
-%_mono_tendencia        - Aplica cortes/agrupacion y genera tabla + grafico
-%_mono_report_variables - Orquestador: itera vars num+cat por dataset
-
-Pattern B:
-- PROC RANK y la logica de bucketizacion corren en work.
-- TRAIN calcula cortes; OOT los reutiliza.
+Monotonicidad trabaja sobre una sola variable score (PD), derivando TRAIN y
+OOT dentro del modulo sobre un input unificado. Los cortes se calculan con
+TRAIN y luego se aplican a ambos splits. El detalle final queda en CAS y el
+ordenamiento solo se realiza al final con table.partition.
 ========================================================================= */
 
-/* =====================================================================
-%_mono_calcular_cortes - calcula buckets/cortes para score numerico
-Output:
-- &out_cuts. con columnas:
-  rango, inicio, fin, flag_ini, flag_fin, ETIQUETA
-===================================================================== */
-%macro _mono_calcular_cortes(tablain=, score_var=, groups=5,
-    out_cuts=work.cortes);
+%macro _mono_partition_cas(table_name=, orderby=, groupby={});
 
-    %local _rnd _grp;
-    %let _rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
+    %if %length(%superq(table_name))=0 or %length(%superq(orderby))=0 %then
+        %return;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={
+                caslib="casuser",
+                name="&table_name.",
+                orderby=&orderby.,
+                groupby=&groupby.
+            },
+            casout={
+                caslib="casuser",
+                name="&table_name.",
+                replace=true
+            };
+    quit;
+
+%mend _mono_partition_cas;
+
+%macro _mono_prepare_input(input_caslib=, input_table=, score_var=, target=,
+    byvar=, def_cld=, train_min_mes=, train_max_mes=, oot_min_mes=,
+    oot_max_mes=);
+
+    data casuser._mono_input_raw;
+        set &input_caslib..&input_table.(keep=&score_var. &target. &byvar.);
+
+        _mono_score=&score_var.;
+        if _mono_score in (., 1111111111, -1111111111, 2222222222, -2222222222,
+            3333333333, -3333333333, 4444444444, 5555555555, 6666666666,
+            7777777777, -999999999) then _mono_score=.;
+        else _mono_score=round(_mono_score, 0.0001);
+
+        _mono_target=&target.;
+        _mono_byvar=&byvar.;
+
+        keep _mono_score _mono_target _mono_byvar;
+    run;
+
+    proc fedsql sessref=conn;
+        create table casuser._mono_input {options replace=true} as
+        select case
+                   when _mono_byvar >= &train_min_mes.
+                    and _mono_byvar <= &train_max_mes.
+                   then 'TRAIN'
+                   else 'OOT'
+               end as Split,
+               case
+                   when _mono_byvar >= &train_min_mes.
+                    and _mono_byvar <= &train_max_mes.
+                   then 1
+                   else 2
+               end as Split_Order,
+               _mono_score,
+               _mono_target
+        from casuser._mono_input_raw
+        where _mono_byvar <= &def_cld.
+          and (
+                (_mono_byvar >= &train_min_mes.
+                 and _mono_byvar <= &train_max_mes.)
+                or
+                (_mono_byvar >= &oot_min_mes.
+                 and _mono_byvar <= &oot_max_mes.)
+              );
+    quit;
+
+%mend _mono_prepare_input;
+
+%macro _mono_calcular_cortes(train_table=casuser._mono_input, groups=5,
+    out_cuts=casuser._mono_cuts);
+
+    %local _grp;
     %let _grp=&groups.;
-
     %if %length(%superq(_grp))=0 %then %let _grp=5;
     %if %sysevalf(&_grp. < 1) %then %let _grp=5;
 
-    proc rank data=&tablain.(keep=&score_var. where=(not missing(&score_var.)))
-        out=work._mono_rk_&_rnd.
+    proc rank data=&train_table.(where=(Split='TRAIN' and not missing(_mono_score)))
+        out=casuser._mono_ranked
         groups=&_grp.;
-        var &score_var.;
+        var _mono_score;
         ranks rango_ini;
     run;
 
-    proc sql noprint;
-        create table work._mono_bins_&_rnd. as
+    proc fedsql sessref=conn;
+        create table casuser._mono_bins {options replace=true} as
         select rango_ini,
-               min(&score_var.) as minval,
-               max(&score_var.) as maxval
-        from work._mono_rk_&_rnd.
-        group by rango_ini
-        order by rango_ini;
+               min(_mono_score) as minval,
+               max(_mono_score) as maxval
+        from casuser._mono_ranked
+        group by rango_ini;
     quit;
 
-    data work._mono_cuts_&_rnd.;
-        set work._mono_bins_&_rnd. end=eof;
-        length ETIQUETA $200;
+    data casuser._mono_cuts_num;
+        set casuser._mono_bins end=eof;
+        length Valor_X $200;
         retain prev_fin .;
 
-        rango = rango_ini + 1;
+        Bucket_Order = rango_ini + 1;
         inicio = prev_fin;
         fin = maxval;
         flag_ini = (_n_ = 1);
@@ -62,201 +116,124 @@ Output:
         if flag_ini then inicio = .;
 
         if flag_ini then
-            ETIQUETA = cats(put(rango, z2.), ". <-Inf; ", strip(put(fin, best12.4)), "]");
+            Valor_X = cats(put(Bucket_Order, z2.), '. <-Inf; ',
+                strip(put(fin, best12.4)), ']');
         else if flag_fin then
-            ETIQUETA = cats(put(rango, z2.), ". <", strip(put(inicio, best12.4)), "; +Inf>");
+            Valor_X = cats(put(Bucket_Order, z2.), '. <',
+                strip(put(inicio, best12.4)), '; +Inf>');
         else
-            ETIQUETA = cats(put(rango, z2.), ". <", strip(put(inicio, best12.4)),
-                            "; ", strip(put(fin, best12.4)), "]");
+            Valor_X = cats(put(Bucket_Order, z2.), '. <',
+                strip(put(inicio, best12.4)), '; ',
+                strip(put(fin, best12.4)), ']');
 
         prev_fin = fin;
-        keep rango inicio fin flag_ini flag_fin ETIQUETA;
+        keep Bucket_Order inicio fin flag_ini flag_fin Valor_X;
     run;
 
-    data work._mono_missing_&_rnd.;
-        length ETIQUETA $200;
-        rango = 0;
-        inicio = .;
-        fin = .;
-        flag_ini = 0;
-        flag_fin = 0;
-        ETIQUETA = "00. Missing";
+    data casuser._mono_cuts_missing;
+        length Valor_X $200;
+        Bucket_Order=0;
+        inicio=.;
+        fin=.;
+        flag_ini=0;
+        flag_fin=0;
+        Valor_X='00. Missing';
     run;
 
     data &out_cuts.;
-        set work._mono_missing_&_rnd.
-            work._mono_cuts_&_rnd.;
+        set casuser._mono_cuts_missing
+            casuser._mono_cuts_num;
     run;
-
-    proc sort data=&out_cuts.;
-        by rango;
-    run;
-
-    proc datasets library=work nolist nowarn;
-        delete _mono_rk_&_rnd.
-               _mono_bins_&_rnd.
-               _mono_cuts_&_rnd.
-               _mono_missing_&_rnd.;
-    quit;
 
 %mend _mono_calcular_cortes;
 
-/* =====================================================================
-%_mono_tendencia - Aplica cortes a datos y genera tabla + grafico
-Para numericas (flg_continue=1): usa cortes de work.cortes.
-Para categoricas (flg_continue=0): agrupa directamente.
-===================================================================== */
-%macro _mono_tendencia(tablain, var, target=, groups=5, flg_continue=1,
-    reuse_cuts=0, m_data_type=);
+%macro _mono_build_detail(input_table=casuser._mono_input,
+    cuts_table=casuser._mono_cuts, out_table=casuser._mono_detail);
 
-    %local _mono_total _rnd;
-    %let _rnd=%sysfunc(int(%sysfunc(ranuni(0))*100000));
-
-    data work._mono_t_&rnd._0;
-        set &tablain.;
-        %if &flg_continue.=1 %then %do;
-            if &var. in (., 1111111111, -1111111111, 2222222222, -2222222222,
-                3333333333, -3333333333, 4444444444, 5555555555, 6666666666,
-                7777777777, -999999999) then &var.=.;
-        %end;
-    run;
-
-    %let _mono_total=0;
-    proc sql noprint;
-        select count(*) into :_mono_total trimmed from work._mono_t_&rnd._0;
+    proc fedsql sessref=conn;
+        create table casuser._mono_split_totals {options replace=true} as
+        select Split,
+               Split_Order,
+               count(*) as Total_Split
+        from &input_table.
+        group by Split, Split_Order;
     quit;
 
-    %if &_mono_total.=0 %then %do;
-        %return;
-    %end;
-
-    %if &flg_continue.=1 %then %do;
-        %if &reuse_cuts.=0 %then %do;
-            %_mono_calcular_cortes(tablain=work._mono_t_&rnd._0,
-                score_var=&var., groups=&groups., out_cuts=work.cortes);
-            proc sort data=work.cortes;
-                by rango;
-            run;
-        %end;
-
-        proc sql noprint;
-            create table work._mono_tagged_&_rnd. as
-            select a.*,
-                   coalesce(b.ETIQUETA, "00. Missing") as ETIQUETA length=200
-            from work._mono_t_&rnd._0 a
-            left join work.cortes b
-              on (missing(a.&var.) and b.rango = 0)
-              or (
-                   not missing(a.&var.)
-                   and (
-                        (b.flag_ini = 1 and a.&var. <= b.fin)
-                     or (b.flag_fin = 1 and a.&var. > b.inicio)
-                     or (b.flag_ini = 0 and b.flag_fin = 0
-                         and a.&var. > b.inicio
-                         and a.&var. <= b.fin)
-                   )
-                 );
-        quit;
-
-        proc sql noprint;
-            create table work._mono_report as
-            select ETIQUETA as &var.,
-                   count(*) as Cuentas,
-                   count(*) / &_mono_total. as Pct_cuentas format=percent8.2,
-                   mean(&target.) as Mean_Default format=percent8.2
-            from work._mono_tagged_&_rnd.
-            group by ETIQUETA
-            order by ETIQUETA;
-        quit;
-    %end;
-    %else %do;
-        proc sql noprint;
-            create table work._mono_report as
-            select &var.,
-                   count(*) as Cuentas,
-                   count(*) / &_mono_total. as Pct_cuentas format=percent8.2,
-                   mean(&target.) as Mean_Default format=percent8.2
-            from work._mono_t_&rnd._0
-            group by &var.;
-        quit;
-    %end;
-
-    title "Monotonicidad &var. - &m_data_type.";
-
-    proc sgplot data=work._mono_report subpixel noautolegend;
-        keylegend / title=" " opaque;
-        vbar &var. / response=Pct_cuentas barwidth=0.4 nooutline;
-        vline &var. / response=Mean_Default markers
-            markerattrs=(symbol=circlefilled) y2axis;
-        yaxis label="% Cuentas (bar)" discreteorder=data
-            labelattrs=(size=8) valueattrs=(size=8);
-        y2axis min=0 label="Mean &target." labelattrs=(size=8);
-        xaxis label="Buckets variable" labelattrs=(size=8);
-    run;
-    title;
-
-    proc print data=work._mono_report noobs;
-    run;
-
-    proc datasets library=work nolist nowarn;
-        delete _mono_t_&rnd._0 _mono_tagged_&_rnd. _mono_report;
+    proc fedsql sessref=conn;
+        create table casuser._mono_tagged {options replace=true} as
+        select a.Split,
+               a.Split_Order,
+               coalesce(b.Bucket_Order, 0) as Bucket_Order,
+               coalesce(b.Valor_X, '00. Missing') as Valor_X,
+               a._mono_target
+        from &input_table. a
+        left join &cuts_table. b
+          on (missing(a._mono_score) and b.Bucket_Order = 0)
+          or (
+               not missing(a._mono_score)
+               and (
+                    (b.flag_ini = 1 and a._mono_score <= b.fin)
+                 or (b.flag_fin = 1 and a._mono_score > b.inicio)
+                 or (b.flag_ini = 0 and b.flag_fin = 0
+                     and a._mono_score > b.inicio
+                     and a._mono_score <= b.fin)
+               )
+             );
     quit;
 
-%mend _mono_tendencia;
+    proc fedsql sessref=conn;
+        create table casuser._mono_bucket_stats {options replace=true} as
+        select Split,
+               Split_Order,
+               Bucket_Order,
+               Valor_X,
+               count(*) as N,
+               avg(_mono_target) as Mean_Default
+        from casuser._mono_tagged
+        group by Split, Split_Order, Bucket_Order, Valor_X;
+    quit;
 
-/* =====================================================================
-%_mono_report_variables - Orquestador: itera vars num+cat por dataset
-Para numericas:
-- TRAIN: reuse_num_cuts=0 calcula cortes
-- OOT:   reuse_num_cuts=1 reutiliza cortes previamente calculados
-Para categoricas:
-- agrupa directamente
-===================================================================== */
-%macro _mono_report_variables(data=, target=, vars_num=, vars_cat=, groups=5,
-    data_type=, reuse_num_cuts=0, train_ref_data=);
+    proc fedsql sessref=conn;
+        create table &out_table. {options replace=true} as
+        select 1 as Run_Order,
+               a.Split,
+               a.Split_Order,
+               a.Bucket_Order,
+               a.Valor_X,
+               a.N,
+               case
+                   when b.Total_Split > 0 then a.N / b.Total_Split
+                   else .
+               end as Pct_Cuentas,
+               a.Mean_Default
+        from casuser._mono_bucket_stats a
+        left join casuser._mono_split_totals b
+          on a.Split = b.Split
+         and a.Split_Order = b.Split_Order;
+    quit;
 
-    %local c v z v_cat;
+%mend _mono_build_detail;
 
-    %if %length(&vars_num.) > 0 %then %do;
-        %let c=1;
-        %let v=%scan(&vars_num., &c., %str( ));
-        %do %while(%length(&v.) > 0);
-            %put NOTE: [monotonicidad] Procesando variable numerica: &v.;
+%macro _monotonicidad_compute(input_caslib=, input_table=, score_var=, target=,
+    byvar=, def_cld=, groups=5, train_min_mes=, train_max_mes=, oot_min_mes=,
+    oot_max_mes=);
 
-            %if &reuse_num_cuts.=1 %then %do;
-                %_mono_calcular_cortes(tablain=&train_ref_data.,
-                    score_var=&v., groups=&groups., out_cuts=work.cortes);
-                proc sort data=work.cortes;
-                    by rango;
-                run;
-            %end;
+    %put NOTE: [monotonicidad_compute] Construyendo input canonico en CAS.;
 
-            %_mono_tendencia(&data., &v., target=&target.,
-                groups=&groups., flg_continue=1,
-                reuse_cuts=&reuse_num_cuts., m_data_type=&data_type.);
+    %_mono_prepare_input(input_caslib=&input_caslib., input_table=&input_table.,
+        score_var=&score_var., target=&target., byvar=&byvar.,
+        def_cld=&def_cld., train_min_mes=&train_min_mes.,
+        train_max_mes=&train_max_mes., oot_min_mes=&oot_min_mes.,
+        oot_max_mes=&oot_max_mes.);
 
-            proc datasets library=work nolist nowarn;
-                delete cortes;
-            quit;
+    %put NOTE: [monotonicidad_compute] Calculando cortes TRAIN para &score_var..;
 
-            %let c=%eval(&c. + 1);
-            %let v=%scan(&vars_num., &c., %str( ));
-        %end;
-    %end;
+    %_mono_calcular_cortes(train_table=casuser._mono_input, groups=&groups.,
+        out_cuts=casuser._mono_cuts);
 
-    %if %length(&vars_cat.) > 0 %then %do;
-        %let z=1;
-        %let v_cat=%scan(&vars_cat., &z., %str( ));
-        %do %while(%length(&v_cat.) > 0);
-            %put NOTE: [monotonicidad] Procesando variable categorica: &v_cat.;
+    %put NOTE: [monotonicidad_compute] Construyendo detalle TRAIN/OOT.;
 
-            %_mono_tendencia(&data., &v_cat., target=&target.,
-                groups=&groups., flg_continue=0, reuse_cuts=0,
-                m_data_type=&data_type.);
+    %_mono_build_detail(input_table=casuser._mono_input,
+        cuts_table=casuser._mono_cuts, out_table=casuser._mono_detail);
 
-            %let z=%eval(&z. + 1);
-            %let v_cat=%scan(&vars_cat., &z., %str( ));
-        %end;
-    %end;
-
-%mend _mono_report_variables;
+%mend _monotonicidad_compute;

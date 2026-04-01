@@ -2,13 +2,13 @@
 steps/methods/metod_7/step_monotonicidad.sas
 Step de modulo: Monotonicidad (METOD7)
 
-Analiza monotonicidad de variables numericas y categoricas vs target usando:
-- cortes definidos en TRAIN para variables numericas
-- reuso de cortes en OOT
-- agrupacion directa para categoricas
+Analiza monotonicidad de la PD configurada en cfg_troncales vs target usando:
+- una sola base _scope_input
+- derivacion interna de TRAIN/OOT
+- cortes definidos en TRAIN y reutilizados en OOT
 - filtro por default cerrado (def_cld de config.sas)
 
-Usa run_module con dual_input=1 (TRAIN + OOT en una ejecucion).
+Usa run_module con scope_input=1 (base unificada por scope).
 
 Dependencias:
 - &ctx_scope (SEGMENTO | UNIVERSO)
@@ -24,10 +24,9 @@ Dependencias:
 
 /* ---- CONFIGURACION DEL MODULO (editar aqui) --------------------------- */
 /* mono_mode:
-AUTO   -> usa variables de cfg_segmentos/cfg_troncales
-          (num_list, cat_list, target, byvar).
+AUTO   -> usa pd, target, byvar, ventanas y def_cld desde cfg_troncales.
           Outputs van a reports/ + images/ (validacion estandar).
-CUSTOM -> usa mono_custom_vars_num/cat y permite override target/def_cld.
+CUSTOM -> mantiene pd desde cfg_troncales y permite override target/def_cld.
           byvar siempre se resuelve desde config.sas.
           Outputs van a experiments/ (analisis exploratorio).              */
 %let mono_mode=AUTO;
@@ -35,9 +34,7 @@ CUSTOM -> usa mono_custom_vars_num/cat y permite override target/def_cld.
 /* Numero de grupos/bins para discretizacion de variables continuas        */
 %let mono_n_groups=5;
 
-/* Variables personalizadas (solo si mono_mode=CUSTOM)                    */
-%let mono_custom_vars_num= ;
-%let mono_custom_vars_cat= ;
+/* Overrides personalizados (solo si mono_mode=CUSTOM)                    */
 %let mono_custom_target= ;
 %let mono_custom_def_cld= ;
 
@@ -63,7 +60,8 @@ CUSTOM -> usa mono_custom_vars_num/cat y permite override target/def_cld.
 
     %put NOTE: [step_monotonicidad] Iniciando - scope=&ctx_scope.
         mono_mode=&mono_mode. n_groups=&mono_n_groups.;
-    %put NOTE: [step_monotonicidad] Usa dual_input=1 y def_cld (default cerrado).;
+    %put NOTE: [step_monotonicidad] Usa scope_input=1, PD unica y
+        def_cld (default cerrado).;
 
     /* ---- 1) Crear CASLIBs PROC + OUT --------------------------------- */
     %_create_caslib(cas_path=&fw_root./data/processed, caslib_name=PROC,
@@ -85,12 +83,12 @@ CUSTOM -> usa mono_custom_vars_num/cat y permite override target/def_cld.
         %end;
         %else %if %upcase(&ctx_seg_id.) ne ALL %then %do;
             %run_module(module=monotonicidad, troncal_id=&ctx_troncal_id.,
-                split=, seg_id=&ctx_seg_id., run_id=&run_id., dual_input=1);
+                split=, seg_id=&ctx_seg_id., run_id=&run_id., scope_input=1);
         %end;
         %else %do;
             %do _sg=1 %to &ctx_n_segments.;
                 %run_module(module=monotonicidad, troncal_id=&ctx_troncal_id.,
-                    split=, seg_id=&_sg., run_id=&run_id., dual_input=1);
+                    split=, seg_id=&_sg., run_id=&run_id., scope_input=1);
             %end;
         %end;
 
@@ -100,7 +98,7 @@ CUSTOM -> usa mono_custom_vars_num/cat y permite override target/def_cld.
         %put NOTE: [step_monotonicidad] UNIVERSO: troncal=&ctx_troncal_id.;
 
         %run_module(module=monotonicidad, troncal_id=&ctx_troncal_id., split=,
-            seg_id=, run_id=&run_id., dual_input=1);
+            seg_id=, run_id=&run_id., scope_input=1);
 
     %end;
     %else %do;
