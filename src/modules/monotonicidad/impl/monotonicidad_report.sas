@@ -27,7 +27,7 @@ Genera:
     %end;
 
     %_mono_partition_cas(table_name=_mono_detail,
-        orderby=%str({"Run_Order", "Bucket_Order", "Split_Order"}));
+        orderby=%str({"Run_Order", "Split_Order", "Bucket_Order"}));
 
     data casuser._mono_detail_view;
         set casuser._mono_detail;
