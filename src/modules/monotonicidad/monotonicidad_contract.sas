@@ -70,17 +70,23 @@ Setea macro variable &_mono_rc:
         %return;
     %end;
 
+    proc contents data=&input_caslib..&input_table.
+        out=work._mono_contract_cols(keep=name)
+        noprint;
+    run;
+
     %let _mono_has_col=0;
     proc sql noprint;
         select count(*) into :_mono_has_col trimmed
-        from dictionary.columns
-        where upcase(libname)=upcase("&input_caslib.")
-          and upcase(memname)=upcase("&input_table.")
-          and upcase(name)=upcase("&score_var.");
+        from work._mono_contract_cols
+        where upcase(name)=upcase("&score_var.");
     quit;
     %if &_mono_has_col.=0 %then %do;
         %put ERROR: [monotonicidad_contract] score_var=&score_var. no
             encontrada en &input_caslib..&input_table..;
+        proc datasets library=work nolist nowarn;
+            delete _mono_contract_cols;
+        quit;
         %let _mono_rc=1;
         %return;
     %end;
@@ -88,14 +94,15 @@ Setea macro variable &_mono_rc:
     %let _mono_has_col=0;
     proc sql noprint;
         select count(*) into :_mono_has_col trimmed
-        from dictionary.columns
-        where upcase(libname)=upcase("&input_caslib.")
-          and upcase(memname)=upcase("&input_table.")
-          and upcase(name)=upcase("&target.");
+        from work._mono_contract_cols
+        where upcase(name)=upcase("&target.");
     quit;
     %if &_mono_has_col.=0 %then %do;
         %put ERROR: [monotonicidad_contract] target=&target. no encontrada
             en &input_caslib..&input_table..;
+        proc datasets library=work nolist nowarn;
+            delete _mono_contract_cols;
+        quit;
         %let _mono_rc=1;
         %return;
     %end;
@@ -103,17 +110,22 @@ Setea macro variable &_mono_rc:
     %let _mono_has_col=0;
     proc sql noprint;
         select count(*) into :_mono_has_col trimmed
-        from dictionary.columns
-        where upcase(libname)=upcase("&input_caslib.")
-          and upcase(memname)=upcase("&input_table.")
-          and upcase(name)=upcase("&byvar.");
+        from work._mono_contract_cols
+        where upcase(name)=upcase("&byvar.");
     quit;
     %if &_mono_has_col.=0 %then %do;
         %put ERROR: [monotonicidad_contract] byvar=&byvar. no encontrada
             en &input_caslib..&input_table..;
+        proc datasets library=work nolist nowarn;
+            delete _mono_contract_cols;
+        quit;
         %let _mono_rc=1;
         %return;
     %end;
+
+    proc datasets library=work nolist nowarn;
+        delete _mono_contract_cols;
+    quit;
 
     proc fedsql sessref=conn;
         create table casuser._mono_contract_counts {options replace=true} as

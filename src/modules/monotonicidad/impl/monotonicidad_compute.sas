@@ -35,16 +35,16 @@ ordenamiento solo se realiza al final con table.partition.
     oot_max_mes=);
 
     data casuser._mono_input_raw;
-        set &input_caslib..&input_table.(keep=&score_var. &target. &byvar.);
+        set &input_caslib..&input_table.;
 
-        _mono_score=&score_var.;
+        _mono_score=input(vvaluex("&score_var."), ?? best32.);
         if _mono_score in (., 1111111111, -1111111111, 2222222222, -2222222222,
             3333333333, -3333333333, 4444444444, 5555555555, 6666666666,
             7777777777, -999999999) then _mono_score=.;
         else _mono_score=round(_mono_score, 0.0001);
 
-        _mono_target=&target.;
-        _mono_byvar=&byvar.;
+        _mono_target=input(vvaluex("&target."), ?? best32.);
+        _mono_byvar=input(vvaluex("&byvar."), ?? best32.);
 
         keep _mono_score _mono_target _mono_byvar;
     run;
