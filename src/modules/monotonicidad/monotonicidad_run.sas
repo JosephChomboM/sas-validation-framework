@@ -15,7 +15,7 @@ Flujo interno:
 1) Resolver pd, target, byvar, ventanas y def_cld desde cfg_troncales
 2) Aplicar overrides exploratorios de target/def_cld si mono_mode=CUSTOM
 3) Ejecutar contract sobre el input unificado
-4) Construir detalle CAS-first y generar un reporte comparativo TRAIN/OOT
+4) Ejecutar TRAIN/OOT en dos pasadas y generar reporte legacy-style
 
 Regla de negocio:
 - Monotonicidad aplica a una sola variable score: cfg_troncales.pd.

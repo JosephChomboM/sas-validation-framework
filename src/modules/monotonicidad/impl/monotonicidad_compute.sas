@@ -78,7 +78,25 @@ ordenamiento solo se realiza al final con table.partition.
 
 %mend _mono_prepare_input;
 
-%macro _mono_calcular_cortes(train_table=casuser._mono_input, groups=5,
+%macro _mono_prepare_splits(input_table=casuser._mono_input);
+
+    proc fedsql sessref=conn;
+        create table casuser._mono_train {options replace=true} as
+        select _mono_score, _mono_target
+        from &input_table.
+        where Split='TRAIN';
+    quit;
+
+    proc fedsql sessref=conn;
+        create table casuser._mono_oot {options replace=true} as
+        select _mono_score, _mono_target
+        from &input_table.
+        where Split='OOT';
+    quit;
+
+%mend _mono_prepare_splits;
+
+%macro _mono_calcular_cortes(tablain=casuser._mono_train, groups=5,
     out_cuts=casuser._mono_cuts);
 
     %local _grp _cuts_name;
@@ -87,66 +105,63 @@ ordenamiento solo se realiza al final con table.partition.
     %if %length(%superq(_grp))=0 %then %let _grp=5;
     %if %sysevalf(&_grp. < 1) %then %let _grp=5;
 
-    proc rank data=&train_table.(where=(Split='TRAIN' and not missing(_mono_score)))
+    proc rank data=&tablain.
         out=casuser._mono_ranked
         groups=&_grp.;
         var _mono_score;
-        ranks rango_ini;
+        ranks rango;
     run;
 
     proc fedsql sessref=conn;
         create table casuser._mono_bins {options replace=true} as
-        select rango_ini,
+        select case
+                   when rango is null then -1
+                   else rango
+               end as Sort_Rango,
+               rango as Rango_Ini,
                min(_mono_score) as minval,
                max(_mono_score) as maxval
         from casuser._mono_ranked
-        group by rango_ini;
+        group by rango;
     quit;
 
     %_mono_partition_cas(table_name=_mono_bins,
-        orderby=%str({"rango_ini"}));
-
-    data casuser._mono_cuts_num;
-        set casuser._mono_bins end=eof;
-        length Valor_X $200;
-        retain prev_fin .;
-
-        Bucket_Order = rango_ini + 1;
-        inicio = prev_fin;
-        fin = maxval;
-        flag_ini = (_n_ = 1);
-        flag_fin = eof;
-
-        if flag_ini then inicio = .;
-
-        if flag_ini then
-            Valor_X = cats(put(Bucket_Order, z2.), '. <-Inf; ',
-                strip(put(fin, best12.4)), ']');
-        else if flag_fin then
-            Valor_X = cats(put(Bucket_Order, z2.), '. <',
-                strip(put(inicio, best12.4)), '; +Inf>');
-        else
-            Valor_X = cats(put(Bucket_Order, z2.), '. <',
-                strip(put(inicio, best12.4)), '; ',
-                strip(put(fin, best12.4)), ']');
-
-        prev_fin = fin;
-        keep Bucket_Order inicio fin flag_ini flag_fin Valor_X;
-    run;
-
-    data casuser._mono_cuts_missing;
-        length Valor_X $200;
-        Bucket_Order=0;
-        inicio=.;
-        fin=.;
-        flag_ini=0;
-        flag_fin=0;
-        Valor_X='00. Missing';
-    run;
+        orderby=%str({"Sort_Rango"}));
 
     data &out_cuts.;
-        set casuser._mono_cuts_missing
-            casuser._mono_cuts_num;
+        set casuser._mono_bins end=eof;
+        length Valor_X $200 VARIABLE $32;
+        retain MARCA 0;
+
+        N=_n_;
+        FLAG_INI=0;
+        FLAG_FIN=0;
+        LAGMAXVAL=lag(MAXVAL);
+        BUCKET_ORDER=RANGO_INI+1;
+        if RANGO_INI=. then BUCKET_ORDER=0;
+        if RANGO_INI>=0 then MARCA=MARCA+1;
+        if MARCA=1 then FLAG_INI=1;
+        if EOF then FLAG_FIN=1;
+
+        VARIABLE='_mono_score';
+        INICIO=LAGMAXVAL;
+        FIN=MAXVAL;
+
+        if BUCKET_ORDER=0 then
+            Valor_X='00. Missing';
+        else if FLAG_INI=1 then
+            Valor_X=cats(put(BUCKET_ORDER, z2.), '. <-Inf; ',
+                cats(put(MAXVAL, F12.4)), ']');
+        else if FLAG_FIN=1 then
+            Valor_X=cats(put(BUCKET_ORDER, z2.), '. <',
+                cats(put(LAGMAXVAL, F12.4)), '; +Inf>');
+        else
+            Valor_X=cats(put(BUCKET_ORDER, z2.), '. <',
+                cats(put(LAGMAXVAL, F12.4)), '; ',
+                cats(put(MAXVAL, F12.4)), ']');
+
+        keep VARIABLE BUCKET_ORDER RANGO_INI INICIO FIN FLAG_INI FLAG_FIN
+             Valor_X SORT_RANGO;
     run;
 
     %_mono_partition_cas(table_name=&_cuts_name.,
@@ -163,41 +178,41 @@ ordenamiento solo se realiza al final con table.partition.
 
         if Bucket_Order = 0 then
             query_body = cats(
-                "if missing(_mono_score) then do; Bucket_Order=0; Valor_X='",
+                "if missing(_mono_score)=1 then do; Valor_X='",
                 strip(Valor_X),
-                "'; end;"
+                "'; Bucket_Order=0; end;"
             );
         else if flag_ini = 1 then
             query_body = cats(
-                "else if _mono_score <= ",
+                "if _mono_score<=",
                 strip(put(fin, best32.)),
-                " then do; Bucket_Order=",
-                strip(put(Bucket_Order, best32.)),
-                "; Valor_X='",
+                " then do; Valor_X='",
                 strip(Valor_X),
-                "'; end;"
+                "'; Bucket_Order=",
+                strip(put(Bucket_Order, best32.)),
+                "; end;"
             );
         else if flag_fin = 1 then
             query_body = cats(
-                "else if _mono_score > ",
+                "if _mono_score>",
                 strip(put(inicio, best32.)),
-                " then do; Bucket_Order=",
-                strip(put(Bucket_Order, best32.)),
-                "; Valor_X='",
+                " then do; Valor_X='",
                 strip(Valor_X),
-                "'; end;"
+                "'; Bucket_Order=",
+                strip(put(Bucket_Order, best32.)),
+                "; end;"
             );
         else
             query_body = cats(
-                "else if ",
+                "if ",
                 strip(put(inicio, best32.)),
-                " < _mono_score <= ",
+                "<_mono_score<=",
                 strip(put(fin, best32.)),
-                " then do; Bucket_Order=",
-                strip(put(Bucket_Order, best32.)),
-                "; Valor_X='",
+                " then do; Valor_X='",
                 strip(Valor_X),
-                "'; end;"
+                "'; Bucket_Order=",
+                strip(put(Bucket_Order, best32.)),
+                "; end;"
             );
     run;
 
@@ -213,25 +228,38 @@ ordenamiento solo se realiza al final con table.partition.
 
 %mend _mono_build_apply_code;
 
-%macro _mono_build_detail(input_table=casuser._mono_input,
-    cuts_table=casuser._mono_cuts, out_table=casuser._mono_detail);
+%macro _mono_run_pass(tablain=, split_label=, split_order=, exist_cuts=0,
+    groups=5, cuts_table=casuser._mono_cuts, out_table=);
 
-    %local _mono_dataapply;
+    %local _mono_dataapply _mono_total;
+    %let _mono_total=0;
+
+    proc sql noprint;
+        select count(*) into :_mono_total trimmed
+        from &tablain.;
+    quit;
+
+    %if %sysevalf(%superq(_mono_total)=, boolean) %then %let _mono_total=0;
+    %if &_mono_total.=0 %then %return;
+
+    %if &exist_cuts.=0 %then %do;
+        %_mono_calcular_cortes(tablain=&tablain., groups=&groups.,
+            out_cuts=&cuts_table.);
+    %end;
+    %else %if &exist_cuts.=1 %then %do;
+        %put NOTE: [monotonicidad_compute] Reutilizando cortes TRAIN para
+            &split_label..;
+    %end;
+    %else %do;
+        %put ERROR: [monotonicidad_compute] exist_cuts debe ser 0 o 1.;
+        %return;
+    %end;
 
     %_mono_build_apply_code(cuts_table=&cuts_table., outvar=_mono_dataapply);
 
-    proc fedsql sessref=conn;
-        create table casuser._mono_split_totals {options replace=true} as
-        select Split,
-               Split_Order,
-               count(*) as Total_Split
-        from &input_table.
-        group by Split, Split_Order;
-    quit;
-
-    data casuser._mono_tagged;
+    data casuser._mono_tagged_&split_order.;
         length Valor_X $200;
-        set &input_table.;
+        set &tablain.;
 
         Bucket_Order=.;
         Valor_X=' ';
@@ -240,41 +268,26 @@ ordenamiento solo se realiza al final con table.partition.
         if missing(Bucket_Order) then Bucket_Order=0;
         if strip(Valor_X)='' then Valor_X='00. Missing';
 
-        keep Split Split_Order Bucket_Order Valor_X _mono_target;
+        keep Bucket_Order Valor_X _mono_target;
     run;
 
     proc fedsql sessref=conn;
-        create table casuser._mono_bucket_stats {options replace=true} as
-        select Split,
-               Split_Order,
+        create table &out_table. {options replace=true} as
+        select "&split_label." as Split,
+               &split_order. as Split_Order,
                Bucket_Order,
                Valor_X,
                count(*) as N,
+               count(*) / &_mono_total. as Pct_Cuentas,
                avg(_mono_target) as Mean_Default
-        from casuser._mono_tagged
-        group by Split, Split_Order, Bucket_Order, Valor_X;
+        from casuser._mono_tagged_&split_order.
+        group by Bucket_Order, Valor_X;
     quit;
 
-    proc fedsql sessref=conn;
-        create table &out_table. {options replace=true} as
-        select 1 as Run_Order,
-               a.Split,
-               a.Split_Order,
-               a.Bucket_Order,
-               a.Valor_X,
-               a.N,
-               case
-                   when b.Total_Split > 0 then a.N / b.Total_Split
-                   else .
-               end as Pct_Cuentas,
-               a.Mean_Default
-        from casuser._mono_bucket_stats a
-        left join casuser._mono_split_totals b
-          on a.Split = b.Split
-         and a.Split_Order = b.Split_Order;
-    quit;
+    %_mono_partition_cas(table_name=%scan(%superq(out_table), -1, .),
+        orderby=%str({"Bucket_Order"}));
 
-%mend _mono_build_detail;
+%mend _mono_run_pass;
 
 %macro _monotonicidad_compute(input_caslib=, input_table=, score_var=, target=,
     byvar=, def_cld=, groups=5, train_min_mes=, train_max_mes=, oot_min_mes=,
@@ -288,14 +301,25 @@ ordenamiento solo se realiza al final con table.partition.
         train_max_mes=&train_max_mes., oot_min_mes=&oot_min_mes.,
         oot_max_mes=&oot_max_mes.);
 
-    %put NOTE: [monotonicidad_compute] Calculando cortes TRAIN para &score_var..;
+    %_mono_prepare_splits(input_table=casuser._mono_input);
 
-    %_mono_calcular_cortes(train_table=casuser._mono_input, groups=&groups.,
-        out_cuts=casuser._mono_cuts);
+    %put NOTE: [monotonicidad_compute] Ejecutando TRAIN con calculo de cortes.;
+    %_mono_run_pass(tablain=casuser._mono_train, split_label=TRAIN,
+        split_order=1, exist_cuts=0, groups=&groups.,
+        cuts_table=casuser._mono_cuts, out_table=casuser._mono_report_train);
 
-    %put NOTE: [monotonicidad_compute] Construyendo detalle TRAIN/OOT.;
+    %put NOTE: [monotonicidad_compute] Ejecutando OOT reutilizando cortes TRAIN.;
+    %_mono_run_pass(tablain=casuser._mono_oot, split_label=OOT,
+        split_order=2, exist_cuts=1, groups=&groups.,
+        cuts_table=casuser._mono_cuts, out_table=casuser._mono_report_oot);
 
-    %_mono_build_detail(input_table=casuser._mono_input,
-        cuts_table=casuser._mono_cuts, out_table=casuser._mono_detail);
+    data casuser._mono_detail;
+        set casuser._mono_report_train
+            casuser._mono_report_oot;
+        Run_Order=1;
+    run;
+
+    %_mono_partition_cas(table_name=_mono_detail,
+        orderby=%str({"Run_Order", "Split_Order", "Bucket_Order"}));
 
 %mend _monotonicidad_compute;
