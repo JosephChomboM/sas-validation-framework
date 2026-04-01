@@ -33,8 +33,26 @@
     term_global_sess=1,
     subdirs_flg=0
 );
+    %local _existing_path;
+
     %if %sysfunc(sessfound(&cas_sess_name)) = 0 %then %do;
         cas &cas_sess_name.;
+    %end;
+
+    %if %sysfunc(libref(&lib_caslib.)) = 0 %then %do;
+        %let _existing_path=%sysfunc(pathname(&lib_caslib.));
+
+        %if %upcase(%superq(_existing_path)) = %upcase(%superq(cas_path))
+            %then %do;
+            %put NOTE: [_create_caslib] Reutilizando &caslib_name.
+                (libref=&lib_caslib.) sobre &cas_path..;
+            %return;
+        %end;
+        %else %do;
+            %put NOTE: [_create_caslib] Libref &lib_caslib. ya existe sobre
+                &_existing_path.. Se recreara con &cas_path..;
+            libname &lib_caslib. clear;
+        %end;
     %end;
 
     proc cas;
