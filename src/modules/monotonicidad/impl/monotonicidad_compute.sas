@@ -168,9 +168,9 @@ ordenamiento solo se realiza al final con table.partition.
                a._mono_target
         from &input_table. a
         left join &cuts_table. b
-          on (missing(a._mono_score) and b.Bucket_Order = 0)
+          on (a._mono_score is null and b.Bucket_Order = 0)
           or (
-               not missing(a._mono_score)
+               a._mono_score is not null
                and (
                     (b.flag_ini = 1 and a._mono_score <= b.fin)
                  or (b.flag_fin = 1 and a._mono_score > b.inicio)
