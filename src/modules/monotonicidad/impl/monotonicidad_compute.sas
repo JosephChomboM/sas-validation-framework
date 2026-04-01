@@ -111,8 +111,8 @@ Outputs finales en casuser:
         var _mono_score;
     run;
 
-    proc sql;
-        create table casuser._mono_cut_bins as
+    proc fedsql sessref=conn;
+        create table casuser._mono_cut_bins {options replace=true} as
         select RANGO,
                min(_mono_score) as MINVAL,
                max(_mono_score) as MAXVAL
@@ -267,9 +267,9 @@ Outputs finales en casuser:
         keep Bucket_Order Valor_X _mono_target;
     run;
 
-    proc sql;
-        create table &out_table. as
-        select "&split_label." as Split,
+    proc fedsql sessref=conn;
+        create table &out_table. {options replace=true} as
+        select '&split_label.' as Split,
                &split_order. as Split_Order,
                Bucket_Order,
                Valor_X,
