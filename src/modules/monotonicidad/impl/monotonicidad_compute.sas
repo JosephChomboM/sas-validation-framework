@@ -174,10 +174,11 @@ ordenamiento solo se realiza al final con table.partition.
         left join &cuts_table. b
           on (missing(a._mono_score) and b.Bucket_Order = 0)
           or (
+                /* Para score no-missing: inicio nulo=-Inf y fin nulo=+Inf. */
                 not missing(a._mono_score)
                 and b.Bucket_Order > 0
-                and a._mono_score > coalesce(b.inicio, -1e300)
-                and a._mono_score <= coalesce(b.fin, 1e300)
+                and (b.inicio is null or a._mono_score > b.inicio)
+                and (b.fin is null or a._mono_score <= b.fin)
               );
     quit;
 
