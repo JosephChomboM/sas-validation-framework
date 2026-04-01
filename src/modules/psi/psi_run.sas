@@ -222,7 +222,7 @@ Compatibilidad: segmento y universo.
     6) Cleanup - eliminar tablas temporales de casuser (CAS)
     ================================================================== */
     proc datasets library=casuser nolist nowarn;
-        delete _psi_cubo _psi_cubo_wide _psi_resumen;
+        delete _psi_cubo _psi_cubo_wide _psi_resumen _psi_plot_split;
     quit;
 
     %put NOTE:======================================================;

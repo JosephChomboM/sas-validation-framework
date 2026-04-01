@@ -187,6 +187,7 @@ al terminar. work se limpia al final.
      casuser._psi_cubo        detalle Variable x Periodo x PSI x Tipo
      casuser._psi_cubo_wide   pivot Variable x meses + PSI_Total
      casuser._psi_resumen     estadisticas + semaforo + alertas tendencia
+     casuser._psi_plot_split  conteos TRAIN/OOT por Variable x Periodo
 
    Parametros:
      input_caslib  = CASLIB de la tabla de entrada unificada
@@ -275,6 +276,9 @@ al terminar. work se limpia al final.
         table.dropTable / caslib='casuser' name='_psi_input_stage' quiet=true;
         table.dropTable / caslib='casuser' name='_psi_cubo_mensual' quiet=true;
         table.dropTable / caslib='casuser' name='_psi_cubo_wide_base' quiet=true;
+        table.dropTable / caslib='casuser' name='_psi_plot_split' quiet=true;
+        table.dropTable / caslib='casuser' name='_psi_plot_base' quiet=true;
+        table.dropTable / caslib='casuser' name='_psi_var_list' quiet=true;
     quit;
 
     proc fedsql sessref=conn;
@@ -507,6 +511,31 @@ al terminar. work se limpia al final.
     run;
 
     %if %length(%superq(byvar)) > 0 %then %do;
+        proc fedsql sessref=conn;
+            create table casuser._psi_plot_base {options replace=true} as
+            select &_cfg_byvar. as &byvar.,
+                   _psi_split as Split,
+                   count(*) as N
+            from casuser._psi_input
+            group by &_cfg_byvar., _psi_split;
+        quit;
+
+        proc fedsql sessref=conn;
+            create table casuser._psi_var_list {options replace=true} as
+            select distinct Variable
+            from casuser._psi_cubo;
+        quit;
+
+        proc fedsql sessref=conn;
+            create table casuser._psi_plot_split {options replace=true} as
+            select v.Variable,
+                   p.&byvar.,
+                   p.Split,
+                   p.N
+            from casuser._psi_var_list v
+            cross join casuser._psi_plot_base p;
+        quit;
+
         %if &hay_mensual. > 0 %then %do;
             proc fedsql sessref=conn;
                 create table casuser._psi_cubo_mensual {options replace=true} as
@@ -550,11 +579,48 @@ al terminar. work se limpia al final.
         quit;
     %end;
 
+    %if %length(%superq(byvar)) > 0 %then %do;
+        proc cas;
+            session conn;
+            table.partition /
+                table={caslib='casuser', name='_psi_cubo',
+                    groupby={'Variable'}, orderby={"&byvar.", 'Tipo'}},
+                casout={caslib='casuser', name='_psi_cubo', replace=true};
+            table.partition /
+                table={caslib='casuser', name='_psi_plot_split',
+                    groupby={'Variable'}, orderby={"&byvar.", 'Split'}},
+                casout={caslib='casuser', name='_psi_plot_split', replace=true};
+        quit;
+    %end;
+    %else %do;
+        proc cas;
+            session conn;
+            table.partition /
+                table={caslib='casuser', name='_psi_cubo',
+                    groupby={'Variable'}, orderby={'Periodo', 'Tipo'}},
+                casout={caslib='casuser', name='_psi_cubo', replace=true};
+        quit;
+    %end;
+
+    proc cas;
+        session conn;
+        table.partition /
+            table={caslib='casuser', name='_psi_cubo_wide',
+                groupby={}, orderby={'Variable'}},
+            casout={caslib='casuser', name='_psi_cubo_wide', replace=true};
+        table.partition /
+            table={caslib='casuser', name='_psi_resumen',
+                groupby={}, orderby={'Variable'}},
+            casout={caslib='casuser', name='_psi_resumen', replace=true};
+    quit;
+
     /* ---- 9) Cleanup ------------------------------------------------------ */
     proc cas;
         session conn;
         table.dropTable / caslib='casuser' name='_psi_cubo_mensual' quiet=true;
         table.dropTable / caslib='casuser' name='_psi_cubo_wide_base' quiet=true;
+        table.dropTable / caslib='casuser' name='_psi_plot_base' quiet=true;
+        table.dropTable / caslib='casuser' name='_psi_var_list' quiet=true;
         table.dropTable / caslib='casuser' name='_psi_input_stage' quiet=true;
         table.dropTable / caslib='casuser' name='_psi_input' quiet=true;
     quit;
@@ -567,6 +633,8 @@ al terminar. work se limpia al final.
     %put NOTE: [psi_compute] casuser._psi_cubo;
     %put NOTE: [psi_compute] casuser._psi_cubo_wide;
     %put NOTE: [psi_compute] casuser._psi_resumen;
+    %if %length(%superq(byvar)) > 0 %then
+        %put NOTE: [psi_compute] casuser._psi_plot_split;
 
 %mend _psi_compute;
 

@@ -9,7 +9,7 @@ casuser._psi_resumen
 Genera:
 <report_path>/<file_prefix>.html              - cubo + resumen con semáforo
 <report_path>/<file_prefix>.xlsx              - hojas: Detalle, Wide, Resumen, Graficos
-<images_path>/<file_prefix>_tend_*.jpeg       - tendencia temporal por variable
+<images_path>/<file_prefix>_tend_*.jpeg       - volumen TRAIN/OOT por variable
 
 Codificación de colores (semáforo PSI):
 PSI < 0.10       → lightgreen  (estable)
@@ -30,11 +30,13 @@ Se ejecuta dentro de un contexto ODS ya abierto (Excel + listing).
     %local var_list n_vars i var_name;
 
     proc sql noprint;
-        select distinct Variable into :var_list separated by '|' from &data.
-            where Tipo="Mensual";
+        select distinct Variable into :var_list separated by '|'
+        from &data.
+        where Tipo="Mensual";
 
-        select count(distinct Variable) into :n_vars trimmed from &data. where
-            Tipo="Mensual";
+        select count(distinct Variable) into :n_vars trimmed
+        from &data.
+        where Tipo="Mensual";
     quit;
 
     %if &n_vars.=0 %then %do;
@@ -48,7 +50,7 @@ Se ejecuta dentro de un contexto ODS ya abierto (Excel + listing).
         ods graphics / imagename="&file_prefix._tend_&var_name." imagefmt=jpeg
             width=800px height=400px;
 
-        title "PSI Temporal: &var_name.";
+        title "Tendencia PSI: &var_name.";
 
         proc sgplot data=&data.(where=(Variable="&var_name." and
             Tipo="Mensual"));
@@ -75,6 +77,45 @@ Se ejecuta dentro de un contexto ODS ya abierto (Excel + listing).
     %end;
 
 %mend _psi_plot_tendencia;
+
+%macro _psi_plot_split_volume(data=casuser._psi_plot_split, byvar=,
+    file_prefix=);
+
+    %local var_list n_vars i var_name;
+
+    proc sql noprint;
+        select distinct Variable into :var_list separated by '|'
+        from &data.;
+
+        select count(distinct Variable) into :n_vars trimmed
+        from &data.;
+    quit;
+
+    %if &n_vars.=0 %then %do;
+        %put NOTE: [psi_plot_split_volume] No hay datos TRAIN/OOT para graficar.;
+        %return;
+    %end;
+
+    %do i=1 %to &n_vars.;
+        %let var_name=%scan(&var_list., &i., |);
+
+        ods graphics / imagename="&file_prefix._tend_&var_name." imagefmt=jpeg
+            width=800px height=400px;
+
+        title "Volumen TRAIN/OOT: &var_name.";
+
+        proc sgplot data=&data.(where=(Variable="&var_name."));
+            series x=&byvar. y=N / group=Split markers
+                lineattrs=(thickness=2);
+            xaxis label="&byvar." valueattrs=(size=8) type=discrete
+                discreteorder=data;
+            yaxis label="N" min=0 valueattrs=(size=8);
+        run;
+
+        title;
+    %end;
+
+%mend _psi_plot_split_volume;
 
 %macro _psi_render_detalle(data=, byvar=, title_text=, footnote_text=);
     proc print data=&data. noobs label
@@ -162,12 +203,25 @@ archivos JPEG independientes (vía ods listing gpath).
     quit;
 
     %if %length(%superq(byvar)) > 0 %then %do;
+        proc fedsql sessref=conn;
+            create table casuser._psi_plot_split_rpt {options replace=true} as
+            select *
+            from casuser._psi_plot_split;
+        quit;
+    %end;
+
+    %if %length(%superq(byvar)) > 0 %then %do;
         proc cas;
             session conn;
             table.partition /
                 table={caslib="casuser", name="_psi_detalle_rpt",
                     groupby={"Variable"}, orderby={"&byvar.", "Tipo"}},
                 casout={caslib="casuser", name="_psi_detalle_rpt",
+                    replace=true};
+            table.partition /
+                table={caslib="casuser", name="_psi_plot_split_rpt",
+                    groupby={"Variable"}, orderby={"&byvar.", "Split"}},
+                casout={caslib="casuser", name="_psi_plot_split_rpt",
                     replace=true};
         quit;
     %end;
@@ -210,7 +264,8 @@ archivos JPEG independientes (vía ods listing gpath).
         title_text=&_resumen_title.);
 
     %if %length(%superq(byvar)) > 0 %then %do;
-        %_psi_plot_tendencia(data=casuser._psi_cubo, byvar=&byvar.,
+        %_psi_plot_split_volume(data=casuser._psi_plot_split_rpt,
+            byvar=&byvar.,
             file_prefix=&file_prefix.);
     %end;
 
@@ -245,12 +300,13 @@ archivos JPEG independientes (vía ods listing gpath).
     %_psi_render_resumen(data=casuser._psi_resumen_rpt, byvar=&byvar.,
         title_text=&_resumen_title.);
 
-    /* ---- Hoja 4: Graficos (tendencia temporal) ------------------------ */
+/* ---- Hoja 4: Graficos (volumen TRAIN/OOT) ------------------------- */
     %if %length(%superq(byvar)) > 0 %then %do;
         ods excel options(sheet_name="Graficos" sheet_interval="now"
             embedded_titles="yes");
 
-        %_psi_plot_tendencia( data=casuser._psi_cubo, byvar=&byvar.,
+        %_psi_plot_split_volume( data=casuser._psi_plot_split_rpt,
+            byvar=&byvar.,
             file_prefix=&file_prefix. );
     %end;
 
@@ -259,7 +315,8 @@ archivos JPEG independientes (vía ods listing gpath).
     ods graphics off;
 
     proc datasets library=casuser nolist nowarn;
-        delete _psi_detalle_rpt _psi_wide_rpt _psi_resumen_rpt;
+        delete _psi_detalle_rpt _psi_wide_rpt _psi_resumen_rpt
+            _psi_plot_split_rpt;
     quit;
 
     %put NOTE: [psi_report] HTML=> &report_path./&file_prefix..html;
