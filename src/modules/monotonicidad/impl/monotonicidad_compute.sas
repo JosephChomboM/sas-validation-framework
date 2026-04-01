@@ -102,6 +102,10 @@ ordenamiento solo se realiza al final con table.partition.
         group by rango_ini;
     quit;
 
+    proc sort data=casuser._mono_bins;
+        by rango_ini;
+    run;
+
     data casuser._mono_cuts_num;
         set casuser._mono_bins end=eof;
         length Valor_X $200;
@@ -170,15 +174,11 @@ ordenamiento solo se realiza al final con table.partition.
         left join &cuts_table. b
           on (missing(a._mono_score) and b.Bucket_Order = 0)
           or (
-               not missing(a._mono_score)
-               and (
-                    (b.flag_ini = 1 and a._mono_score <= b.fin)
-                 or (b.flag_fin = 1 and a._mono_score > b.inicio)
-                 or (b.flag_ini = 0 and b.flag_fin = 0
-                     and a._mono_score > b.inicio
-                     and a._mono_score <= b.fin)
-               )
-             );
+                not missing(a._mono_score)
+                and b.Bucket_Order > 0
+                and a._mono_score > coalesce(b.inicio, -1e300)
+                and a._mono_score <= coalesce(b.fin, 1e300)
+              );
     quit;
 
     proc fedsql sessref=conn;
