@@ -98,34 +98,31 @@ Outputs finales en casuser:
     %if %length(%superq(_grp))=0 %then %let _grp=5;
     %if %sysevalf(&_grp. < 1) %then %let _grp=5;
 
-    data casuser._mono_cut_src;
+    data work._mono_cut_src;
         set &tablain.;
 
-        if not missing(_mono_score) then
-            _mono_score=input(put(_mono_score, F12.4), ?? best32.);
+        _mono_score=input(put(_mono_score, F12.4), ?? best32.);
     run;
 
-    proc rank data=casuser._mono_cut_src out=casuser._mono_cut_ranked
+    proc rank data=work._mono_cut_src out=work._mono_cut_ranked
         groups=&_grp.;
         ranks RANGO;
         var _mono_score;
     run;
 
-    proc fedsql sessref=conn;
-        create table casuser._mono_cut_bins {options replace=true} as
+    proc sql;
+        create table work._mono_cut_bins as
         select RANGO,
                min(_mono_score) as MINVAL,
                max(_mono_score) as MAXVAL
-        from casuser._mono_cut_ranked
-        group by RANGO;
+        from work._mono_cut_ranked
+        group by RANGO
+        order by RANGO;
     quit;
 
-    %_mono_partition_cas(table_name=_mono_cut_bins,
-        orderby=%str({"RANGO"}));
-
-    data &out_cuts.;
-        set casuser._mono_cut_bins(rename=(RANGO=RANGO_INI)) end=EOF;
-        length VARIABLE $32 Valor_X $200;
+    data work._mono_cuts;
+        set work._mono_cut_bins(rename=(RANGO=RANGO_INI)) end=EOF;
+        length VARIABLE $32 ETIQUETA $200;
         retain MARCA 0;
 
         N=_n_;
@@ -139,29 +136,34 @@ Outputs finales en casuser:
         if EOF then FLAG_FIN=1;
 
         VARIABLE='_mono_score';
-        BUCKET_ORDER=RANGO;
         INICIO=LAGMAXVAL;
         FIN=MAXVAL;
 
         if RANGO=0 then
-            Valor_X='00. Missing';
+            ETIQUETA='00. Missing';
         else if FLAG_INI=1 then
-            Valor_X=cats(put(RANGO, z2.), '. <-Inf; ',
+            ETIQUETA=cats(put(RANGO, z2.), '. <-Inf; ',
                 cats(put(MAXVAL, F12.4)), ']');
         else if FLAG_FIN=1 then
-            Valor_X=cats(put(RANGO, z2.), '. <',
+            ETIQUETA=cats(put(RANGO, z2.), '. <',
                 cats(put(LAGMAXVAL, F12.4)), '; +Inf>');
         else
-            Valor_X=cats(put(RANGO, z2.), '. <',
+            ETIQUETA=cats(put(RANGO, z2.), '. <',
                 cats(put(LAGMAXVAL, F12.4)), '; ',
                 cats(put(MAXVAL, F12.4)), ']');
 
-        keep VARIABLE RANGO BUCKET_ORDER RANGO_INI INICIO FIN FLAG_INI FLAG_FIN
-             Valor_X;
+        keep VARIABLE RANGO RANGO_INI INICIO FIN FLAG_INI FLAG_FIN ETIQUETA;
     run;
 
-    %_mono_partition_cas(table_name=&_cuts_name.,
-        orderby=%str({"RANGO"}));
+    data &out_cuts.;
+        set work._mono_cuts;
+    run;
+
+    %_mono_partition_cas(table_name=&_cuts_name., orderby=%str({"RANGO"}));
+
+    proc datasets library=work nolist nowarn;
+        delete _mono_cut_src _mono_cut_ranked _mono_cut_bins;
+    quit;
 
 %mend _mono_calcular_cortes;
 
@@ -174,16 +176,16 @@ Outputs finales en casuser:
 
         if RANGO=0 then
             QUERY_BODY=cats(
-                'IF MISSING(_mono_score)=1 THEN DO; Valor_X=',
-                quote(trim(strip(Valor_X))),
+                'IF MISSING(_mono_score)=1 THEN DO; ETIQUETA=',
+                quote(trim(strip(ETIQUETA))),
                 '; Bucket_Order=0; END;'
             );
         else if FLAG_INI=1 then
             QUERY_BODY=cats(
                 'IF _mono_score<=',
                 strip(put(FIN, best32.)),
-                ' THEN DO; Valor_X=',
-                quote(trim(strip(Valor_X))),
+                ' THEN DO; ETIQUETA=',
+                quote(trim(strip(ETIQUETA))),
                 '; Bucket_Order=',
                 strip(put(RANGO, best32.)),
                 '; END;'
@@ -192,8 +194,8 @@ Outputs finales en casuser:
             QUERY_BODY=cats(
                 'IF _mono_score>',
                 strip(put(INICIO, best32.)),
-                ' THEN DO; Valor_X=',
-                quote(trim(strip(Valor_X))),
+                ' THEN DO; ETIQUETA=',
+                quote(trim(strip(ETIQUETA))),
                 '; Bucket_Order=',
                 strip(put(RANGO, best32.)),
                 '; END;'
@@ -204,8 +206,8 @@ Outputs finales en casuser:
                 strip(put(INICIO, best32.)),
                 '<_mono_score<=',
                 strip(put(FIN, best32.)),
-                ' THEN DO; Valor_X=',
-                quote(trim(strip(Valor_X))),
+                ' THEN DO; ETIQUETA=',
+                quote(trim(strip(ETIQUETA))),
                 '; Bucket_Order=',
                 strip(put(RANGO, best32.)),
                 '; END;'
@@ -228,22 +230,25 @@ Outputs finales en casuser:
 %macro _mono_run_pass(tablain=, split_label=, split_order=, exist_cuts=0,
     groups=5, cuts_table=casuser._mono_cuts, out_table=);
 
-    %local _mono_total _mono_dataapply _tagged_name _report_name;
+    %local _mono_total _mono_dataapply _report_name;
 
     %let _mono_total=0;
-    %let _tagged_name=_mono_tagged_&split_order.;
     %let _report_name=%scan(%superq(out_table), -1, .);
+
+    data work._mono_pass_src;
+        set &tablain.;
+    run;
 
     proc sql noprint;
         select count(*) into :_mono_total trimmed
-        from &tablain.;
+        from work._mono_pass_src;
     quit;
 
     %if %sysevalf(%superq(_mono_total)=, boolean) %then %let _mono_total=0;
     %if &_mono_total.=0 %then %return;
 
     %if &exist_cuts.=0 %then %do;
-        %_mono_calcular_cortes(tablain=&tablain., groups=&groups.,
+        %_mono_calcular_cortes(tablain=work._mono_pass_src, groups=&groups.,
             out_cuts=&cuts_table.);
     %end;
     %else %if &exist_cuts.=1 %then %do;
@@ -256,32 +261,41 @@ Outputs finales en casuser:
 
     %_mono_build_apply_code(cuts_table=&cuts_table., outvar=_mono_dataapply);
 
-    data casuser.&_tagged_name.;
-        length Valor_X $200;
-        set &tablain.;
+    data work._mono_tagged;
+        length ETIQUETA $200;
+        set work._mono_pass_src;
 
         Bucket_Order=.;
-        Valor_X='';
+        ETIQUETA='';
         &_mono_dataapply.;
 
-        keep Bucket_Order Valor_X _mono_target;
+        keep Bucket_Order ETIQUETA _mono_target;
     run;
 
-    proc fedsql sessref=conn;
-        create table &out_table. {options replace=true} as
-        select '&split_label.' as Split,
+    proc sql;
+        create table work._mono_report as
+        select "&split_label." as Split length=5,
                &split_order. as Split_Order,
                Bucket_Order,
-               Valor_X,
+               ETIQUETA as Valor_X length=200,
                count(*) as N,
                count(*) / &_mono_total. as Pct_Cuentas format=percent8.2,
                mean(_mono_target) as Mean_Default format=percent8.2
-        from casuser.&_tagged_name.
-        group by Bucket_Order, Valor_X;
+        from work._mono_tagged
+        group by Bucket_Order, ETIQUETA
+        order by Bucket_Order, ETIQUETA;
     quit;
+
+    data &out_table.;
+        set work._mono_report;
+    run;
 
     %_mono_partition_cas(table_name=&_report_name.,
         orderby=%str({"Bucket_Order"}));
+
+    proc datasets library=work nolist nowarn;
+        delete _mono_pass_src _mono_tagged _mono_report;
+    quit;
 
 %mend _mono_run_pass;
 
@@ -316,5 +330,9 @@ Outputs finales en casuser:
 
     %_mono_partition_cas(table_name=_mono_detail,
         orderby=%str({"Split_Order", "Bucket_Order"}));
+
+    proc datasets library=work nolist nowarn;
+        delete _mono_cuts;
+    quit;
 
 %mend _monotonicidad_compute;
