@@ -284,17 +284,16 @@ Outputs finales en casuser:
         keep Bucket_Order ETIQUETA _mono_target;
     run;
 
-    proc summary data=work._mono_tagged nway;
-        class Bucket_Order ETIQUETA;
-        var _mono_target;
-        output out=work._mono_report_raw(drop=_type_ _freq_)
-            n=N
-            mean=Mean_Default;
-    run;
-
-    proc sort data=work._mono_report_raw;
-        by Bucket_Order ETIQUETA;
-    run;
+    proc sql;
+        create table work._mono_report_raw as
+        select Bucket_Order,
+               ETIQUETA,
+               count(*) as N,
+               mean(_mono_target) as Mean_Default format=percent8.2
+        from work._mono_tagged
+        group by Bucket_Order, ETIQUETA
+        order by Bucket_Order, ETIQUETA;
+    quit;
 
     data work._mono_report;
         length Split $5 Valor_X $200;
