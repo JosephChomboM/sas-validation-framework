@@ -284,19 +284,28 @@ Outputs finales en casuser:
         keep Bucket_Order ETIQUETA _mono_target;
     run;
 
-    proc sql;
-        create table work._mono_report as
-        select "&split_label." as Split length=5,
-               &split_order. as Split_Order,
-               Bucket_Order,
-               ETIQUETA as Valor_X length=200,
-               count(*) as N,
-               count(*) / &_mono_total. as Pct_Cuentas format=percent8.2,
-               mean(_mono_target) as Mean_Default format=percent8.2
-        from work._mono_tagged
-        group by Bucket_Order, ETIQUETA
-        order by Bucket_Order, ETIQUETA;
-    quit;
+    proc summary data=work._mono_tagged nway;
+        class Bucket_Order ETIQUETA;
+        var _mono_target;
+        output out=work._mono_report_raw(drop=_type_ _freq_)
+            n=N
+            mean=Mean_Default;
+    run;
+
+    proc sort data=work._mono_report_raw;
+        by Bucket_Order ETIQUETA;
+    run;
+
+    data work._mono_report;
+        length Split $5 Valor_X $200;
+        set work._mono_report_raw;
+        Split="&split_label.";
+        Split_Order=&split_order.;
+        Valor_X=ETIQUETA;
+        Pct_Cuentas=N / &_mono_total.;
+        format Pct_Cuentas percent8.2 Mean_Default percent8.2;
+        keep Split Split_Order Bucket_Order Valor_X N Pct_Cuentas Mean_Default;
+    run;
 
     data &out_table.;
         set work._mono_report;
