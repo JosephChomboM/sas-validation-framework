@@ -128,7 +128,7 @@ Outputs finales en casuser:
         order by RANGO;
     quit;
 
-    data work._mono_cuts;
+    data work.cortes;
         set work._mono_cut_bins(rename=(RANGO=RANGO_INI)) end=EOF;
         length VARIABLE $32 ETIQUETA $200;
         retain MARCA 0;
@@ -164,7 +164,7 @@ Outputs finales en casuser:
     run;
 
     data &out_cuts.;
-        set work._mono_cuts;
+        set work.cortes;
     run;
 
     %_mono_partition_cas(table_name=&_cuts_name., orderby=%str({"RANGO"}));
