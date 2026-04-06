@@ -48,9 +48,9 @@ Outputs finales en casuser:
         length Split $5;
         set &input_caslib..&input_table.(keep=&score_var. &target. &byvar.);
 
-        _mono_score=input(vvaluex("&score_var."), ?? best32.);
-        _mono_target=input(vvaluex("&target."), ?? best32.);
-        _mono_byvar=input(vvaluex("&byvar."), ?? best32.);
+        _mono_score=&score_var.;
+        _mono_target=&target.;
+        _mono_byvar=&byvar.;
 
         if _mono_byvar <= &def_cld. then do;
             if _mono_byvar >= &train_min_mes. and _mono_byvar <= &train_max_mes.
@@ -87,6 +87,14 @@ Outputs finales en casuser:
     run;
 
 %mend _mono_prepare_splits;
+
+%macro _mono_clear_work();
+
+    proc datasets library=work nolist nowarn;
+        delete _mono_: cortes;
+    quit;
+
+%mend _mono_clear_work;
 
 %macro _mono_calcular_cortes(tablain=casuser._mono_train, groups=5,
     out_cuts=casuser._mono_cuts);
@@ -167,7 +175,7 @@ Outputs finales en casuser:
 
 %mend _mono_calcular_cortes;
 
-%macro _mono_build_apply_code(cuts_table=casuser._mono_cuts,
+%macro _mono_build_apply_code(cuts_table=work.cortes,
     outvar=_mono_dataapply);
 
     data work._mono_cut_apply;
@@ -239,10 +247,11 @@ Outputs finales en casuser:
         set &tablain.;
     run;
 
-    proc sql noprint;
-        select count(*) into :_mono_total trimmed
-        from work._mono_pass_src;
-    quit;
+    data _null_;
+        if 0 then set work._mono_pass_src nobs=n;
+        call symputx('_mono_total', n);
+        stop;
+    run;
 
     %if %sysevalf(%superq(_mono_total)=, boolean) %then %let _mono_total=0;
     %if &_mono_total.=0 %then %return;
@@ -250,6 +259,9 @@ Outputs finales en casuser:
     %if &exist_cuts.=0 %then %do;
         %_mono_calcular_cortes(tablain=work._mono_pass_src, groups=&groups.,
             out_cuts=&cuts_table.);
+        proc sort data=work.cortes;
+            by RANGO;
+        run;
     %end;
     %else %if &exist_cuts.=1 %then %do;
         %put NOTE: [monotonicidad_compute] Se usan cortes previos hechos en TRAIN.;
@@ -259,7 +271,7 @@ Outputs finales en casuser:
         %return;
     %end;
 
-    %_mono_build_apply_code(cuts_table=&cuts_table., outvar=_mono_dataapply);
+    %_mono_build_apply_code(outvar=_mono_dataapply);
 
     data work._mono_tagged;
         length ETIQUETA $200;
@@ -297,12 +309,18 @@ Outputs finales en casuser:
         delete _mono_pass_src _mono_tagged _mono_report;
     quit;
 
+    %if &exist_cuts.=1 %then %do;
+        proc datasets library=work nolist nowarn;
+            delete cortes;
+        quit;
+    %end;
+
 %mend _mono_run_pass;
 
 %macro _monotonicidad_compute(input_caslib=, input_table=, score_var=, target=,
     byvar=, def_cld=, groups=5, train_min_mes=, train_max_mes=, oot_min_mes=,
     oot_max_mes=);
-
+    %_mono_clear_work();
     %put NOTE: [monotonicidad_compute] Construyendo input desde _scope_input.;
 
     %_mono_prepare_input(input_caslib=&input_caslib., input_table=&input_table.,
@@ -331,8 +349,6 @@ Outputs finales en casuser:
     %_mono_partition_cas(table_name=_mono_detail,
         orderby=%str({"Split_Order", "Bucket_Order"}));
 
-    proc datasets library=work nolist nowarn;
-        delete _mono_cuts;
-    quit;
+    %_mono_clear_work();
 
 %mend _monotonicidad_compute;
