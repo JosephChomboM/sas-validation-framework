@@ -127,36 +127,26 @@ Setea macro variable &_mono_rc:
         delete _mono_contract_cols;
     quit;
 
-    proc fedsql sessref=conn;
-        create table casuser._mono_contract_counts {options replace=true} as
-        select count(*) as N_Scope,
-               sum(case
-                       when &byvar. <= &def_cld.
-                        and &byvar. >= &train_min_mes.
-                        and &byvar. <= &train_max_mes.
-                       then 1
-                       else 0
-                   end) as N_Train,
-               sum(case
-                       when &byvar. <= &def_cld.
-                        and &byvar. >= &oot_min_mes.
-                        and &byvar. <= &oot_max_mes.
-                       then 1
-                       else 0
-                   end) as N_OOT
-        from &input_caslib..&input_table.;
-    quit;
-
     data _null_;
-        set casuser._mono_contract_counts;
-        call symputx('_mono_nobs_scope', N_Scope);
-        call symputx('_mono_nobs_trn', N_Train);
-        call symputx('_mono_nobs_oot', N_OOT);
-    run;
+        set &input_caslib..&input_table. end=EOF;
+        retain N_Scope 0 N_Train 0 N_OOT 0;
 
-    proc datasets library=casuser nolist nowarn;
-        delete _mono_contract_counts;
-    quit;
+        N_Scope + 1;
+
+        if &byvar. <= &def_cld.
+            and &byvar. >= &train_min_mes.
+            and &byvar. <= &train_max_mes. then N_Train + 1;
+
+        if &byvar. <= &def_cld.
+            and &byvar. >= &oot_min_mes.
+            and &byvar. <= &oot_max_mes. then N_OOT + 1;
+
+        if EOF then do;
+            call symputx('_mono_nobs_scope', N_Scope);
+            call symputx('_mono_nobs_trn', N_Train);
+            call symputx('_mono_nobs_oot', N_OOT);
+        end;
+    run;
 
     %if %sysevalf(%superq(_mono_nobs_scope)=, boolean) %then
         %let _mono_nobs_scope=0;

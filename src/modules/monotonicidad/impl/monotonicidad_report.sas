@@ -26,19 +26,21 @@ Genera:
         %let _dir_rc=%sysfunc(dcreate(., &images_path.));
     %end;
 
-    data casuser._mono_table_view;
+    data work._mono_detail_view;
         set casuser._mono_detail;
     run;
 
-    %_mono_partition_cas(table_name=_mono_table_view,
-        orderby=%str({"Split_Order", "Bucket_Order"}));
-
-    data casuser._mono_graph_view;
-        set casuser._mono_detail;
+    proc sort data=work._mono_detail_view;
+        by Split_Order Bucket_Order;
     run;
 
-    %_mono_partition_cas(table_name=_mono_graph_view,
-        orderby=%str({"Bucket_Order", "Split_Order"}));
+    data work._mono_graph_view;
+        set work._mono_detail_view;
+    run;
+
+    proc sort data=work._mono_graph_view;
+        by Bucket_Order Split_Order;
+    run;
 
     ods graphics on;
     ods listing gpath="&images_path.";
@@ -50,7 +52,7 @@ Genera:
         embedded_titles="yes");
 
     title "Monotonicidad &score_var. - TRAIN vs OOT";
-    proc print data=casuser._mono_table_view noobs label;
+    proc print data=work._mono_detail_view noobs label;
         var Split Valor_X N Pct_Cuentas Mean_Default;
         format Pct_Cuentas percent8.2 Mean_Default percent8.2;
         label Split="Ventana"
@@ -65,7 +67,7 @@ Genera:
 
     title "Monotonicidad por bucket - &score_var.";
     title2 "Buckets definidos en TRAIN y reutilizados en OOT.";
-    proc sgplot data=casuser._mono_graph_view;
+    proc sgplot data=work._mono_graph_view;
         vbar Valor_X / response=Pct_Cuentas group=Split
             groupdisplay=cluster nooutline transparency=0.15
             name="bars";
@@ -85,8 +87,8 @@ Genera:
     ods graphics / reset=all;
     ods graphics off;
 
-    proc datasets library=casuser nolist nowarn;
-        delete _mono_table_view _mono_graph_view;
+    proc datasets library=work nolist nowarn;
+        delete _mono_detail_view _mono_graph_view;
     quit;
 
     %put NOTE: [monotonicidad_report] HTML=> &report_path./&file_prefix..html;
