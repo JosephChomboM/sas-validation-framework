@@ -38,7 +38,8 @@ Compatibilidad: segmento y universo.
 
     %local _mono_target _mono_pd _mono_byvar _mono_def_cld _mono_groups
         _scope_abbr _report_path _images_path _file_prefix _mono_is_custom
-        _mono_train_min _mono_train_max _mono_oot_min _mono_oot_max;
+        _mono_train_min _mono_train_max _mono_oot_min _mono_oot_max
+        _mono_cfg_oot_max;
 
     %put NOTE:======================================================;
     %put NOTE: [monotonicidad_run] INICIO;
@@ -58,6 +59,7 @@ Compatibilidad: segmento y universo.
     %let _mono_train_max= ;
     %let _mono_oot_min= ;
     %let _mono_oot_max= ;
+    %let _mono_cfg_oot_max= ;
 
     proc sql noprint;
         select strip(target) into :_mono_target trimmed from
@@ -74,7 +76,7 @@ Compatibilidad: segmento y universo.
             from casuser.cfg_troncales where troncal_id=&troncal_id.;
         select strip(put(oot_min_mes, best.)) into :_mono_oot_min trimmed
             from casuser.cfg_troncales where troncal_id=&troncal_id.;
-        select strip(put(oot_max_mes, best.)) into :_mono_oot_max trimmed
+        select strip(put(oot_max_mes, best.)) into :_mono_cfg_oot_max trimmed
             from casuser.cfg_troncales where troncal_id=&troncal_id.;
     quit;
 
@@ -93,13 +95,18 @@ Compatibilidad: segmento y universo.
     %else %let _mono_groups=5;
     %if %length(%superq(_mono_groups))=0 %then %let _mono_groups=5;
 
+    /* Monotonicidad debe correr hasta el default cerrado definido
+       en config.sas. Por eso el tope efectivo de OOT es def_cld. */
+    %let _mono_oot_max=&_mono_def_cld.;
+
     %put NOTE: [monotonicidad_run] Configuracion resuelta:;
     %put NOTE: [monotonicidad_run] pd=&_mono_pd.;
     %put NOTE: [monotonicidad_run] byvar=&_mono_byvar.;
     %put NOTE: [monotonicidad_run] target=&_mono_target.;
     %put NOTE: [monotonicidad_run] def_cld=&_mono_def_cld. groups=&_mono_groups.;
     %put NOTE: [monotonicidad_run] train=&_mono_train_min.-&_mono_train_max.
-        oot=&_mono_oot_min.-&_mono_oot_max.;
+        oot_cfg=&_mono_oot_min.-&_mono_cfg_oot_max.
+        oot_efectivo=&_mono_oot_min.-&_mono_oot_max.;
 
     /* ==================================================================
        2) Definir rutas de salida (METOD7)
