@@ -44,6 +44,39 @@ casuser._seg_mig_resumen  - Resumen nuevos/retirados por segmento
 
 %mend _seg_sort_cas;
 
+%macro _seg_get_var_meta(data=, var=, out_type=, out_length=);
+
+    %local _seg_lib _seg_mem;
+
+    %let &out_type. = ;
+    %let &out_length. = ;
+
+    %let _seg_lib = %upcase(%scan(&data., 1, .));
+    %let _seg_mem = %upcase(%scan(&data., 2, .));
+
+    %if %length(%superq(_seg_mem)) = 0 %then %do;
+        %let _seg_mem = &_seg_lib.;
+        %let _seg_lib = WORK;
+    %end;
+
+    proc sql noprint;
+        select max(upcase(type)),
+               max(length)
+          into :&out_type. trimmed,
+               :&out_length. trimmed
+        from dictionary.columns
+        where upcase(libname) = "&_seg_lib."
+          and upcase(memname) = "&_seg_mem."
+          and upcase(name) = upcase("&var.");
+    quit;
+
+    %if %length(%superq(&out_type.)) = 0 %then
+        %let &out_type. = NUM;
+    %if %length(%superq(&out_length.)) = 0 %then
+        %let &out_length. = 256;
+
+%mend _seg_get_var_meta;
+
 %macro _seg_materialidad(data=, target=, segvar=, period_var=_seg_period,
     min_obs=1000, min_target=450, has_segm=0);
 
@@ -142,37 +175,57 @@ casuser._seg_mig_resumen  - Resumen nuevos/retirados por segmento
 
 %macro _seg_kolmogorov(data=, segvar=, target=);
 
-    %local seg_list n_segs i j seg_i seg_j n_obs dsid rc;
+    %local n_segs i j seg_i seg_j n_obs dsid rc _seg_type _seg_len
+        _seg_i_lit _seg_j_lit;
+
+    %_seg_get_var_meta(data=&data., var=&segvar., out_type=_seg_type,
+        out_length=_seg_len);
 
     proc sql noprint;
-        select distinct &segvar. into :seg_list separated by ' '
-        from &data.;
-        select count(distinct &segvar.) into :n_segs trimmed
-        from &data.;
+        select distinct &segvar.
+          into :seg_val_1-:_seg_val_9999
+        from &data.
+        where not missing(&segvar.)
+        order by &segvar.;
+        %let n_segs = &sqlobs.;
     quit;
 
     data work._seg_ks_results;
-        length Tipo_Muestra $20 Segmento1 8 Segmento2 8
+        length Tipo_Muestra $20
+            %if &_seg_type. = CHAR %then %do;
+                Segmento1 $&_seg_len. Segmento2 $&_seg_len.
+            %end;
+            %else %do;
+                Segmento1 8 Segmento2 8
+            %end;
             KS_Statistic 8 KS_Asymptotic 8 D_Statistic 8
             P_Value 8 Prueba_KS $20;
         stop;
     run;
 
     %do i = 1 %to %eval(&n_segs. - 1);
-        %let seg_i = %scan(&seg_list., &i.);
+        %let seg_i = &&_seg_val_&i.;
+        %if &_seg_type. = CHAR %then
+            %let _seg_i_lit = %sysfunc(quote(%superq(seg_i)));
+        %else
+            %let _seg_i_lit = %superq(seg_i);
 
         %do j = %eval(&i. + 1) %to &n_segs.;
-            %let seg_j = %scan(&seg_list., &j.);
+            %let seg_j = &&_seg_val_&j.;
+            %if &_seg_type. = CHAR %then
+                %let _seg_j_lit = %sysfunc(quote(%superq(seg_j)));
+            %else
+                %let _seg_j_lit = %superq(seg_j);
 
             proc sql noprint;
                 select count(*) into :n_obs trimmed
                 from &data.
-                where &segvar. in (&seg_i., &seg_j.);
+                where &segvar. in (&_seg_i_lit., &_seg_j_lit.);
             quit;
 
             %if &n_obs. > 10 %then %do;
                 ods select none;
-                proc npar1way data=&data.(where=(&segvar. in (&seg_i., &seg_j.))) KS;
+                proc npar1way data=&data.(where=(&segvar. in (&_seg_i_lit., &_seg_j_lit.))) KS;
                     class &segvar.;
                     var &target.;
                     output out=work._seg_ks_temp;
@@ -184,12 +237,25 @@ casuser._seg_mig_resumen  - Resumen nuevos/retirados por segmento
                     %let rc = %sysfunc(close(&dsid.));
 
                     data work._seg_ks_row;
-                        length Tipo_Muestra $20 Prueba_KS $20;
+                        length Tipo_Muestra $20 Prueba_KS $20
+                            %if &_seg_type. = CHAR %then %do;
+                                Segmento1 $&_seg_len. Segmento2 $&_seg_len.
+                            %end;
+                            %else %do;
+                                Segmento1 8 Segmento2 8
+                            %end;
+                            ;
                         set work._seg_ks_temp;
                         if _N_ = 1;
                         Tipo_Muestra = 'CONSOLIDADO';
-                        Segmento1 = &seg_i.;
-                        Segmento2 = &seg_j.;
+                        %if &_seg_type. = CHAR %then %do;
+                            Segmento1 = &_seg_i_lit.;
+                            Segmento2 = &_seg_j_lit.;
+                        %end;
+                        %else %do;
+                            Segmento1 = &seg_i.;
+                            Segmento2 = &seg_j.;
+                        %end;
                         KS_Statistic = _KS_;
                         KS_Asymptotic = _KSA_;
                         D_Statistic = _D_;
@@ -235,6 +301,10 @@ casuser._seg_mig_resumen  - Resumen nuevos/retirados por segmento
     proc datasets lib=work nolist nowarn;
         delete _seg_ks_temp _seg_ks_row;
     quit;
+
+    %do i = 1 %to &n_segs.;
+        %symdel _seg_val_&i. / nowarn;
+    %end;
 
 %mend _seg_kolmogorov;
 

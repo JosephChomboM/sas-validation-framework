@@ -158,13 +158,67 @@ design.md §7.3 - Preparación idempotente:
 
 		/* ---- 2b) Segmentos (si aplica) --------------------------------- */
 		%if %superq(_vseg) ne and &_nseg. > 0 %then %do;
+            %local _seg_var_exists _seg_var_type _seg_var_len _seg_found _seg_value
+                _seg_filter _seg_literal;
+
+            %let _seg_var_exists=0;
+            %let _seg_var_type=;
+            %let _seg_var_len=0;
+            %let _seg_found=0;
+
+            proc sql noprint;
+                select count(*),
+                       max(upcase(type)),
+                       max(length)
+                  into :_seg_var_exists trimmed,
+                       :_seg_var_type trimmed,
+                       :_seg_var_len trimmed
+                from dictionary.columns
+                where upcase(libname) = 'RAW'
+                  and upcase(memname) = upcase("_TMP_BASE")
+                  and upcase(name) = upcase("&_vseg.");
+            quit;
+
+            %if &_seg_var_exists. = 0 %then %do;
+                %put ERROR: [fw_prepare_processed] Troncal &_tid. usa var_seg=&_vseg., pero la columna no existe en RAW._tmp_base.;
+                %let fw_prepare_processed_rc=1;
+                %goto _fw_prepare_processed_cleanup;
+            %end;
+
+            proc sql noprint;
+                select distinct &_vseg.
+                  into :_seg_val_1-:_seg_val_9999
+                from RAW._tmp_base
+                where not missing(&_vseg.)
+                order by &_vseg.;
+                %let _seg_found=&sqlobs.;
+            quit;
+
+            %put NOTE: [fw_prepare_processed] Troncal &_tid. var_seg=&_vseg. type=&_seg_var_type. distinct_nonmissing=&_seg_found..;
+            %if &_seg_found. < &_nseg. %then %do;
+                %put WARNING: [fw_prepare_processed] Troncal &_tid. tiene &_seg_found. valores distintos en &_vseg., menor que n_segments=&_nseg.. Los segmentos restantes se materializaran vacios.;
+            %end;
+
 			%do _sg=1 %to &_nseg.;
 
 				%fw_path_processed(outvar=_path_seg, troncal_id=&_tid.,
 					seg_id=&_sg.);
 
+                %if &_sg. <= &_seg_found. %then %do;
+                    %let _seg_value=&&_seg_val_&_sg.;
+                    %if &_seg_var_type. = CHAR %then
+                        %let _seg_literal=%sysfunc(quote(%superq(_seg_value)));
+                    %else
+                        %let _seg_literal=%superq(_seg_value);
+                    %let _seg_filter=&_vseg. = &_seg_literal.;
+                    %put NOTE: [fw_prepare_processed] &_path_seg. <= &_vseg.=&_seg_literal.;
+                %end;
+                %else %do;
+                    %let _seg_filter=1 = 0;
+                %end;
+
 				data RAW._tmp_seg;
-					set RAW._tmp_base(where=(&_vseg.=&_sg.));
+					set RAW._tmp_base(where=(&_seg_filter.));
 				run;
 
 				proc sql noprint;
@@ -184,6 +238,10 @@ design.md §7.3 - Preparación idempotente:
 				quit;
 
 			%end; /* segmentos */
+
+            %do _sg=1 %to &_seg_found.;
+                %symdel _seg_val_&_sg. / nowarn;
+            %end;
 		%end;
 
 		/* Limpiar base temporal */
